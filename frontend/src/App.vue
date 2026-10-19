@@ -872,20 +872,44 @@ const reportBug = () => {
 };
 
 const updateBusy = ref(false);
+// The release the check found, kept while the About card is open: the card
+// offers the two things a reader can do about it — install it, or open the
+// release page — and neither can be offered without knowing which release it
+// was.
+const updateRel = ref<{tag_name?: string; html_url?: string} | null>(null);
 const checkUpdate = async () => {
     if (updateBusy.value) return;
     updateBusy.value = true;
     try {
         const rel = await API.CheckUpdate();
         if (!rel) {
+            updateRel.value = null;
             notify(tip('settings.noUpdate'));
             return;
         }
-        notify(tip('update.found', rel.tag_name ?? ''));
-        if (rel.html_url) API.OpenURL(rel.html_url);
+        updateRel.value = rel;
+        notify(t('update.found', rel.tag_name ?? ''));
     } catch (e) {
         notify(errText(e), 'err');
     } finally {
+        updateBusy.value = false;
+    }
+};
+
+// Installing the release the check found. The download happens in the backend
+// (it has to write next to the running executable, and Windows will not let
+// that happen while this program is on screen) — it comes back only when the
+// new build is on disk and the swap is about to start, at which point the app
+// restarts itself and this promise never settles. So the button stays busy
+// from here on, and only a failure brings it back.
+const installUpdate = async () => {
+    if (updateBusy.value) return;
+    updateBusy.value = true;
+    try {
+        notify(tip('update.downloading'));
+        await API.DownloadUpdate();
+    } catch (e) {
+        notify(errText(e), 'err');
         updateBusy.value = false;
     }
 };
@@ -1680,6 +1704,21 @@ onBeforeUnmount(() => {
                 <dt>{{ t('about.dataDir') }}</dt>
                 <dd :title="about?.dataDirAbs || ''">{{ about?.dataDir || t('about.unknown') }}</dd>
             </dl>
+            <!-- A release the check found: what it is, and the two things that
+                can be done about it. The install button is the one that matters
+                (the backend replaces the running build and restarts the app);
+                the page is there for the reader who would rather look first. -->
+            <div v-if="updateRel" class="about-update">
+                <span class="about-update-text">{{ t('update.found', updateRel.tag_name ?? '') }}</span>
+                <button class="btn primary" :disabled="updateBusy" @click="installUpdate">
+                    {{ t('update.install') }}
+                </button>
+                <button class="btn ghost" :disabled="updateBusy" @click="() => {
+                    if (updateRel?.html_url) API.OpenURL(updateRel.html_url).catch(() => { /* the link is more decoration than a promise */ });
+                }">
+                    {{ t('update.open') }}
+                </button>
+            </div>
             <div class="modal-foot">
                 <button class="btn ghost" @click="API.OpenDataDir().catch(e => notify(errText(e), 'err'))">
                     {{ t('about.openDataDir') }}

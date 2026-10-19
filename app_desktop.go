@@ -52,6 +52,12 @@ func (a *App) GetAbout() map[string]string {
 			}
 		}
 	}
+	// The build date the build stamped, for the builds the toolchain's own stamp
+	// never reaches: wails builds with -buildvcs=false, so a packaged binary
+	// carries no vcs.time at all (see appBuilt).
+	if info["built"] == "" && appBuilt != "" {
+		info["built"] = appBuilt
+	}
 	if info["version"] == "" && devIDSuffix() != "" {
 		info["version"] = "开发版"
 	}

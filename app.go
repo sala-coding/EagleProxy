@@ -43,8 +43,19 @@ var updateRepo = "sala-coding/EagleProxy"
 //
 // Empty by default: a build nobody stamped reports the toolchain's revision
 // instead (see GetAbout), and a dev build says what it is. The update check
-// still orders releases by the build time, not by this string.
+// reads it first and falls back on the build time when there is none (see
+// newerRelease).
 var appVersion = ""
+
+// appBuilt is when this build was made, stamped at build time the same way:
+//
+//	wails build -ldflags "-X main.appBuilt=2026-10-20T03:08:47+08:00"
+//
+// It exists because the Go toolchain's own VCS stamp is not available here:
+// wails builds with -buildvcs=false, so a binary carries no vcs.time and the
+// About card had no build date to show. Written without spaces, because the
+// -ldflags list is split on them.
+var appBuilt = ""
 
 // App is the Wails application backend.
 type App struct {

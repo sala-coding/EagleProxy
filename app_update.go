@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -20,19 +19,35 @@ func (a *App) CheckUpdate() (*update.Release, error) {
 	return a.newerRelease()
 }
 
-// newerRelease wraps the GitHub query with the one answer the time comparison
-// cannot give: a release stamped with THIS build's own version is not an
-// update, however freshly it was published — the release for v1.0.0 is
-// published after the v1.0.0 build was made, and the publish-against-build-time
-// order says "newer" for exactly the version the reader is already running.
-// The match ignores the tag's v prefix and case.
+// newerRelease answers "is there something newer than what is running", and it
+// answers it with the version number whenever there is one.
+//
+// The build time cannot answer it on its own: a release is published after the
+// build that made it — the v1.0.0 release goes out minutes after the v1.0.0
+// build — so ordering by time alone calls the very version the reader is
+// running an update, and every local build that was made before the release
+// was published. The version number has no such trouble: the same comparison
+// says "1.0.1 is newer than 1.0.0" and "1.0.1 is not newer than 1.0.1".
+//
+// The build time is still the answer for a build that carries no version
+// number to compare — a build nobody stamped — which is what it is for.
 func (a *App) newerRelease() (*update.Release, error) {
-	rel, err := update.Check(updateRepo, a.curSetting().CheckIncludePre, a.buildTime())
-	if err != nil || rel == nil || appVersion == "" {
+	rel, err := update.Latest(updateRepo, a.curSetting().CheckIncludePre)
+	if err != nil || rel == nil {
 		return rel, err
 	}
-	if strings.EqualFold(strings.TrimLeft(strings.ToLower(rel.TagName), "v"),
-		strings.TrimLeft(strings.ToLower(appVersion), "v")) {
+	if appVersion != "" {
+		if c, ok := update.Compare(appVersion, rel.TagName); ok {
+			if c >= 0 {
+				// This build is the newest one there is.
+				return nil, nil
+			}
+			return rel, nil
+		}
+	}
+	// No version to compare (a build nobody stamped, or a tag this build cannot
+	// read): the build time is what is left.
+	if !update.PublishedAfter(*rel, a.buildTime()) {
 		return nil, nil
 	}
 	return rel, nil

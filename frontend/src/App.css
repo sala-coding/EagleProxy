@@ -6372,6 +6372,30 @@ td.empty {
     overflow-wrap: anywhere;
 }
 
+/* A release the check found, and the two things that can be done about it. It sits
+   between the facts and the card's own buttons: the install is the answer to
+   what was just asked, so it is nearer the reader than the card's other rows
+   are, and the release page is the way out for a reader who would rather look
+   before letting the program replace itself. */
+.about-update {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(122, 176, 255, .06);
+}
+
+.about-update-text {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.71875rem;
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+
 /* --- rule sets ---
    The list is short and the card is narrow: each row is a tag, its state, and the one
    action that state implies. Three states, three colours — on disk (green: this is the

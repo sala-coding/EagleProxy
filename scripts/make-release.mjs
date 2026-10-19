@@ -32,10 +32,15 @@ if (!rel.id) {
             tag_name: version,
             name: version,
             target_commitish: 'main',
-            body: '首个发布版本\n\n' +
-                '- Wails 桌面代理客户端：订阅管理、节点表格、TUN / 系统代理一键切换\n' +
-                '- 内核 sing-box；需要 Windows 10/11（WebView2 缺失时启动会引导安装）\n' +
-                '- 组内热切换、DNS 管理卡、规则集下载、全局热键与托盘',
+            body: [
+                `EagleProxy ${version}`,
+                '',
+                'Wails 桌面代理客户端：订阅管理、节点表格、TUN / 系统代理一键切换',
+                '内核 sing-box；需要 Windows 10/11（WebView2 缺失时启动会引导安装）',
+                '组内热切换、DNS 管理卡、规则集下载、全局热键与托盘',
+                '',
+                '下载 `Eagle-' + version + '-windows.exe` 即为 Windows 版本。',
+            ].join('\n'),
         }),
     });
     rel = await r.json();
@@ -49,7 +54,11 @@ console.log('release:', rel.html_url);
 // 2. upload the exe as an asset; an asset of the same name already sitting on
 //    the release is deleted first, so a re-release replaces it rather than
 //    failing
-const name = `Eagle-${version}.exe`;
+//
+// The name carries the platform, because that is what tells a build for this
+// machine apart from a build for another one: the updater reads the name to
+// pick the Windows asset out of a release that may carry several.
+const name = `Eagle-${version}-windows.exe`;
 const exe = readFileSync('build/bin/Eagle.exe');
 for (const a of (rel.assets ?? [])) {
     if (a.name === name) {

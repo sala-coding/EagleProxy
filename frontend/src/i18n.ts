@@ -394,7 +394,7 @@ const zh: Record<string, string> = {
     // still names the row, with the key (ms, px) beside it (see fieldLabel).
 
     'btn.checkUpdate': '检查更新',
-    'update.found': '发现新版本 {0}，已打开发布页',
+    'update.found': '发现新版本 {0}',
     'update.open': '打开下载页面',
     'update.install': '下载并安装',
     'dlg.routing.title': '路由设置',
@@ -883,7 +883,7 @@ const en: Record<string, string> = {
     'cfg.core_box_cache_file': 'Persist FakeIP',
 
     'btn.checkUpdate': 'Check Update',
-    'update.found': 'Update {0} found; the release page is open',
+    'update.found': 'Update {0} available',
     'update.open': 'Open download page',
     'update.install': 'Download and install',
     'dlg.routing.title': 'Routing',

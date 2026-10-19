@@ -323,7 +323,7 @@ export const ru: Record<string, string> = {
     'cfg.core_box_underlying_dns': 'Базовый DNS',
     'cfg.core_box_cache_file': 'Хранить соответствие FakeIP',
     'btn.checkUpdate': 'Проверить обновление',
-    'update.found': 'Найдена версия {0}; страница выпуска открыта',
+    'update.found': 'Доступна версия {0}',
     'update.open': 'Открыть страницу загрузки',
     'update.install': 'Скачать и установить',
     'dlg.routing.title': 'Маршрутизация',
