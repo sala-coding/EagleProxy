@@ -19,18 +19,22 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// updateRepo is the GitHub repository (owner/name) the update check reads, set at
-// build time:
+// updateRepo is the GitHub repository (owner/name) the update check reads.
 //
-//	go build -ldflags "-X main.updateRepo=owner/name"
+// This project's own repository is the default — a dev build then checks updates
+// the same way a packaged one does, and a fork's build can redirect it at build
+// time:
 //
-// Empty by default, and deliberately so. It used to name another project's
-// repository — nekoray's — which meant this check announced THAT project's release
-// tag as "a new version" and the download step was pointed at its assets: the day
-// that project shipped a Windows .exe, "update" would have moved its build over this
-// executable. A repository no build has supplied is better than one that installs
-// somebody else's program.
-var updateRepo = ""
+//	wails build -ldflags "-X main.updateRepo=owner/name"
+//
+// It used to name another project's repository — nekoray's — which meant this
+// check announced THAT project's release tag as "a new version" and the download
+// step was pointed at its assets: the day that project shipped a Windows .exe,
+// "update" would have moved its build over this executable. A default that
+// points at this project's own home is the same lesson told the other way: the
+// updates must come from the place this program calls home, not from wherever
+// the variable happens to have been left pointing.
+var updateRepo = "sala-coding/EagleProxy"
 
 // appVersion is this project's own release number, set at build time the same
 // way updateRepo is:
