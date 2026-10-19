@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -16,7 +17,25 @@ func (a *App) CheckUpdate() (*update.Release, error) {
 	if a.curSetting() == nil {
 		return nil, fmt.Errorf("backend not initialised")
 	}
-	return update.Check(updateRepo, a.curSetting().CheckIncludePre, a.buildTime())
+	return a.newerRelease()
+}
+
+// newerRelease wraps the GitHub query with the one answer the time comparison
+// cannot give: a release stamped with THIS build's own version is not an
+// update, however freshly it was published — the release for v1.0.0 is
+// published after the v1.0.0 build was made, and the publish-against-build-time
+// order says "newer" for exactly the version the reader is already running.
+// The match ignores the tag's v prefix and case.
+func (a *App) newerRelease() (*update.Release, error) {
+	rel, err := update.Check(updateRepo, a.curSetting().CheckIncludePre, a.buildTime())
+	if err != nil || rel == nil || appVersion == "" {
+		return rel, err
+	}
+	if strings.EqualFold(strings.TrimLeft(strings.ToLower(rel.TagName), "v"),
+		strings.TrimLeft(strings.ToLower(appVersion), "v")) {
+		return nil, nil
+	}
+	return rel, nil
 }
 
 // buildTime is when the running executable was written, which is the only version
@@ -55,7 +74,7 @@ func (a *App) DownloadUpdate() error {
 		return fmt.Errorf("更新正在处理中，请稍候")
 	}
 	defer a.updateBusy.Store(false)
-	rel, err := update.Check(updateRepo, a.curSetting().CheckIncludePre, a.buildTime())
+	rel, err := a.newerRelease()
 	if err != nil {
 		return err
 	}

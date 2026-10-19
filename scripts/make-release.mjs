@@ -46,10 +46,17 @@ if (!rel.id) {
 }
 console.log('release:', rel.html_url);
 
-// 2. upload the exe as an asset (idempotent-ish: a same-named asset fails the
-//    upload, which we report rather than pretend)
+// 2. upload the exe as an asset; an asset of the same name already sitting on
+//    the release is deleted first, so a re-release replaces it rather than
+//    failing
 const name = `Eagle-${version}.exe`;
 const exe = readFileSync('build/bin/Eagle.exe');
+for (const a of (rel.assets ?? [])) {
+    if (a.name === name) {
+        const del = await fetch(`${API}/releases/assets/${a.id}`, {method: 'DELETE', headers: H});
+        console.log(del.status === 204 ? `deleted old asset: ${name}` : `delete failed: HTTP ${del.status}`);
+    }
+}
 const up = await fetch(`${UP}/${rel.id}/assets?name=${encodeURIComponent(name)}`, {
     method: 'POST',
     headers: {Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream'},
