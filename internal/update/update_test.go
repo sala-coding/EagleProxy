@@ -27,6 +27,12 @@ func TestCompare(t *testing.T) {
 		{"v1.0.1-beta.2", "v1.0.1-beta.1", 1, true},
 		// Build metadata is not part of the version.
 		{"v1.2.3+build7", "v1.2.3", 0, true},
+		// A working copy carries a number below every release, so it compares:
+		// it is older than any release, and older than the 0.0.0 release too.
+		{"0.0.0-dev+9988017", "v1.0.2", -1, true},
+		{"0.0.0-dev+9988017", "v0.0.0", -1, true},
+		{"0.0.0-dev+9988017", "v0.0.0-dev+9988017", 0, true},
+		{"0.0.0-dev+9988017", "v0.0.0-dev+9988018", 0, true},
 		// Not versions: the caller has to fall back on something else.
 		{"dev-9988017", "v1.0.1", 0, false},
 		{"", "v1.0.1", 0, false},

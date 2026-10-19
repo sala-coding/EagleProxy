@@ -7,9 +7,12 @@
 #   .\build\release.ps1                      # a local build: the commit it was made from
 #
 # Without -Version the build is stamped with the revision it was made from
-# ("dev-9988017"). A build that carries no version at all leaves the About
-# card saying "unknown" and gives the update check nothing to compare, so a
-# stamped local build is the better shape.
+# ("0.0.0-dev+9988017"). The number is written so it can be COMPARED, not just
+# shown: the update check reads it against the release tags, and a version that
+# sorts below every release ("0.0.0-dev") is exactly what a working copy is.
+# A build that carries no version at all leaves the About card saying
+# "unknown" and gives the update check nothing to compare, so a stamped local
+# build is the better shape.
 param(
     [string]$Version = "",
     [string]$Repo = "sala-coding/EagleProxy"
@@ -21,9 +24,9 @@ Set-Location (Join-Path $PSScriptRoot "..")
 if (-not $Version) {
     $sha = (& git rev-parse --short HEAD 2>$null)
     if ($LASTEXITCODE -eq 0 -and $sha) {
-        $Version = "dev-$sha"
+        $Version = "0.0.0-dev+$sha"
     } else {
-        $Version = "dev"
+        $Version = "0.0.0-dev"
     }
 }
 

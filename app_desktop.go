@@ -2,9 +2,27 @@ package main
 
 import (
 	"runtime/debug"
+	"strings"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// prettyVersion writes a stamped version the way a reader reads it.
+//
+// A release's own number is left alone. A working copy's is "0.0.0-dev+9988017"
+// — written that way because the update check has to be able to COMPARE it, and
+// a number below every release is what a working copy is — but it reads as
+// "dev-9988017" and says what it is.
+func prettyVersion(v string) string {
+	const dev = "0.0.0-dev"
+	if !strings.HasPrefix(v, dev) {
+		return v
+	}
+	if rest := strings.TrimPrefix(v, dev); rest != "" {
+		return "dev-" + strings.TrimPrefix(rest, "+")
+	}
+	return "dev"
+}
 
 // GetAbout reports the identity of this build: which release it was built from, the
 // Go it was built with, and where it keeps its data and its core. The two paths are
@@ -33,7 +51,7 @@ func (a *App) GetAbout() map[string]string {
 		"repo":        updateRepo,
 	}
 	if appVersion != "" {
-		info["version"] = appVersion
+		info["version"] = prettyVersion(appVersion)
 	}
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		info["goVersion"] = bi.GoVersion

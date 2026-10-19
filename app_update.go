@@ -22,15 +22,16 @@ func (a *App) CheckUpdate() (*update.Release, error) {
 // newerRelease answers "is there something newer than what is running", and it
 // answers it with the version number whenever there is one.
 //
-// The build time cannot answer it on its own: a release is published after the
-// build that made it — the v1.0.0 release goes out minutes after the v1.0.0
-// build — so ordering by time alone calls the very version the reader is
-// running an update, and every local build that was made before the release
-// was published. The version number has no such trouble: the same comparison
-// says "1.0.1 is newer than 1.0.0" and "1.0.1 is not newer than 1.0.1".
+// The version number is the answer because it is the only one that can be right
+// in every case: it says "1.0.1 is newer than 1.0.0" and "1.0.1 is not newer
+// than 1.0.1" — including the case that a time cannot get right, a release
+// published minutes AFTER the build that made it, which a time orders as
+// newer. Every build this project makes carries a comparable number: a release
+// its own ("v1.0.2"), a working copy a number below every release
+// ("0.0.0-dev+9988017", see build/release.ps1).
 //
-// The build time is still the answer for a build that carries no version
-// number to compare — a build nobody stamped — which is what it is for.
+// The build time is only the last resort, for a build that carries no number
+// to compare — one made by a bare "wails build", which stamps nothing.
 func (a *App) newerRelease() (*update.Release, error) {
 	rel, err := update.Latest(updateRepo, a.curSetting().CheckIncludePre)
 	if err != nil || rel == nil {
@@ -45,7 +46,7 @@ func (a *App) newerRelease() (*update.Release, error) {
 			return rel, nil
 		}
 	}
-	// No version to compare (a build nobody stamped, or a tag this build cannot
+	// No number to compare (a build nobody stamped, or a tag this build cannot
 	// read): the build time is what is left.
 	if !update.PublishedAfter(*rel, a.buildTime()) {
 		return nil, nil
