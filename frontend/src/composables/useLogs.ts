@@ -370,8 +370,15 @@ export function useLogs(notify: Notify) {
     // One update for the lines that arrived since the last beat (see pendingLogs).
     const drainLogs = () => {
         logTimer = undefined;
-        const batch = pendingLogs;
-        pendingLogs.length = 0;
+        // The batch is the queue's own contents, taken out of it. Truncating
+        // the queue in place does not empty a copy of it: `batch` and
+        // `pendingLogs` are one and the same array, so `pendingLogs.length = 0`
+        // emptied the batch too — and every line that had arrived was dropped
+        // on the floor before it could reach the panel. The panel therefore
+        // only ever showed the snapshot it read when it was opened, and the
+        // live stream never moved. splice(0) hands the lines over in a new
+        // array and leaves the queue empty, which is what this wanted.
+        const batch = pendingLogs.splice(0);
         if (!batch.length) return;
         const main: LogLine[] = [];
         const byCat: Record<string, LogLine[]> = {};
