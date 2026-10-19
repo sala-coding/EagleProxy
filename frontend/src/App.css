@@ -2419,19 +2419,34 @@
 /* The table on top — the reader's own subscription, the one the heap is presenting. A lit
    frame and a breath of glow, so the reader can tell which subscription that is without
    reading it: the light swells and fades on a slow clock, which is all the "current" marker
-   needs to be noticed and all it should do. Only box-shadow and border move — the transform
-   is the geometry's, and anything that touched it would put the table off its place in the
-   heap. */
+   needs to be noticed and all it should do.
+   The pulse used to move the card's own border-color and box-shadow — a repaint of the
+   whole card per frame, for as long as the heap is up. The strong half of the light now
+   lives on a ::before that breathes its opacity instead: the compositor runs the clock,
+   the card paints once. Same two seconds, same swell, nothing the eye can tell apart. */
 .reel-card.front {
     border-color: rgba(122, 176, 255, .55);
     box-shadow: 0 18px 40px rgba(0, 0, 0, .45), 0 0 22px rgba(96, 165, 250, .16);
+}
+
+.reel-card.front::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    border: 1px solid rgba(122, 176, 255, .85);
+    box-shadow: 0 0 34px rgba(96, 165, 250, .3);
+    pointer-events: none;
     animation: reelFront 2.6s ease-in-out infinite;
+    will-change: opacity;
 }
 
 @keyframes reelFront {
+    0%, 100% {
+        opacity: 0;
+    }
     50% {
-        border-color: rgba(122, 176, 255, .85);
-        box-shadow: 0 18px 40px rgba(0, 0, 0, .45), 0 0 34px rgba(96, 165, 250, .3);
+        opacity: 1;
     }
 }
 
@@ -3060,6 +3075,11 @@ table.profiles td.latency {
     /* a steady breath keeps the eye on the good nodes without turning into a
        blink that draws more attention than the latency number itself */
     animation: latOkPulse 1.4s ease-in-out infinite;
+    /* every visible row breathes at once — a column of them is a column of
+       perpetual animators, so each is handed to the compositor: opacity and
+       transform are the two it can run without repainting a glyph, and the
+       main thread stops paying for a decoration every frame */
+    will-change: opacity, transform;
 }
 
 @keyframes latOkPulse {
@@ -3422,19 +3442,23 @@ td.empty {
    colour and a dim glow in its own hue (var(--cat) comes from the cat-* class).
    The breath is opacity only — size and position stay put, so the legend never
    shifts while the panel scrolls. The stream's last line lets the cycle run
-   out (the timer in App.tsx drops .live), so there is no hard cut-off. */
+   out (the timer in App.tsx drops .live), so there is no hard cut-off.
+   The glow rides the dot's own opacity now — the box-shadow sits static on the
+   dot and the keyframes dim the pair together — because an animated shadow is
+   a repaint per frame, and five of these dots streaming was the log panel's
+   permanent tax on the main thread. The read is the same breath. */
 .log-key.live .dot {
+    box-shadow: 0 0 4px var(--cat, transparent);
     animation: logBreath 1s ease-in-out infinite;
+    will-change: opacity;
 }
 
 @keyframes logBreath {
     0%, 100% {
         opacity: 1;
-        box-shadow: 0 0 4px var(--cat, transparent);
     }
     50% {
         opacity: .35;
-        box-shadow: 0 0 0 transparent;
     }
 }
 
@@ -5148,18 +5172,23 @@ td.empty {
    from the button. The rest state is deliberately dim (not merely "less bright"),
    otherwise the contrast between the two halves is too small to notice on a small
    glyph. Only the icon breathes — see .appnav-btn.switch. */
+/* The glyph is an inline SVG, and text-shadow never paints on SVG content —
+   the two shadow stops were writing a per-frame paint into the keyframes for
+   an effect the eye never saw. The glow is the icon's own colour breathing;
+   opacity and transform alone, on the compositor. */
 @keyframes toggleIconGlow {
     0%, 100% {
         opacity: .18;
         transform: scale(.85);
-        text-shadow: 0 0 0 rgba(63, 185, 80, 0);
     }
     50% {
         opacity: 1;
         transform: scale(1.08);
-        text-shadow: 0 0 12px rgba(63, 185, 80, 1),
-        0 0 26px rgba(63, 185, 80, .6);
     }
+}
+
+.appnav-btn.switch.active .ic {
+    will-change: opacity, transform;
 }
 
 /* A switch whose press has not been answered yet. It has already taken its lit
