@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -70,6 +71,87 @@ func (a *App) buildTime() time.Time {
 	return info.ModTime()
 }
 
+// updateSwapScript is the batch file that swaps the new build over the running
+// one.
+//
+// It retries rather than firing one move and starting the build again
+// regardless: a move that fails while this process is still shutting down (or
+// while anything else holds the image) used to be ignored — errorlevel was never
+// read — and the reader, who had already been told the update is installing, was
+// handed the old build with nothing said. Thirty tries at roughly a second each
+// covers a slow shutdown; the failure path still starts the old build and leaves
+// a line beside it.
+//
+// The script does not delete itself. A batch file is read line by line, and
+// the line after "del %~f0" cannot be read any more: the shell answers "the
+// batch file cannot be found" and puts that complaint in a window on the
+// reader's screen — over a swap that has already worked. The file is a few
+// hundred bytes in the temp folder, and the next update takes it away (see
+// cleanupUpdateTemps).
+func updateSwapScript(newPath, self string) string {
+	return fmt.Sprintf("@echo off\r\n"+
+		"setlocal\r\n"+
+		"set \"NEW=%s\"\r\n"+
+		"set \"SELF=%s\"\r\n"+
+		"set /a TRIES=0\r\n"+
+		":retry\r\n"+
+		"ping -n 2 127.0.0.1 > nul\r\n"+
+		"move /y \"%%NEW%%\" \"%%SELF%%\" > nul 2>&1\r\n"+
+		"if not errorlevel 1 goto :done\r\n"+
+		"set /a TRIES+=1\r\n"+
+		"if %%TRIES%% LSS 30 goto :retry\r\n"+
+		"echo %s update failed: could not replace the running build (tried %%TRIES%% times) >> \"%%SELF%%.update.log\"\r\n"+
+		"start \"\" \"%%SELF%%\"\r\n"+
+		"exit /b\r\n"+
+		":done\r\n"+
+		"start \"\" \"%%SELF%%\"\r\n"+
+		"exit /b\r\n",
+		newPath, self, time.Now().Format("2006-01-02 15:04:05"))
+}
+
+// canReplace reports whether this build's own folder can be written to.
+//
+// The swap moves the new build over the running one, and a folder the reader
+// cannot write to — Program Files, or anything else the system owns — would
+// fail every try of the script. The reader would be told an update was
+// installing and end up with the old build and no word about why. The
+// question is worth asking before the download rather than thirty times
+// after it.
+func canReplace(dir string) bool {
+	f, err := os.CreateTemp(dir, "eagle-write-test-*")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	_ = f.Close()
+	_ = os.Remove(name)
+	return true
+}
+
+// cleanupUpdateTemps removes what an earlier update left in the temp folder: the
+// swap script of that run and the build it had downloaded.
+//
+// The script of the run that is starting is written after this, so it is never
+// caught by it — and it is this that takes away the script a finished update
+// left behind, since a batch file cannot delete itself without the shell
+// complaining about it (see the script below).
+func cleanupUpdateTemps() {
+	dir := os.TempDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "eagle-update-") {
+			continue
+		}
+		if strings.HasSuffix(name, ".bat") || strings.HasSuffix(name, ".exe") {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
+}
+
 // DownloadUpdate fetches the newest release's Windows build, hands the swap to a small
 // script and quits.
 //
@@ -111,6 +193,19 @@ func (a *App) DownloadUpdate() error {
 	// Both names carry the pid: two instances updating at once would otherwise
 	// overwrite each other's temp build (and even swap script) mid-flight.
 	tmp := filepath.Join(os.TempDir(), fmt.Sprintf("eagle-update-%d%s", os.Getpid(), filepath.Ext(self)))
+	// Whether the new build can land on the old one at all. Asked before the
+	// download: a folder the reader cannot write to is a fact worth saying out
+	// loud, and saying it after a twenty-megabyte download leaves the reader
+	// with the old build and a message about an update that was never going to
+	// happen.
+	dir := filepath.Dir(self)
+	if !canReplace(dir) {
+		return fmt.Errorf("程序所在目录不可写（%s），无法自动更新；请以管理员身份运行，或把程序放到可写的目录", dir)
+	}
+	// What an earlier update left in the temp folder goes first: the swap
+	// script of that run and the build it had downloaded. This run's own files
+	// are written after this, so they are never caught by it.
+	cleanupUpdateTemps()
 	if err := update.Download(asset.URL, tmp); err != nil {
 		return err
 	}
@@ -138,32 +233,7 @@ func (a *App) DownloadUpdate() error {
 		}
 	}
 	script := filepath.Join(os.TempDir(), fmt.Sprintf("eagle-update-%d.bat", os.Getpid()))
-	// The script retries rather than firing one move and starting the build again
-	// regardless: a move that fails while this process is still shutting down (or
-	// while anything else holds the image) used to be ignored — errorlevel was never
-	// read — and the reader, who had already been told the update was installing, was
-	// handed the old build with nothing said. Thirty tries at roughly a second each
-	// covers a slow shutdown; the failure path still starts the old build and leaves
-	// a line beside it.
-	body := fmt.Sprintf("@echo off\r\n"+
-		"setlocal\r\n"+
-		"set \"NEW=%s\"\r\n"+
-		"set \"SELF=%s\"\r\n"+
-		"set /a TRIES=0\r\n"+
-		":retry\r\n"+
-		"ping -n 2 127.0.0.1 > nul\r\n"+
-		"move /y \"%%NEW%%\" \"%%SELF%%\" > nul 2>&1\r\n"+
-		"if not errorlevel 1 goto :done\r\n"+
-		"set /a TRIES+=1\r\n"+
-		"if %%TRIES%% LSS 30 goto :retry\r\n"+
-		"echo %s update failed: could not replace the running build (tried %%TRIES%% times) >> \"%%SELF%%.update.log\"\r\n"+
-		"start \"\" \"%%SELF%%\"\r\n"+
-		"del \"%%~f0\"\r\n"+
-		"exit /b\r\n"+
-		":done\r\n"+
-		"start \"\" \"%%SELF%%\"\r\n"+
-		"del \"%%~f0\"\r\n",
-		tmp, self, time.Now().Format("2006-01-02 15:04:05"))
+	body := updateSwapScript(tmp, self)
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		// The update never started, so the exit that follows is an ordinary one and the
 		// front-end may be kept: leaving the flag set told every later exit to tear it
