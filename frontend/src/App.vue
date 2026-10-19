@@ -5,7 +5,7 @@
 // (src/sections), each named after the block of App.tsx it came from. The
 // original comments are kept at their corresponding positions.
 import {computed, onBeforeUnmount, onMounted, ref, watch, type CSSProperties} from 'vue';
-import './App.css';
+import './styles/index.ts';
 import * as API from "../wailsjs/go/main/App";
 import {main, setting} from "../wailsjs/go/models";
 import {EventsOn} from "../wailsjs/runtime/runtime";
