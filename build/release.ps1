@@ -35,6 +35,16 @@ if (-not $Version) {
 # would fail on the second one.
 $Built = (Get-Date).ToString("yyyy-MM-ddTHH:mm:sszzz")
 
+# The icon the executable carries, with every frame uncompressed. The window
+# framework asks for it with LoadIcon, which reads only that form: a PNG frame
+# read that way comes out as a black square, which is what the taskbar button
+# and the title bar were showing. The tray reads the other icon file, which
+# keeps its PNG frames.
+go run ./tools/mkico frontend/public/fa/icon/eagle.ico build/windows/icon.ico
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "could not build the executable's icon (exit $LASTEXITCODE)"
+}
+
 wails build -ldflags "-X main.appVersion=$Version -X main.appBuilt=$Built -X main.updateRepo=$Repo"
 if ($LASTEXITCODE -ne 0) {
     Write-Error "wails build failed (exit $LASTEXITCODE)"

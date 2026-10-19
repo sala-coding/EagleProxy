@@ -1,9 +1,10 @@
 # One-shot icon generator: eagles.jpg -> appicon + ico + png icons.
-# Run from the repo root or via the build folder; no dependencies beyond Pillow.
+# Run from the repo root: python build/make_icons.py
+# No dependencies beyond Pillow.
 from PIL import Image, ImageDraw
 import os
 
-BASE = r'C:\Users\Administrator\Desktop\WORKER'
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(BASE, 'frontend', 'public', 'fa', 'icon', 'eagles.jpg')
 
 im = Image.open(SRC).convert('RGB')
@@ -37,9 +38,17 @@ big.putalpha(mask)
 
 big.save(os.path.join(BASE, 'build', 'appicon.png'))
 
+# The icon file the tray reads: PNG frames, which LoadImage understands and
+# which keep the file small.
 ico_sizes = [(s, s) for s in (16, 24, 32, 48, 64, 128, 256)]
-big.save(os.path.join(BASE, 'build', 'windows', 'icon.ico'), sizes=ico_sizes)
 big.save(os.path.join(BASE, 'frontend', 'public', 'fa', 'icon', 'eagle.ico'), sizes=ico_sizes)
 big.resize((64, 64), Image.LANCZOS).save(os.path.join(BASE, 'frontend', 'public', 'fa', 'icon', 'eagle_64.png'))
 big.resize((32, 32), Image.LANCZOS).save(os.path.join(BASE, 'frontend', 'public', 'fa', 'icon', 'eagle_32.png'))
-print('done: appicon.png, windows/icon.ico, eagle.ico, eagle_64.png, eagle_32.png')
+
+# The icon file the executable carries: the same picture, but with every frame
+# uncompressed, because the window framework asks for it with LoadIcon, which
+# reads only that form. The build does this step itself (tools/mkico), so it
+# does not have to be done by hand.
+print('done: appicon.png, eagle.ico (PNG frames, for the tray), eagle_64.png, eagle_32.png')
+print('run "go run ./tools/mkico frontend/public/fa/icon/eagle.ico build/windows/icon.ico"')
+print('or just build, which does it for you (build/release.ps1).')

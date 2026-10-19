@@ -76,8 +76,16 @@ var assets embed.FS
 // The window's other icons are not runtime choices: wails build compiles
 // build/windows/icon.ico into the exe as resource ID 3, and Wails loads the
 // title bar, taskbar and desktop icon from that resource (winc.AppIconID) with
-// no way to redirect it. That file is kept byte-identical to this one — change
-// the two together.
+// no way to redirect it.
+//
+// The two icon files hold the same picture but are not the same file. This one
+// keeps its frames as PNGs, which the tray's LoadImage reads and which keep the
+// file small; the one that goes into the executable has its frames uncompressed,
+// because the window framework asks for it with LoadIcon, and LoadIcon reads
+// only that form — a PNG frame read that way comes out as a black square, which
+// is what the taskbar button was showing. The build makes the second file from
+// this one (see tools/mkico and build/release.ps1), so change the artwork here
+// and let the build carry it over.
 //
 //go:embed frontend/public/fa/icon/eagle.ico
 var trayIcon []byte
