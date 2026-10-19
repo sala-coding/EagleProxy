@@ -1,5 +1,7 @@
 # EagleProxy
 
+**简体中文** | [English](README_EN.md)
+
 基于 [Wails](https://wails.io)（Go + Vue 3）的 Windows 桌面代理客户端：订阅管理、节点表格、连接状态、TUN / 系统代理一键切换。内核为 [sing-box](https://github.com/SagerNet/sing-box)。
 
 ## 功能
