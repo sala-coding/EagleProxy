@@ -34,7 +34,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          # 1.26, the version the tree is developed and built on. The vet that
+          # comes with "go test" reads the wintun bindings' unsafe.Pointer use
+          # differently in 1.25 and 1.26, and the tree is clean under the one it
+          # is written for.
+          go-version: '1.26'
 
       - uses: actions/setup-node@v4
         with:
@@ -91,7 +95,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26'
 
       - uses: actions/setup-node@v4
         with:
