@@ -1,0 +1,784 @@
+/* --- 03-drawer.css ---
+   the panel seat: where the app's two side panels sit, the subscription drawer that opens out of it, and the table it holds.
+   (Split out of App.css; the order of these files is the cascade.) */
+
+/* ===== the panel seat ===== */
+/* The one place the app's two side panels sit, declared for both of them: the same
+   left edge off the rail, the same line below the title bar, the same clearance from
+   the status bar, and one width between them (the drawer's — the width belongs to the
+   seat, not to whoever is sitting in it, which is why dragging the drawer resizes the
+   connections window too).
+
+   It is one rule with two selectors because it is one place. Each of these four
+   numbers had been written twice, once per panel, and they drifted: the connections
+   window reached the window's bottom edge and sat on the status bar while the drawer
+   cleared it. Two panels in one seat are seen one after the other, and a seat that is
+   a few pixels apart in two places reads as two seats. */
+.subdrop,
+.modal.conn-modal {
+    /* Its right edge is the content left edge by the same number the content itself
+       rides on, so the two are one border at every frame rather than two animations
+       asked to agree: rail + gap + panel-w + translate === rail + seat-offset.
+       It is a translate and not a `left` because `left` is a layout property:
+       animating it relaid out this panel whole subtree — the list and every row in it —
+       on every frame of the close, and that double layout was the stutter. */
+    left: calc(var(--rail-w, 40px) + var(--panel-gap, 8px));
+    translate: calc(var(--seat-offset, 0px) - var(--panel-w, 430px) - var(--panel-gap, 8px));
+    transition: translate var(--panel-lead, .44s) var(--door-ease, cubic-bezier(.4, 0, .2, 1));
+    /* Dropped from the window's own chrome by --chrome-inset, so the panel's outline —
+       its rounded corners and the lit top edge with them — does not touch the title
+       bar. The gap is the panel's offset rather than padding inside it, which puts the
+       frame itself in the right place instead of only its contents; the caption keeps
+       the distance it had, because the frame came down by exactly what the padding
+       used to push it. */
+    top: var(--chrome-inset, 8px);
+    /* Standing above the status bar, not over it and not on it: the bar runs the full
+       width of the window as the app's own floor, and a panel that reached the bottom
+       edge would be sitting on top of it. It clears the bar by the same --panel-gap it
+       stands off the rail by, so the panel is inset on every side that belongs to
+       something else and both bottom corners are visible — which is what the rounding
+       is for. */
+    bottom: calc(var(--status-h, 30px) + var(--panel-gap, 8px));
+    /* A fixed seat rather than one that hugs its contents: the list is a table,
+       and a table that changes width as subscriptions come and go cannot keep
+       its columns still. The width itself is the reader's: dragged on the panel's
+       right edge, and remembered between launches. */
+    width: var(--panel-w, 430px);
+}
+
+/* The drawer itself, in the seat above. Everything from here on is what makes this a
+   panel rather than a rectangle: its own surface, its own edge, its own way in. */
+.subdrop {
+    position: fixed;
+    /* Under the rail (90), so it comes out from beneath it. There is nothing beneath
+       it any more: a transparent full-window catcher used to sit here to turn "clicked
+       elsewhere" into "close", and it blocked everything behind it while doing it —
+       including the table this panel was widened for. Closing now comes from the rail
+       button, Escape, or picking a card. */
+    z-index: 89;
+    display: flex;
+    flex-direction: column;
+    /* the list scrolls inside the panel, so the frame itself never does */
+    overflow: hidden;
+    /* All four corners rounded, and the panel is the one surface in the app that is a
+       window rather than an object on a surface: it touches the frame on the top, the
+       bottom and the right, and a square corner there reads as content running off
+       the edge. A card does not need it — a card has something behind it on every
+       side. Slightly larger than a card's 8px, because this is the outermost object
+       and the eye reads its corners first.
+       The grip's lit line is clipped by this radius rather than left to run past the
+       corner: overflow clipping follows border-radius, so the handle needs nothing of
+       its own. */
+    border-radius: 10px;
+    background: var(--bg-2);
+    border-right: 1px solid var(--line-strong);
+    box-shadow: 8px 0 26px rgba(0, 0, 0, .38);
+    /* The hinge the panel turns on: the window's own left edge, not the panel's. The
+       panel itself stands clear of the navigation rail by --panel-gap, so hinging on
+       its own left edge would put the axis in the middle of nowhere; measured back
+       from that edge to the window's, it lands under the rail — which is also where
+       the rail's z-index puts the panel, so the drawer comes out from behind it
+       rather than swinging across it. */
+    /* The hinge: the panel's right edge, which is the node table's left edge. It has to
+       be that one. A hinge anywhere else leaves the panel's projected right edge
+       travelling while the table stands still, and the two cannot be kept together
+       then — the projection is 478·cosθ·d/(d+478·sinθ), which CSS cannot write down
+       (there is no cos(), and the width is the reader's to drag). On the shared edge
+       the hinge does not move at all, so the two lines are one line for the whole
+       swing: that is what "the table's left border follows the panel's right border"
+       comes down to. It also puts the turning end of the panel over the rail, which is
+       above it, so that end goes out of sight behind the rail as it turns. */
+    transform-origin: right center;
+    /* The same door swing the connect dialog opens on — see doorFlipIn, and the timing
+       it shares with it in --door-dur / --door-ease. One motion with one set of
+       numbers: while the drawer had a duration and a curve of its own they drifted
+       apart, which is how the two came to feel like different gestures.
+       It starts at the same moment the table starts giving up its width
+       (--panel-lead is the table's own transition), so the two are one movement in two
+       parts rather than two movements with a pause between them. */
+    animation: doorFlipIn var(--door-dur, .44s) var(--door-ease, cubic-bezier(.4, 0, .2, 1)) both;
+}
+
+/* The same swing played backwards on the way out, and with no lead: the table only
+   takes its width back once this has finished and the panel is gone (see subsClosing
+   in App.tsx, which is what defers the unmount far enough for this to run at all).
+   The hinge is the table's edge, so the panel turns back into it and becomes edge-on
+   there — a sliver on the line, then nothing.
+
+   pointer-events goes with it: without the catcher, a panel that is
+   still on screen but no longer listening would take the click meant for the table
+   behind it — or, worse, hit one of the buttons on a card that is on its way out. */
+.subdrop.flip-out {
+    animation: doorFlipOut var(--door-dur) var(--door-ease) both;
+    pointer-events: none;
+}
+
+/* The drawer's right edge as a handle. It sits on the border rather than under
+   it, so the line the pointer aims at is the line it grabs — and inside the panel
+   rather than straddling it, because the panel clips its overflow and a handle
+   hanging outside would be half a strip of dead pixels. */
+.subdrop-grip {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 10px;
+    /* over the table's sticky header, which is the only thing in here with a
+       z-index of its own */
+    z-index: 3;
+    cursor: col-resize;
+    touch-action: none;
+}
+
+.subdrop-grip::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: transparent;
+    transition: background .15s ease;
+}
+
+/* lit on hover and for as long as the drag lasts, so the edge that is moving
+   says so even when the pointer has travelled off into the table */
+.subdrop-grip:hover::after,
+.app.resizing .subdrop-grip::after {
+    background: var(--accent);
+}
+
+.subdrop-grip:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: -2px;
+}
+
+/* The scroll lives on its own element so the caption row can be sticky against
+   it; min-height:0 is what lets it shrink inside the flex column. */
+.subdrop-scroll {
+    flex: 1;
+    min-height: 0;
+    /* stops the wheel at the end of the list instead of handing the leftover to
+       whatever is behind the panel — the same line .conn-list carries */
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* The drawer's own entrance. It is the door swing (doorFlipIn) that the connect
+   dialog uses, applied here rather than re-declared: this panel hinges on the same
+   edge — its left one, which faces the rail — and reads as the same gesture. The
+   frames it used to own are gone; a second copy of the same numbers is how the two
+   drifted apart in the first place. */
+
+/* The subscription list, drawn as the table it borrows its look from. The whole
+   point of a table here is the grid: a hairline between the rows and a hairline
+   between the two columns, so the eye can hold a subscription's count and its name
+   on one line without the row having to draw a box round itself. Every divider is
+   the same 1px and the same tone, which is what makes a set of them read as one
+   grid rather than as several decorations. */
+.subdrop-table {
+    width: 100%;
+    table-layout: fixed;
+    /* separate, not collapsed: a collapsed table cannot carry a sticky header that
+       casts a shadow, because the shadow would be painted over by the rows it is
+       supposed to sit on top of. Zero spacing keeps the grid lines continuous
+       across cells, which a collapsed table would fuse into one thicker rule. */
+    border-collapse: separate;
+    border-spacing: 0;
+    /* A step down from the 12.5 this table used to be, which is what the card's own
+       text — the name above all — was drawn at. */
+    font-size: 0.75rem;
+    /* The type column's width. It is generous for the badge it holds — the badge is
+       a pill with a glyph, a divider and a node count in it, and the cell also pays
+       for the card's side inset and 8px of padding on both sides. At 76px a
+       three-figure count came within a pixel of the cell's edge and clipped the
+       pill's right border. The detail row used to indent past this column; it now
+       spans the card instead, since the indent is what pushed the account figures
+       onto a second line. */
+    --sub-type-col: 84px;
+    /* How far a card stands off the panel on every side. Painted as borders in
+       --card-gap, which is the panel's own colour in the dark theme and the
+       greyer one below it in the light theme — the difference matters: on a dark
+       panel the space reads as air, on a light one it has to read as a recess or
+       a white card on a white panel is invisible. */
+    --card-inset: 4px;
+    --card-gap: var(--bg-2);
+    /* The card's outline. A card stands on the panel rather than in it, and the
+       outline is what says so: the same --line-strong the app's other floating
+       surfaces wear (the rail's own edge, the status bar's top line), so a card and
+       a bar read as the same kind of object.
+       Drawn as inset shadows rather than as a border, because a cell's sides already
+       carry the --card-gap borders that stand the card off the panel — and a cell
+       cannot wear a second border on a side that has one. The inset line lands on the
+       inner edge of those borders, which is the card's own face, so what the reader
+       sees is air, then the edge, then the card. */
+    --card-line: var(--line-strong);
+    /* The card's face: one step up from the panel it stands on, which is the whole of
+       the card's look now — a flat surface, a hairline seam and nothing else. The light
+       theme overrides it where it overrides the rest of the card's shading (see
+       [data-variant="light"] ... .sub-card td). */
+    --card-face: var(--bg-3);
+    /* The shade of the card's two vertical marks — the seam between the two columns and
+       the channel after the name. One value for both, because they are one mark: a
+       hairline drawn where one thing ends and the next begins, and a boundary is not
+       worth two different weights on the same card.
+       They were a groove and a hairline for a while, on the finding that the channel had
+       something to divide while the seam only had to say where a column ended. Four
+       pixels of trough beside one pixel of line read as two kinds of edge, though, and
+       the wider one did not earn the extra weight: it divided a name from its allowance
+       bar, which the tone alone already does. So the groove went the way of the seam, and
+       what was four pixels is one. */
+    --sep-fill: rgba(0, 0, 0, .3);
+    /* The allowance bar. The hue arrives from App.tsx, where it is worked out from
+       how much of the allowance is left; the other two parts of the colour live here,
+       because they are the parts that have to change between the themes — the same
+       hue reads as a deep colour on a white card and as a bright one on a dark.
+       --tab-hue on the badges is the same arrangement, and this is deliberately the
+       same shape of solution.
+       One saturation and one lightness have to serve the whole green-to-red arc, so
+       the two ends of it sit near --green and --red rather than landing exactly on
+       them: a value picked to be right at one end is wrong at the other. The hue
+       fallback is the green end, so a bar drawn without the inline hue is a full one. */
+    --quota-hue: 130;
+    --quota-sat: 58%;
+    --quota-lit: 50%;
+    /* The rule between two action buttons. Its own value rather than --line: these
+       sit on the card's hovered surface, which is a step lighter than the panel the
+       app's other rules are drawn against, and at --line's strength the difference
+       works out to about half the contrast of a row rule — visible on paper, and
+       easy to miss on screen. This is the same weight the row rules have, measured
+       against the surface it actually lands on. */
+    --act-rule: rgba(255, 255, 255, .12);
+}
+
+.subdrop-table th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    /* the same caption row height the node table's header wears, so the two line up
+       when the drawer is out — see --table-head-h on .app. The fallback repeats the
+       declared value so a caption rendered outside .app still has a height rather
+       than falling back to padding-driven auto. */
+    height: var(--table-head-h, 26px);
+    padding: 0 12px;
+    background: var(--bg-3);
+    /* the header's own underline is a shade stronger than the body's rules, so the
+       caption stays attached to the list as it scrolls under it */
+    border-bottom: 1px solid var(--line-strong);
+    /* rows pass beneath the caption, so the caption needs a little depth of its
+       own to sell that; kept tight so it reads as a shadow, not a bar */
+    box-shadow: 0 6px 10px -8px rgba(0, 0, 0, .7);
+    color: var(--text-dim);
+    font-size: 0.65625rem;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-align: left;
+    white-space: nowrap;
+    user-select: none;
+}
+
+/* The caption cell that carries the list's own controls. Flex so the label can stay at
+   the left of the cell and the buttons at the right, which puts them directly above the
+   allowance bars and the row actions they act on — the vertical relationship is the
+   whole point of putting them here rather than in the app's top bar. */
+.subdrop-table th.cap-act {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+/* The three of them as a group: one flex item, so flex-end puts the set against the right
+   edge as a unit and the gap between them stays a gap between them rather than being
+   spread across the cell. The cell holds nothing else now — the list's name moved to the
+   row's left edge — so the end alignment is what places them. */
+.cap-acts {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+    gap: 2px;
+}
+
+/* A caption-height icon button: smaller than the top bar's, because the caption row is
+   26px tall and a control taller than the row it sits in would be clipped by it. */
+.cap-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 0.625rem;
+    cursor: pointer;
+    transition: background .15s ease, color .15s ease;
+}
+
+/* Quiet like the row actions: the caption states what the columns are, and a control
+   that shouts there would compete with the labels it sits between. */
+.cap-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, .07);
+    color: var(--text);
+}
+
+.cap-btn:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
+}
+
+.cap-btn:disabled {
+    opacity: .4;
+    cursor: default;
+}
+
+[data-variant="light"] .cap-btn:hover:not(:disabled) {
+    background: rgba(0, 0, 0, .06);
+}
+
+.subdrop-table td {
+    height: 36px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--line);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    vertical-align: middle;
+}
+
+/* the caption and the cells above it must line up, or the rules step sideways
+   where the two meet */
+.subdrop-table th + th,
+.subdrop-table th + td,
+.subdrop-table td + td {
+    border-left: 1px solid var(--line);
+}
+
+/* The pocket at the left of every card: a fixed width for the count pill, so the names
+   beside it start at the same place down the column. This table used to share the
+   arrangement with the main one, which has since dropped its column; here the pill
+   holds a count rather than a protocol, and the pocket is sized to it, so a wide number
+   does not push the name off the tag's edge. */
+.subdrop-table th:first-child,
+.subdrop-table td:first-child {
+    width: var(--sub-type-col);
+    text-align: center;
+    padding: 0 8px;
+}
+
+/* The caption's own cell of that pair: the rows centre their count pill in the pocket,
+   the caption puts the list's name against the row's left edge. Written after the rule
+   above and at the same weight, so it is the later one that decides — and because the
+   two are the same specificity, the order here is not a detail. */
+.subdrop-table th.cap-name {
+    text-align: left;
+}
+
+/* The detail row: the account figures the subscription's panel last reported.
+   It spans both columns and takes the card's full inner width. It used to indent
+   past the type column so the figures shared a left edge with the name above them,
+   and that cost it 90px of a card that is only about 290px wide on the inside — the
+   two timestamps need 230 of those, so the line wrapped and the expiry dropped to a
+   second row. The alignment was worth less than the wrap was costing: the figures
+   are small print under the name either way, and a row of them broken across two
+   lines reads as damage. Full width, and the whole line fits even at the drawer's
+   narrowest.
+   The padding is even around the single line, rather than weighted to leave room for
+   the address line that no longer exists. */
+.subdrop-table tbody tr.sub-detail td {
+    height: auto;
+    padding: 5px 12px 7px;
+    text-align: left;
+    border-left: 0;
+    line-height: 1.55;
+}
+
+/* The editor as the card's third row. It spans both columns like the detail line
+   above it, keeps the card's own hue for the selected stripe to read through, and
+   the card grows to carry it — no floating dialog, the subscription list itself
+   is the surface. The entrance slides the page down 130ms, the same beat the
+   list's slide-in keeps. */
+.subdrop-table tbody tr.sub-edit td {
+    height: auto;
+    padding: 0 12px 10px;
+    text-align: left;
+    border-left: 0;
+}
+
+.subdrop-table .sub-edit-body {
+    animation: subEditIn .13s cubic-bezier(.22, .8, .26, 1) both;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 0.65625rem;
+}
+
+@keyframes subEditIn {
+    from {
+        opacity: 0;
+        translate: 0 -6px;
+    }
+    to {
+        opacity: 1;
+        translate: 0 0;
+    }
+}
+
+/* The form inside the unfolded row reuses .gform's rows; the inline shell
+   needs only its own spacing and the footer. */
+.subdrop-table .sub-edit-body .gform {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.subdrop-table .sub-edit-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+/* The name cell holds the name and the row's three actions on one line, so it is
+   the one flex row in the table. min-width:0 is what lets the name shrink instead
+   of pushing the actions out of the cell. */
+.subdrop-table td.name {
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+/* The account figures, and the only line on the detail row. Now that the row spans
+   the card, the whole line fits at every width the drawer can be dragged to, down to
+   its 300px floor. flex-wrap stays as the last resort rather than nowrap: a row that
+   cannot fit should fall to a second line, not have the expiry clipped off the end
+   where nobody would notice it was missing. */
+.subdrop-table .sub-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 6px;
+    font-size: 0.65625rem;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+}
+
+/* One figure of the account line: an atomic inline box, so a figure is never broken
+   across the wrap. It was a flex row with a 4px gap while a clock icon led the
+   update time; the icon is gone, and the gap with it. */
+.subdrop-table .sub-meta-item {
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+}
+
+/* The single divider, drawn as its own element rather than as a ::before on every
+   item after the first. A pipe in front of each figure said "these are all
+   separate facts", which is not what the line is: the update time is one fact and
+   the three figures are the account's, so one mark between the two and spaces
+   inside the group. It also means a figure that is absent no longer takes a pipe
+   with it, which is what a ::before on siblings would have done. */
+.subdrop-table .sub-meta-sep {
+    color: var(--line-strong);
+}
+
+/* An expiry inside the warning window — or past it — is the one figure here worth
+   colouring: the node list it feeds is about to stop refreshing, and this row is
+   where that shows up first. */
+.subdrop-table .sub-meta-item.warn {
+    color: var(--red);
+}
+
+/* And the same figure is the only one that moves. Colour alone is a quiet signal on
+   a card whose other text is the same size and weight, and this is the one deadline
+   on the list that cannot be missed.
+   The nudge is spent in the first sixth of the cycle and the row is still for the
+   rest of it. A shake that never stopped would be a rattle inside a list somebody is
+   trying to read — and, being constant, it would stop being seen within a few
+   seconds, which is the opposite of what a warning is for. */
+.subdrop-table .sub-meta-item.expiry.warn {
+    animation: sub-expiry-shake 2.6s ease-in-out infinite;
+}
+
+@keyframes sub-expiry-shake {
+    0%, 16%, 100% { transform: translateX(0); }
+    2%   { transform: translateX(-1.6px); }
+    4.5% { transform: translateX(1.6px); }
+    7%   { transform: translateX(-1.2px); }
+    9.5% { transform: translateX(1.2px); }
+    12%  { transform: translateX(-.7px); }
+    14%  { transform: translateX(.7px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* the colour still carries the warning; the movement is what the setting is
+       asking to be spared */
+    .subdrop-table .sub-meta-item.expiry.warn {
+        animation: none;
+    }
+}
+
+/* The remaining allowance, as a bar. It now sits in the slot at the end of the name
+   row, which is the lighter half of the card.
+   The track is the card's own surface, a shade lightened — the same faint wash the
+   slab's top face wears. It is not a grey plate and not a recess: both of those turn
+   the bar into a widget resting on the card, while a faint tint of the card's own
+   material lets the green read as a level on the slab. Nothing separates the empty
+   part of the bar from the card because nothing has to: the tint marks the bar's
+   extent.
+   It stands down for the actions under the pointer, so it fades on the same beat
+   they arrive. */
+.subdrop-table .sub-quota {
+    position: relative;
+    display: inline-block;
+    /* a floor, not a width: in the slot the bar stretches to the actions' width, and
+       this is what it falls back to if it is ever drawn outside one */
+    min-width: 58px;
+    height: 5px;
+    border-radius: 3px;
+    /* a step clearer than the floor it had: the track is what says "a bar extends
+       this far", and at a whisper of it the empty end read as nothing at all */
+    background: rgba(255, 255, 255, .1);
+    overflow: hidden;
+    transition: opacity .15s ease;
+}
+
+/* What is left of the allowance, and it is the segment that shrinks: so the bar
+   reads "how much is left" rather than "how much is gone", which is the direction
+   a reader scanning the column cares about.
+   Its colour is the other half of the reading — the segment gets shorter and walks
+   from green towards red at the same time, so a subscription that is nearly spent
+   says so from across the panel rather than only to someone who stops to measure the
+   length. */
+.subdrop-table .sub-quota-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: hsl(var(--quota-hue) var(--quota-sat) var(--quota-lit));
+    /* the width is the data, so it moves rather than jumps when a subscription is
+       updated and the figure changes; the colour is data too, and travels with it */
+    transition: width .3s ease, background-color .3s ease;
+}
+
+/* On the light theme the same idea runs the other way: the card is white on a grey
+   panel, so the tint that reads as "this is the bar" is a darkening rather than a
+   lightening — and it has to be a clear step below the row it sits on, because that
+   row is itself already tinted towards the bottom of the card. A faint wash here
+   would be the one value that is fainter than its own background. */
+[data-variant="light"] .subdrop-table .sub-quota {
+    background: rgba(0, 0, 0, .14);
+}
+
+/* The name proper, shown as the panel gave it. It is the flex item that
+   shrinks: the ellipsis and the min-width:0 both live on it, so a long name
+   gives up width instead of pushing the actions out of the cell. */
+.subdrop-table .sub-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    /* the name is the row's content, so it wears the row's weight; the brackets
+       only delimit it and stay quiet */
+    color: var(--text);
+    font-weight: 500;
+}
+
+/* The channel between the name and the slot: the same hairline the seam between the two
+   columns is, on this side of the name — one pixel of shade, from the same variable, so
+   the card's own division is one mark the whole way across.
+   A pixel has no room for the lit wall this used to carry beside its fill: a shade plus
+   a lit line is two pixels, which is the groove again under another name. What is left
+   is the one mark the boundary actually needs — see --sep-fill.
+   Full height, because it divides the row rather than marking a point in it: it cuts
+   the card's own lit top edge as it passes, which is what a notch in the slab does. */
+.subdrop-table .sub-sep {
+    flex: 0 0 auto;
+    align-self: stretch;
+    width: 1px;
+    background: var(--sep-fill);
+}
+
+/* The slot at the end of the name, which is two things in one place: the allowance
+   at rest, the actions under the pointer. They are stacked in a single grid cell
+   rather than laid out side by side, so the slot is as wide as the wider of the two
+   and nothing in the row moves as they trade places — a row that shifted whenever
+   the pointer crossed it would be unreadable.
+
+   grid and not absolute positioning because the slot has to keep contributing its
+   width to the flex row around it; an absolutely placed pair would take the name
+   cell's width out of the arithmetic. */
+.subdrop-table .row-tail {
+    display: grid;
+    align-items: center;
+    flex: 0 0 auto;
+}
+
+.subdrop-table .row-tail > * {
+    grid-area: 1 / 1;
+    justify-self: start;
+}
+
+/* The bar stretches to the slot rather than sitting at a width of its own, so the
+   two readings of the slot occupy the same rectangle and the switch between them
+   cannot be seen as the bar growing or shrinking. The slot's width comes from the
+   actions, which are the wider of the two. */
+.subdrop-table .row-tail .sub-quota {
+    justify-self: stretch;
+}
+
+/* The row's actions. They used to be in a right-click menu, which hid a row's whole
+   vocabulary behind a gesture nothing advertised; now they are in the row itself,
+   and they take the slot over from the allowance the moment the card is under the
+   pointer — which is the only moment they can be used. Colours carry the meaning the
+   menu's did: blue edits, green refreshes, red destroys. */
+.subdrop-table .row-acts {
+    display: inline-flex;
+    align-items: center;
+    /* Wide enough to hold the rule below, and named so that rule can centre itself
+       in whatever the gap turns out to be. At 2px the three buttons read as one
+       cluster of glyphs rather than as three actions. */
+    --act-gap: 12px;
+    gap: var(--act-gap);
+    /* fully hidden, not dimmed: the bar is what belongs here while the pointer is
+       away, and two things at half strength in one slot is one thing too many */
+    opacity: 0;
+    /* an invisible button is not a target: without this, a click meant for the bar
+       would land on whichever action happened to be under it */
+    pointer-events: none;
+    transition: opacity .15s ease;
+}
+
+/* The rule in each gap. It is drawn from the button rather than from the row,
+   because there is no element sitting in the gap to hang it on: half the gap to the
+   left of the button's own box is the middle of that space, whatever the gap is set
+   to, so this needs no second copy of the number to stay centred.
+   A hairline, and not one of the card's --sep-fill lines: across a few pixels even a
+   hairline carries as much weight as a button does, and three icons with two rules
+   between them read as five objects. A line this thin needs nothing but a colour — no
+   arc and no lit wall, both of which are shapes a single pixel cannot have — so it is
+   one pixel of shade with the row showing through beside it.
+   Short of the buttons' height on purpose: it divides them, it does not fence them.
+   And it appears with them, since the whole slot fades in as one. */
+.subdrop-table .sub-act + .sub-act::before {
+    content: '';
+    position: absolute;
+    left: calc(var(--act-gap) * -0.5);
+    top: 50%;
+    width: 1px;
+    height: 16px;
+    margin-top: -8px;
+    background: var(--act-rule);
+}
+
+/* The pointer counts on either half of the card: the slot lives in the name row,
+   but a card is one object, and the same :has() that lights the upper half from the
+   lower one is what keeps the two halves telling the same story. focus-within
+   counts too, and is checked without :has() because a focused element is always the
+   row's own. */
+.subdrop-table tbody tr.sub-card:hover .row-acts,
+.subdrop-table tbody tr.sub-card:has(+ .sub-detail:hover) .row-acts,
+.subdrop-table tbody tr:focus-within .row-acts {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* And the allowance stands down for them. focus-within counts as "in use" as well,
+   so the keyboard is not left with invisible buttons. The open subscription is not
+   special-cased: it is the card whose allowance is most worth seeing, so it keeps
+   the bar until the pointer arrives like every other. */
+.subdrop-table tbody tr.sub-card:hover .row-tail .sub-quota,
+.subdrop-table tbody tr.sub-card:has(+ .sub-detail:hover) .row-tail .sub-quota,
+.subdrop-table tbody tr:focus-within .row-tail .sub-quota {
+    opacity: 0;
+}
+
+.subdrop-table .sub-act {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* the rule between two actions is hung off the second one, offset into the gap
+       by the negative half above; that needs this as its coordinate system */
+    position: relative;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 0.6875rem;
+    cursor: pointer;
+    transition: background .15s ease, color .15s ease;
+    /* The wash under the pointer: the subscription's own hue, at the tint its badge
+       wears, so hovering a card's actions is answered in that card's colour instead of
+       a neutral grey that would be the same under every card.
+       Declared on the button and not on the table, because of where the hue lives:
+       --tab-hue is set on the row by App.tsx, and the var()s inside a custom property
+       are resolved on the element the property is declared on — on .subdrop-table this
+       would resolve to the fallback and every card would hover in the same blue. */
+    --act-hover: hsl(var(--tab-hue, 212) 45% 50% / .16);
+}
+
+[data-variant="light"] .subdrop-table .sub-act {
+    /* the light theme's badge is the more saturated of the two and the paler tint —
+       see .type-tag — so the wash follows the badge of the theme it is drawn in */
+    --act-hover: hsl(var(--tab-hue, 212) 60% 50% / .12);
+}
+
+.subdrop-table .sub-act:hover {
+    background: var(--act-hover);
+}
+
+.subdrop-table .sub-act:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
+}
+
+.subdrop-table .sub-act.edit:hover {
+    color: var(--accent);
+}
+
+.subdrop-table .sub-act.refresh:hover {
+    color: var(--green);
+}
+
+.subdrop-table .sub-act.danger:hover {
+    color: var(--red);
+}
+
+/* the armed state of the two-step delete: the button itself says so, because a
+   second click on a still-red trash can is not a confirmation anybody can read */
+.subdrop-table .sub-act.danger.solid {
+    background: var(--red);
+    color: var(--on-fill);
+}
+
+.subdrop-table tbody tr {
+    cursor: pointer;
+}
+
+/* The zebra is barely there on purpose: it is there to let the eye track a card
+   across a wide cell, and any stronger and it becomes stripes. It is applied per
+   card rather than per row, because a card is two rows now and alternating on
+   tr:nth-child would tint a card's two halves differently. */
+.subdrop-table tbody tr.alt {
+    background: rgba(255, 255, 255, 0.016);
+}
+
+.subdrop-table tbody tr:hover {
+    background: var(--bg-3);
+}
+
+/* A card is one object, so hovering its lower half must light the upper half too.
+   :has() with a sibling argument is the only way to reach backwards: the name row
+   comes first in the DOM, so no ordinary combinator can be told "the row after me
+   is under the pointer". */
+.subdrop-table tbody tr.sub-card:has(+ .sub-detail:hover) {
+    background: var(--bg-3);
+}
+

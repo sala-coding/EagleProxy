@@ -1,0 +1,744 @@
+/* --- 01-theme.css ---
+   the type, the variables, and the palettes: the dark room, the light room, and the sixteen accent schemes everything else reads its colours from.
+   (Split out of App.css; the order of these files is the cascade.) */
+
+/* JetBrains Mono (Nerd Font build) shipped in public/fa/font — one bundled
+   monospace face for the whole app: log panel, addresses, JSON, code blocks.
+   Bundling it also removes the "Latin monospace for ASCII, proportional CJK for
+   Chinese" split that made mixed log lines lose their column alignment. */
+@font-face {
+    font-family: "JetBrains Mono NF";
+    src: url("/fa/font/JetBrainsMonoNerdFont-Medium.ttf") format("truetype");
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+
+:root {
+    /* CJK glyphs are not in JetBrains Mono, so a Chinese face still has to
+       follow it in the stack; it only takes over for the characters the
+       bundled font does not cover. */
+    --font-mono: "JetBrains Mono NF", "Microsoft YaHei Mono", "Microsoft YaHei",
+    ui-monospace, Consolas, monospace;
+    --bg: #161b22;
+    --bg-2: #1c232d;
+    --bg-3: #232c38;
+    --line: #2c3644;
+    /* A brighter edge for the surfaces that float above content and would otherwise
+           dissolve into it: the two hover bars, the navigation rail's right edge and the
+           status bar's top edge. The last two are the window's own structural lines —
+           the ones that say where the rail ends and where the floor begins — and they are
+           drawn between two of the app's own surfaces rather than against a page, so at
+           --line's strength they read as a change of shade rather than as an edge. One
+           value for both, because a rail that ends in a different line from the one the
+           floor starts with is the seam this pair exists to avoid. */
+        --line-strong: #46566e;
+    --text: #d7dee8;
+    --text-dim: #8b97a8;
+    --accent: #4f9cf9;
+    /* The accent as a surface and as an edge: the wash behind the current row, the
+       icon in the lit rail button, the ring on a chosen swatch. They were written
+       out as rgba(79, 156, 249, …) in a dozen rules, which was the one part of the
+       palette that did not follow the theme — the accent itself changed and its
+       wash stayed the default theme's blue. Two steps, because they are two
+       weights: a tint to sit behind text, and a line to be seen. */
+    --accent-soft: rgba(79, 156, 249, 0.16);
+    --accent-edge: rgba(79, 156, 249, 0.45);
+    /* What sits on a filled control — a primary button, a chosen segment, an armed
+       delete. It is the window's own background rather than white because these
+       fills are light: white on #4f9cf9 is 2.9:1, while this theme's #161b22 on it
+       is 8.1:1. The light themes keep white because their accents are dark enough
+       for it (5:1 on #2f6fdb and #0969da). Same fill, same rule, both ends. */
+    --on-fill: var(--bg);
+    --green: #3fb950;
+    --red: #f85149;
+    --amber: #d29922;
+    --green-bg: rgba(63, 185, 80, 0.13);
+    --green-bg-hover: rgba(63, 185, 80, 0.20);
+    /* latency scale: fast -> slow, graded so the eye can rank a column instantly */
+    --lat-1: #3fb950;
+    --lat-2: #8fd44a;
+    --lat-3: #d29922;
+    --lat-4: #f0883e;
+    --lat-5: #f85149;
+}
+
+[data-variant="light"] {
+    --bg: #f5f6f8;
+    --bg-2: #ffffff;
+    --bg-3: #eceef2;
+    --line: #d8dde5;
+    --line-strong: #b3bdcb;
+    --text: #1c232d;
+    --text-dim: #5c6675;
+    --accent: #2f6fdb;
+    /* the same two steps, taken down to where they hold against white */
+    --accent-soft: rgba(47, 111, 219, 0.14);
+    --accent-edge: rgba(47, 111, 219, 0.45);
+    /* white, because this theme's accent and its red are both dark enough to carry
+       it — see the note in :root */
+    --on-fill: #fff;
+    --green: #1a7f37;
+    --red: #cf222e;
+    --amber: #9a6700;
+    --green-bg: rgba(26, 127, 55, 0.12);
+    --green-bg-hover: rgba(26, 127, 55, 0.18);
+    /* latency scale (light) */
+    --lat-1: #1a7f37;
+    --lat-2: #4f8a1f;
+    --lat-3: #9a6700;
+    --lat-4: #bc4c00;
+    --lat-5: #cf222e;
+}
+
+[data-variant="light"] .console,
+[data-variant="light"] .code,
+[data-variant="light"] .rawjson,
+[data-variant="light"] .logline {
+    background: #ffffff;
+    color: #1c232d;
+}
+
+/* The well and the slab are tuned for the dark room; in the light theme the same
+   shadows would read as dirt, so the well fills with grey wash instead of black, and
+   the panel's shadow goes grey with it. */
+[data-variant="light"] .console {
+    box-shadow: 0 10px 26px -10px rgba(30, 40, 52, .3), 0 2px 6px -2px rgba(30, 40, 52, .16);
+}
+
+[data-variant="light"] .console-body {
+    background: rgba(28, 35, 45, .045);
+    box-shadow: inset 0 12px 16px -14px rgba(28, 35, 45, .55), inset 0 -10px 14px -12px rgba(28, 35, 45, .35);
+}
+
+/* The zebra and the washes re-tuned for white: the same gesture, drawn in ink
+   rather than in light. */
+[data-variant="light"] .logline:nth-child(even) {
+    background: rgba(0, 0, 0, .022);
+}
+
+[data-variant="light"] .logline:hover {
+    background: rgba(0, 0, 0, .045);
+}
+
+[data-variant="light"] .logline.err {
+    --cat: #c62828;
+    background: rgba(198, 40, 40, .07);
+}
+
+[data-variant="light"] .logline.warn {
+    --cat: #b26a00;
+    background: rgba(178, 106, 0, .06);
+}
+
+/* darker category hues for the light theme, so they stay readable on white */
+[data-variant="light"] .cat-core {
+    --cat: #b03a6a;
+}
+
+[data-variant="light"] .cat-speedtest-url {
+    --cat: #00838f;
+}
+
+[data-variant="light"] .cat-speedtest-tcp {
+    --cat: #2e7d32;
+}
+
+[data-variant="light"] .cat-speedtest-full {
+    --cat: #b26a00;
+}
+
+[data-variant="light"] .cat-speedtest-download {
+    --cat: #8e24aa;
+}
+
+[data-theme="nord"] {
+    --bg: #2e3440;
+    --bg-2: #3b4252;
+    --bg-3: #434c5e;
+    --line: #4c566a;
+    /* Nord's own step above its --line, for the same reason the dark theme has one:
+       its surfaces are lighter than the default theme's, so the default value would
+       sit too close to them to read as an edge. */
+    --line-strong: #616e86;
+    --text: #eceff4;
+    --text-dim: #a7b0c0;
+    --accent: #88c0d0;
+    /* Nord's frost blue is a light one, so the wash is a little stronger to read as
+       a tint at all against its surfaces */
+    --accent-soft: rgba(136, 192, 208, 0.20);
+    --accent-edge: rgba(136, 192, 208, 0.55);
+    /* the frost blue is nearly as light as white: white on it is 1.9:1 */
+    --on-fill: var(--bg);
+    --green: #a3be8c;
+    --red: #bf616a;
+    --amber: #ebcb8b;
+    --green-bg: rgba(163, 190, 140, 0.16);
+    --green-bg-hover: rgba(163, 190, 140, 0.24);
+    /* latency scale (nord) */
+    --lat-1: #a3be8c;
+    --lat-2: #b8cf8e;
+    --lat-3: #ebcb8b;
+    --lat-4: #d08770;
+    --lat-5: #bf616a;
+}
+
+/* Four more palettes, chosen from the ones people already read code in so the app
+   looks like the rest of their desktop: Dracula, One Dark, Gruvbox and GitHub's
+   light. Each declares the same core set the Nord theme does — surfaces, the two
+   line weights, text, the three signal colours and the latency scale — and leaves
+   the protocol hues to the default theme's, which are legible on either ground.
+   A palette is a set of values, not a new stylesheet: everything else in this file
+   is drawn from these variables. */
+[data-theme="dracula"] {
+    --bg: #21222c;
+    --bg-2: #282a36;
+    --bg-3: #343746;
+    --line: #44475a;
+    --line-strong: #6272a4;
+    --text: #f8f8f2;
+    --text-dim: #a4a7b8;
+    --accent: #bd93f9;
+    /* Dracula's purple, the same two steps */
+    --accent-soft: rgba(189, 147, 249, 0.20);
+    --accent-edge: rgba(189, 147, 249, 0.55);
+    /* the purple is a light one: white on it is 2.2:1 */
+    --on-fill: var(--bg);
+    --green: #50fa7b;
+    --red: #ff5555;
+    --amber: #f1fa8c;
+    --green-bg: rgba(80, 250, 123, 0.14);
+    --green-bg-hover: rgba(80, 250, 123, 0.22);
+    /* latency scale (dracula) */
+    --lat-1: #50fa7b;
+    --lat-2: #b7f36a;
+    --lat-3: #f1fa8c;
+    --lat-4: #ffb86c;
+    --lat-5: #ff5555;
+}
+
+[data-theme="one-dark"] {
+    --bg: #21252b;
+    --bg-2: #282c34;
+    --bg-3: #2f343d;
+    --line: #3a4049;
+    --line-strong: #4b5263;
+    --text: #abb2bf;
+    --text-dim: #7f848e;
+    --accent: #61afef;
+    /* One Dark's blue, the same two steps */
+    --accent-soft: rgba(97, 175, 239, 0.18);
+    --accent-edge: rgba(97, 175, 239, 0.50);
+    /* the blue is a light one: white on it is 2.5:1 */
+    --on-fill: var(--bg);
+    --green: #98c379;
+    --red: #e06c75;
+    --amber: #d19a66;
+    --green-bg: rgba(152, 195, 121, 0.15);
+    --green-bg-hover: rgba(152, 195, 121, 0.23);
+    /* latency scale (one dark) */
+    --lat-1: #98c379;
+    --lat-2: #b3cf7f;
+    --lat-3: #d19a66;
+    --lat-4: #e08a5a;
+    --lat-5: #e06c75;
+}
+
+[data-theme="gruvbox"] {
+    --bg: #1d2021;
+    --bg-2: #282828;
+    --bg-3: #3c3836;
+    --line: #504945;
+    --line-strong: #665c54;
+    --text: #ebdbb2;
+    --text-dim: #a89984;
+    --accent: #83a598;
+    /* Gruvbox's aqua, the same two steps */
+    --accent-soft: rgba(131, 165, 152, 0.22);
+    --accent-edge: rgba(131, 165, 152, 0.55);
+    /* the aqua is a light one: white on it is 2.4:1 */
+    --on-fill: var(--bg);
+    --green: #b8bb26;
+    --red: #fb4934;
+    --amber: #fabd2f;
+    --green-bg: rgba(184, 187, 38, 0.16);
+    --green-bg-hover: rgba(184, 187, 38, 0.24);
+    /* latency scale (gruvbox) */
+    --lat-1: #b8bb26;
+    --lat-2: #a9b665;
+    --lat-3: #fabd2f;
+    --lat-4: #fe8019;
+    --lat-5: #fb4934;
+}
+
+/* Sixteen further palettes — eight on cold ground, eight on warm. The cold ones
+   speak blues, teals and ink (the last pair, Aurora and Basalt, took the seats
+   two pale cold palettes held first); the warm ones speak earth, coffee, rose
+   and amber. All sixteen are dark: one pale palette per tone is what the rows
+   can carry — light on the cool side is the one the settings file indexes, so
+   it stays and the warm side keeps none — and a dark seat keeps nekoray's
+   numbering untouched while changing the colour the seat wears. The
+   [data-variant="light"] rules below were keyed off LIGHT_THEMES in the app and
+   shared by six seats that have since gone dark; any pale palette that joins
+   again inherits them the same way without restating them. Each palette
+   declares the same core set the Nord theme does and leaves the protocol hues
+   to the default theme's, which are legible on either ground. */
+
+/* ---- the cool eight ---- */
+
+[data-theme="tokyo-night"] {
+    --bg: #1a1b26;
+    --bg-2: #24283b;
+    --bg-3: #2f334d;
+    --line: #414868;
+    --line-strong: #565f89;
+    --text: #c0caf5;
+    --text-dim: #8289a0;
+    --accent: #7aa2f7;
+    --accent-soft: rgba(122, 162, 247, 0.18);
+    --accent-edge: rgba(122, 162, 247, 0.50);
+    --on-fill: var(--bg);
+    --green: #9ece6a;
+    --red: #f7768e;
+    --amber: #e0af68;
+    --green-bg: rgba(158, 206, 106, 0.15);
+    --green-bg-hover: rgba(158, 206, 106, 0.23);
+    --lat-1: #9ece6a;
+    --lat-2: #a9d67a;
+    --lat-3: #e0af68;
+    --lat-4: #ff9e64;
+    --lat-5: #f7768e;
+}
+
+[data-theme="catppuccin"] {
+    --bg: #1e1e2e;
+    --bg-2: #26273d;
+    --bg-3: #313244;
+    --line: #45475a;
+    --line-strong: #6c7086;
+    --text: #cdd6f4;
+    --text-dim: #a6adc8;
+    --accent: #b4befe;
+    --accent-soft: rgba(180, 190, 254, 0.18);
+    --accent-edge: rgba(180, 190, 254, 0.50);
+    --on-fill: var(--bg);
+    --green: #a6e3a1;
+    --red: #f38ba8;
+    --amber: #f9e2af;
+    --green-bg: rgba(166, 227, 161, 0.15);
+    --green-bg-hover: rgba(166, 227, 161, 0.23);
+    --lat-1: #a6e3a1;
+    --lat-2: #94e2d5;
+    --lat-3: #f9e2af;
+    --lat-4: #fab387;
+    --lat-5: #f38ba8;
+}
+
+[data-theme="oceanic"] {
+    --bg: #1b2b34;
+    --bg-2: #22303c;
+    --bg-3: #2a3a48;
+    --line: #344556;
+    --line-strong: #4a5f74;
+    --text: #c0c5ce;
+    --text-dim: #8b98a5;
+    --accent: #6699cc;
+    --accent-soft: rgba(102, 153, 204, 0.18);
+    --accent-edge: rgba(102, 153, 204, 0.50);
+    --on-fill: var(--bg);
+    --green: #99c794;
+    --red: #ec5f67;
+    --amber: #fac863;
+    --green-bg: rgba(153, 199, 148, 0.15);
+    --green-bg-hover: rgba(153, 199, 148, 0.23);
+    --lat-1: #99c794;
+    --lat-2: #a8cc8c;
+    --lat-3: #fac863;
+    --lat-4: #e08f4d;
+    --lat-5: #ec5f67;
+}
+
+[data-theme="aurora"] {
+    --bg: #0e2229;
+    --bg-2: #14303a;
+    --bg-3: #1b3c48;
+    --line: #27505e;
+    --line-strong: #3a6c7c;
+    --text: #d2eef2;
+    --text-dim: #7fa8b0;
+    --accent: #34d3a6;
+    --accent-soft: rgba(52, 211, 166, 0.18);
+    --accent-edge: rgba(52, 211, 166, 0.50);
+    --on-fill: var(--bg);
+    --green: #7fe07f;
+    --red: #ef6e7e;
+    --amber: #e8c37b;
+    --green-bg: rgba(127, 224, 127, 0.15);
+    --green-bg-hover: rgba(127, 224, 127, 0.23);
+    --lat-1: #7fe07f;
+    --lat-2: #8fe094;
+    --lat-3: #e8c37b;
+    --lat-4: #e59155;
+    --lat-5: #ef6e7e;
+}
+
+/* ---- the warm eight ---- */
+
+[data-theme="everforest"] {
+    --bg: #2b3339;
+    --bg-2: #334144;
+    --bg-3: #3e484d;
+    --line: #4e585e;
+    --line-strong: #6b7a76;
+    --text: #d3c6aa;
+    --text-dim: #98a092;
+    --accent: #a7c080;
+    --accent-soft: rgba(167, 192, 128, 0.20);
+    --accent-edge: rgba(167, 192, 128, 0.55);
+    --on-fill: var(--bg);
+    --green: #a7c080;
+    --red: #e67e80;
+    --amber: #dbbc7f;
+    --green-bg: rgba(167, 192, 128, 0.16);
+    --green-bg-hover: rgba(167, 192, 128, 0.24);
+    --lat-1: #a7c080;
+    --lat-2: #b4c98a;
+    --lat-3: #dbbc7f;
+    --lat-4: #e69875;
+    --lat-5: #e67e80;
+}
+
+[data-theme="coffee"] {
+    --bg: #241e1a;
+    --bg-2: #2e2721;
+    --bg-3: #39312a;
+    --line: #4a423a;
+    --line-strong: #64584c;
+    --text: #e8ddcf;
+    --text-dim: #ab9d8d;
+    --accent: #d29a5f;
+    --accent-soft: rgba(210, 154, 95, 0.20);
+    --accent-edge: rgba(210, 154, 95, 0.55);
+    --on-fill: var(--bg);
+    --green: #93a87c;
+    --red: #d96c5f;
+    --amber: #e0b568;
+    --green-bg: rgba(147, 168, 124, 0.16);
+    --green-bg-hover: rgba(147, 168, 124, 0.24);
+    --lat-1: #93a87c;
+    --lat-2: #a3b580;
+    --lat-3: #e0b568;
+    --lat-4: #cf8646;
+    --lat-5: #d96c5f;
+}
+
+[data-theme="sunset"] {
+    --bg: #221427;
+    --bg-2: #2c1b31;
+    --bg-3: #382340;
+    --line: #472d50;
+    --line-strong: #5c3d67;
+    --text: #f4e3ee;
+    --text-dim: #a98db0;
+    --accent: #ff8c5a;
+    --accent-soft: rgba(255, 140, 90, 0.20);
+    --accent-edge: rgba(255, 140, 90, 0.55);
+    --on-fill: var(--bg);
+    --green: #71c98a;
+    --red: #ef5a6d;
+    --amber: #ffb84d;
+    --green-bg: rgba(113, 201, 138, 0.16);
+    --green-bg-hover: rgba(113, 201, 138, 0.24);
+    --lat-1: #71c98a;
+    --lat-2: #86cf92;
+    --lat-3: #ffb84d;
+    --lat-4: #fb8a4a;
+    --lat-5: #ef5a6d;
+}
+
+[data-theme="clay"] {
+    --bg: #2b1f18;
+    --bg-2: #342720;
+    --bg-3: #3f3027;
+    --line: #544238;
+    --line-strong: #6a5346;
+    --text: #efe2d3;
+    --text-dim: #a8907c;
+    --accent: #d1785a;
+    --accent-soft: rgba(209, 120, 90, 0.20);
+    --accent-edge: rgba(209, 120, 90, 0.55);
+    --on-fill: var(--bg);
+    --green: #98b57e;
+    --red: #d5695a;
+    --amber: #e2b06a;
+    --green-bg: rgba(152, 181, 126, 0.16);
+    --green-bg-hover: rgba(152, 181, 126, 0.24);
+    --lat-1: #98b57e;
+    --lat-2: #a8bf8d;
+    --lat-3: #e2b06a;
+    --lat-4: #d68f4c;
+    --lat-5: #d5695a;
+}
+
+[data-theme="ember"] {
+    --bg: #241413;
+    --bg-2: #2f1b18;
+    --bg-3: #3b2320;
+    --line: #52332e;
+    --line-strong: #6c463e;
+    --text: #f2ddd2;
+    --text-dim: #b28e7e;
+    --accent: #e07a4c;
+    --accent-soft: rgba(224, 122, 76, 0.20);
+    --accent-edge: rgba(224, 122, 76, 0.55);
+    --on-fill: var(--bg);
+    --green: #96b072;
+    --red: #df5f5f;
+    --amber: #eab86a;
+    --green-bg: rgba(150, 176, 114, 0.16);
+    --green-bg-hover: rgba(150, 176, 114, 0.24);
+    --lat-1: #96b072;
+    --lat-2: #a3ba81;
+    --lat-3: #eab86a;
+    --lat-4: #d67f43;
+    --lat-5: #df5f5f;
+}
+
+[data-theme="bordeaux"] {
+    --bg: #201217;
+    --bg-2: #2a1a20;
+    --bg-3: #35222b;
+    --line: #483039;
+    --line-strong: #63404d;
+    --text: #f0dfe6;
+    --text-dim: #ab8b98;
+    --accent: #d97687;
+    --accent-soft: rgba(217, 118, 135, 0.20);
+    --accent-edge: rgba(217, 118, 135, 0.55);
+    --on-fill: var(--bg);
+    --green: #8fac7e;
+    --red: #d1495b;
+    --amber: #d9a05c;
+    --green-bg: rgba(143, 172, 126, 0.16);
+    --green-bg-hover: rgba(143, 172, 126, 0.24);
+    --lat-1: #8fac7e;
+    --lat-2: #9db98a;
+    --lat-3: #d9a05c;
+    --lat-4: #d17a4c;
+    --lat-5: #d1495b;
+}
+
+[data-theme="amber"] {
+    --bg: #241b0e;
+    --bg-2: #2e2415;
+    --bg-3: #3a2e1c;
+    --line: #52432b;
+    --line-strong: #6b5839;
+    --text: #f0e4cc;
+    --text-dim: #ab9a78;
+    --accent: #d9a53e;
+    --accent-soft: rgba(217, 165, 62, 0.20);
+    --accent-edge: rgba(217, 165, 62, 0.55);
+    --on-fill: var(--bg);
+    --green: #9aa878;
+    --red: #d05f42;
+    --amber: #e2b866;
+    --green-bg: rgba(154, 168, 120, 0.16);
+    --green-bg-hover: rgba(154, 168, 120, 0.24);
+    --lat-1: #9aa878;
+    --lat-2: #a8b584;
+    --lat-3: #e2b866;
+    --lat-4: #cf8a3e;
+    --lat-5: #d05f42;
+}
+
+[data-theme="cinnamon"] {
+    --bg: #231712;
+    --bg-2: #2d1f18;
+    --bg-3: #39271e;
+    --line: #52392c;
+    --line-strong: #6b4f3e;
+    --text: #f2e1d0;
+    --text-dim: #af9276;
+    --accent: #c46a3e;
+    --accent-soft: rgba(196, 106, 62, 0.20);
+    --accent-edge: rgba(196, 106, 62, 0.55);
+    --on-fill: var(--bg);
+    --green: #9fa76e;
+    --red: #d84a3f;
+    --amber: #e0ae62;
+    --green-bg: rgba(159, 167, 110, 0.16);
+    --green-bg-hover: rgba(159, 167, 110, 0.24);
+    --lat-1: #9fa76e;
+    --lat-2: #aab27c;
+    --lat-3: #e0ae62;
+    --lat-4: #cd6b36;
+    --lat-5: #d84a3f;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+.app {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    color: var(--text);
+    overflow: hidden;
+    /* The navigation rail is fixed to the window's left edge and painted over
+       this layout rather than laid out with it, so everything else starts after
+       the strip. --rail-w is declared on this element by App.tsx and shrinks
+       when the rail is folded away; the fallback matches the open width so the
+       layout is still right if the variable is ever missing. */
+    /* The subscriptions drawer lives in the same gutter: --panel-w is how wide it
+       is, --panel-open is 1 while it is out, and --gutter is the sum the layout is
+       offset by. Keeping the arithmetic here means the drawer, the table's left
+       edge and anything else that has to sit clear of the left border all read one
+       number instead of repeating the sum. The width has a ceiling so a narrow
+       window keeps a usable table beside it.
+       --panel-w-user is the width the reader dragged the drawer to, published
+       inline by App.tsx, and it is left out entirely when they have not dragged one:
+       the fallback is then the window's own share, which needs no JavaScript to follow
+       the window. App.tsx used to compute that share and hand it over here as well, which
+       meant a setState on every frame of a resize to keep a number current that this line
+       can work out for itself. The min() is what stops a number saved on a wide screen
+       from taking the table's share away on a narrow one. The rail's width comes from the
+       variable rather than a number written here: it used to be a literal, which is a
+       second copy of a value App.tsx owns, and a copy is what goes stale the next time the
+       rail is resized. */
+    --panel-w: min(
+        var(--panel-w-user, clamp(300px, 30vw, 720px)),
+        calc(100vw - var(--rail-w, 40px) - 320px));
+    --panel-open: 0;
+    /* How far the drawer stands off the surfaces it merely neighbours: the navigation
+       rail on its left, the status bar under it. The two are separate objects that
+       happen to be adjacent, and flush together the panel reads as a widening of the
+       rail rather than as a window beside it, or as sitting on the floor rather than
+       above it. One value for both sides, because a panel that is inset on one edge and
+       flush on the other has been given two contradictory opinions about what it is.
+       The gap is behind the panel, so what shows through it is whatever the app has
+       there — the node table, once the layout has made room, which is why the gutter
+       below reserves the left one in the same breath.
+       The top is a separate number (--chrome-inset) because that edge answers to the
+       window's own frame rather than to anything inside the app. */
+    --panel-gap: 8px;
+    /* The status bar's height, used by the things that have to stop at its top edge —
+       the navigation rail, and the two panels that stand clear of it. It is a
+       fallback: the real height belongs to the bar's contents (the chips decide it),
+       so App.tsx measures it and writes this same property on this same element from
+       a ResizeObserver. The declared value is what shows before that first
+       measurement lands. It used to be the only source, and the two drifted apart:
+       a bar taller than this made the rail overlap it, and the overlap drew a
+       rectangle in the window's bottom-left corner. */
+    --status-h: 30px;
+    /* The rail, then the gap and the panel together: the gap sits inside the term
+       multiplied by --panel-open, so the content hands the space back exactly when the
+       drawer closes. */
+    --gutter: calc(var(--rail-w, 40px)
+        + (var(--panel-w) + var(--panel-gap, 8px)) * var(--panel-open));
+    /* One caption row height for every table in the app. The node table's header and
+       the subscriptions drawer's are the same kind of thing — a sticky caption above
+       a list — and they have to be the same height, because the two are seen side by
+       side whenever the drawer is out and a few pixels of disagreement reads as a
+       mistake. It is a height and not padding because the two carry different type
+       sizes: padding would make them match only by arithmetic nobody re-checks, while
+       a shared height holds them together however either one's type is tuned. */
+    --table-head-h: 26px;
+    /* The door swing's timing, shared by its two users — the connect dialog and the
+       subscriptions drawer — and by both directions of it. One duration and one
+       curve: a panel that opens in a beat and takes two to close reads as two
+       different objects, and the closing half of a gesture is the half a reader
+       sees when they change their mind about it.
+
+       .44s rather than the .34s it started at, and a curve that accelerates into the
+       turn instead of throwing it: at a third of a second with a front-loaded curve,
+       three quarters of the rotation was over before the eye had settled on the
+       panel, which is what made it read as fast rather than as quick.
+
+       The close sweeps 18° further than the entrance, because it has to reach exactly
+       90° to be edge-on and therefore invisible; 72° left a visible sliver. It covers
+       that in the same time — it is fading out over its last third, so the extra angle
+       is never seen head-on — which is why one duration can serve both ends.
+
+       Modal unmounts the dialog on a timer matched to this, so the number is repeated
+       in App.tsx (440). Changing it here means changing it there; see
+       .modal.flip.flip-out. */
+    --door-dur: .44s;
+    --door-ease: cubic-bezier(.4, 0, .2, 1);
+    /* How long the table takes to give the panel its width. It is the table's own
+       transition and nothing else: the panel unfolds at the same moment the table
+       starts moving aside, which is what sharing a beat means.
+
+       The hinge is the panel's right edge, which is where the table's left edge sits
+       at rest, so the two borders are the same border — but the table only arrives
+       there over this transition, and a panel folded to 72 degrees is only 133px wide
+       on screen, so the two part company for the first part of the swing and the gap
+       closes as it goes. That is the price of starting together; a shallower fold
+       reduces it, a longer table move does not.
+
+       At .6s rather than a fifth of a second, because the table crossing 400-odd pixels
+       is a big change of layout: short, it reads as a flick that was over before it had
+       begun; at .6s it reads as the table moving aside for the panel, which is what it
+       is doing.
+
+       It is the swing's own duration, and that is the point rather than a convenience:
+       the two have to arrive together, so that the frame on which the panel reaches its
+       final angle is the frame on which the table is fully out of the way. A longer
+       yield left the table still sliding after the panel had landed — one movement for
+       the first part, and then the table finishing by itself. */
+    --panel-lead: var(--door-dur);
+    /* Where the content's left edge sits, as a ride rather than as a layout offset:
+       one panel's width plus the gap while a panel holds the seat, nothing while it
+       does not. The content is laid out against the rail either way; this is what
+       moves it clear, and being a transform it costs nothing to animate.
+
+       It doubles as the panel's own position, derived rather than animated: a panel's
+       right edge has to be exactly this far from the window's left edge (see the seat
+       rule), so the two cannot come apart — it is one number read twice, not two
+       animations asked to agree. */
+    --seat-offset: calc(var(--panel-open, 0) * (var(--panel-w, 430px) + var(--panel-gap, 8px)));
+    /* How far the content starts below the window's own chrome. The window is framed
+       and draggable, and a table caption flush against that edge reads as though it
+       were part of the frame rather than part of the app: there is nothing between the
+       title bar and the header row, so the two touch. The drawer needs it for the same
+       reason one step further out — its rounded outline and lit top edge would
+       otherwise be sitting on the title bar.
+       It is reserved on the containers that sit above the scroll areas — the drawer's
+       own top edge, the content column's padding — and never inside a scroller, for a
+       reason worth stating: a sticky caption is positioned against its scrollport's
+       edge, so a gap applied as padding *inside* the scroller is scrolled away and the
+       header jumps up by that much the moment the list moves. Reserved outside, the
+       header sticks where it started.
+       The value matches the rail's own title padding, so the first thing in the rail
+       and the first caption in each table all sit on the same line. */
+    --chrome-inset: 8px;
+    padding-left: var(--rail-w, 40px);
+    /* The content gives up the panel's width at the same moment the panel starts to
+       unfold — one movement, two parts. The panel turns on this very edge, so once the
+       table has arrived the two borders are one border; during the move the table is
+       still short of it, and a folded panel does not cover the difference. The curve is
+       the swing's own, so the two parts are visibly the same motion. */
+    /* Nothing here is left to animate: this padding is the rail width whatever the
+       panels do. The seat moved on to the content below. */
+}
+
+/* A drag is the width changing under the pointer, every frame, on purpose. The
+   transition that times the drawer's entrance would put the content half a beat
+   behind the edge being dragged, which reads as lag rather than as weight. The
+   stack's right inset is on that same clock — it is what keeps the heap's edge
+   against the window's while the table slides — so it goes off with it. */
+.app.resizing .content,
+.app.resizing .reel {
+    transition: none;
+}
+
+/* Mid-drag the pointer is out over the node table, so the resize cursor and the
+   refusal to select text have to hold for the whole window, not just for the
+   handle. */
+.app.resizing,
+.app.resizing * {
+    cursor: col-resize !important;
+    user-select: none;
+}
+

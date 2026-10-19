@@ -1,0 +1,680 @@
+/* --- 06-node-table.css ---
+   the node table: its ten columns and their widths, the rows and the zebra under them, the protocol tag, the latency grades, the address and the port.
+   (Split out of App.css; the order of these files is the cascade.) */
+
+/* Ten columns, the main table's own and in its order: type, name, address, port, transport,
+   TLS, latency, speed, traffic, subscription. The last three have less to say here than they
+   do over there — one card is one subscription, so the name column repeats itself down the
+   card, and this list is fetched once rather than polled, so its two figures are the snapshot
+   taken when the drawer opened. They are here because the reader asked for the two tables to
+   hold the same thing: a face of the heap should be readable as the same table, not as a
+   summary of it.
+   Grid rather than the flex row of three this used to be: with this many columns the
+   flexible ones have to be told their proportions rather than left to fight over what is
+   left, and the skeleton rows below then line up with the real ones for free — a bar per
+   column, no widths written twice. The gap is tighter than the main table's 10px because
+   this box is 658px against that one's 1044. */
+.reel-row {
+    display: grid;
+    grid-template-columns: 50px minmax(0, 1.5fr) minmax(0, 1.2fr) 34px 34px 42px 44px 46px 62px minmax(0, .85fr);
+    align-items: baseline;
+    gap: 5px;
+    padding: 3px 10px;
+    font-size: 0.6875rem;
+    color: var(--text-dim);
+}
+
+.reel-row > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The empty-subscription line is a sentence, not a row of columns. */
+.reel-row.dim {
+    display: block;
+}
+
+.reel-row.dim {
+    color: var(--text-dim);
+    opacity: .6;
+}
+
+/* A row standing in for a face that has not asked for its nodes yet (see ReelTable). Three
+   columns of flat bars at the widths those columns really are, so the rows arriving do not
+   change the table's shape under the reader — and a low opacity that puts them plainly below
+   the lit text they are standing in for. Not a shimmer: anything that moves here would be
+   animating inside the drawer's first half-second, which is the half-second this whole
+   arrangement exists to keep still. */
+.reel-row.skel span {
+    height: .62em;
+    border-radius: 3px;
+    background: currentColor;
+    opacity: .16;
+}
+
+/* The protocol wears the card's own subscription colour — the same --tab-hue the drawer's
+   card and the main table's type column carry (see hueFor). A card is one subscription, so
+   every row in it wears the same colour; that is the point rather than a shortcoming, and it
+   is what makes a face of the heap read as the same table rather than as another one. */
+.reel-ty {
+    color: hsl(var(--tab-hue, 212) 45% 50%);
+}
+
+[data-variant="light"] .reel-ty {
+    color: hsl(var(--tab-hue, 212) 60% 50%);
+}
+
+.reel-nm {
+    color: var(--text);
+}
+
+/* The address is read character by character like every other address in the app (see
+   the mono rule in the settings), and it is truncated from the left here: the tail of an
+   address is the host, which is the part worth having. */
+.reel-ad {
+    direction: rtl;
+    font-family: var(--font-mono);
+}
+
+/* Everything but the two columns holding text of unbounded length is centred, which is what
+   the main table does: the short values then read as columns, and a row of them does not
+   drift against its neighbours. */
+.reel-pt,
+.reel-nw,
+.reel-se,
+.reel-sp,
+.reel-tr,
+.reel-gp,
+.reel-lt {
+    text-align: center;
+}
+
+.reel-lt {
+    font-variant-numeric: tabular-nums;
+}
+
+/* Nothing here is reduced away. The ring this replaced had to be hidden from this setting
+   altogether — an endless orbit is exactly what it asks to be spared, and a stationary ring
+   would have been a heap of other people's tables where the reader's own belongs. The heap is
+   a layout rather than a turn, so there is nothing to spare it: the only motion left in the
+   layer is the drawer's own fade, and the breath on the front table's frame below. */
+
+/* --- no page turn ---
+   The settings used to be uncovered by turning the node table away about its bottom
+   edge — one page lifted off another, with the panel already lying in the same box
+   underneath it. The table is not turned any more: it stays exactly where it is, at
+   full height and at its own width, and the panel stands on it (see the seat in
+   App.tsx, which measures that box and puts the panel there).
+   Nothing is left of the turn here: no transform to carry, so no transition to time
+   one and no will-change to hold a buffer for it; and no z-index lifting the table
+   over the mask, which is the point — the mask is over the table now, which is where
+   it has to be for a click beside the panel to be the dismissal it is everywhere
+   else, and for the table to stop taking clicks the panel is standing in for. */
+
+/* status bar: full width, pinned to the bottom of the app (last flex child).
+   One block of state and rates, held against the right edge. The subscriptions
+   that used to fill the other half live in the box the rail drops instead, so
+   the bar keeps only what nothing else shows — and what is left of it is the
+   window's own floor, empty on the left rather than padded out with a second
+   copy of the same names. */
+.statusbar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: stretch;
+    justify-content: flex-end;
+    gap: 0;
+    padding: 0;
+    /* Its top edge is a pseudo-element rather than a border so that it can begin at the
+       rail's right edge: the bar's surface runs the full width of the window and the
+       rail passes over it, so the line only exists where it stops being covered. Drawn
+       as a border it would be painted under the rail as well — invisible there, but two
+       drawings of one line instead of one. */
+    position: relative;
+    background: var(--bg-2);
+    /* The bar drives its own height from the chips it holds; this is the floor. */
+    min-height: 30px;
+}
+
+/* The divider, from the rail's edge to the window's right edge. */
+.statusbar::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: var(--rail-w, 40px);
+    right: 0;
+    border-top: 1px solid var(--line-strong, #46566e);
+}
+
+/* The rail's right border carried on down through the bar: the same line, at the same
+   weight, one pixel inside the rail's width — that border is inside its box, since
+   box-sizing is border-box everywhere here. Together the two read as one continuous
+   vertical edge from the top of the window to the bottom, which is what puts the corner
+   block's right side in the same place as the strip's rather than a pixel beside it. */
+.statusbar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(var(--rail-w, 40px) - 1px);
+    border-left: 1px solid var(--line-strong, #46566e);
+}
+
+/* --- state and rates --- */
+.status-right {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    /* The gap between two entries, named because the dividers below have to measure
+       themselves against it: each hangs in the middle of that space, and a line
+       written as a fixed offset from one side drifts off centre the moment the gap is
+       retuned for a narrower window. */
+    --status-gap: 10px;
+    gap: var(--status-gap);
+    /* no divider on the left: this block is the bar's only content now, and a
+       rule hanging in the empty half would read as a stray mark */
+    padding: 0 16px;
+    white-space: nowrap;
+}
+
+/* A hairline between two entries of the bar. Short of the chips it divides rather than
+   a fence around them — the rail's rules on their side, at the same weight — and hung
+   in the middle of the gap, so the space either side of it is the same space.
+   Written against the sibling rather than as an element of its own, because the bar's
+   entries come and go with the app's state: a divider that was a child would have to
+   be added and removed alongside each of them, and the two lists would eventually
+   disagree. */
+.status-right > * + * {
+    position: relative;
+}
+
+.status-right > * + *::before {
+    content: '';
+    position: absolute;
+    left: calc(var(--status-gap, 10px) * -0.5);
+    top: 50%;
+    width: 1px;
+    height: 12px;
+    margin-top: -6px;
+    /* --line and not --line-strong: this is a mark between two neighbours on the bar's
+       own surface, not one of the bar's edges */
+    background: var(--line);
+}
+
+.pill {
+    font-size: 0.75rem;
+    padding: 2px 10px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    color: var(--text-dim);
+}
+
+.pill.on {
+    color: var(--green);
+    border-color: rgba(63, 185, 80, 0.4);
+    background: rgba(63, 185, 80, 0.1);
+}
+
+.pill.off {
+    color: var(--text-dim);
+}
+
+.running-name {
+    font-size: 0.8125rem;
+    color: var(--text);
+}
+
+/* table */
+.table-wrap {
+    flex: 1;
+    min-height: 0;
+    /* both axes: with auto column sizing a long name or address can genuinely
+       need more room than the window has, and clipping it would hide data */
+    overflow: auto;
+    /* the rounded outline lives here, on the scroller, so it fills the area
+       edge to edge whatever the row count: rows keep their natural height and
+       scroll inside the frame. The side insets are margins, not padding, so the
+       frame itself — not a gutter inside it — draws the border. The bottom gap
+       is the same --chrome-inset the table header's gap to the window's title
+       bar is paid in: one inset above the frame, one below it, symmetric. */
+    margin: 0 8px var(--chrome-inset, 8px);
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    /* a whisper of lift, the treatment the traffic capsule gets: the frame
+       reads as a panel sitting on the surface, not as a line drawn on it */
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+    /* dimming, not removal: the settings dock stands on the bar beside this table,
+       and while it is up the table fades rather than leaving — the holder keeps its
+       box, its frozen column widths and its scroll, and comes back on removal with
+       the same fade in reverse. The visibility delay lives on .veil, on the leaving
+       state, because that is the only direction that needs one: going under, the
+       table stays visible until its fade-out has finished; coming back, it is
+       visible from the first frame while the fade-in plays. */
+    transition: opacity .24s ease, visibility 0s linear 0s;
+}
+
+/* The table while the dock is over it: nothing is reflowed, nothing is unmounted —
+   the reader just stops reading it. */
+.table-wrap.veil {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .24s ease, visibility 0s linear .24s;
+}
+
+table.profiles {
+    /* Fixed layout, at its own natural width, with the column widths frozen once
+       per data set (App.tsx measures the natural widths, writes them onto the header
+       cells, and their sum as this table min-width).
+
+       width auto rather than 100% is the load-bearing part. A panel taking the
+       seat narrows this table container, and both earlier arrangements made the
+       table itself respond: under auto sizing that meant re-measuring every cell of
+       every row on every frame of the move, and under width 100% it meant re-laying
+       out and repainting every row on every frame. Ten columns and a few hundred rows
+       is enough work to drop frames, which is what the seat change looked like from
+       the reader side.
+
+       So the table keeps its width and only moves. What it gives up instead is room:
+       when the container is narrower than the table — a panel is out, or the window
+       is small — the table overflows and .table-wrap scrolls sideways, which it is
+       already set up to do. A long name still gets exactly the room it asked for,
+       because the frozen widths are the natural ones; it gets it by overflowing now
+       rather than by pushing its neighbours narrower. Cells ellipsise (see td below),
+       so nothing spills over the column beside it. */
+    /* 100%, and no min-width, which is what lets the table shrink with the window.
+       Under fixed layout a table narrower than the sum of its column widths
+       shrinks the columns in proportion rather than overflowing, so every column
+       stays on screen at any window size and the cells ellipsise as they get tight.
+       The proportions come from the measured natural widths, so a wide window
+       still gives the name and the address the room they need.
+
+       And it costs nothing when the seat changes, because the width is the same
+       whatever the panels are doing (see .content): a fixed-layout table at a
+       constant width never re-measures or re-lays-out a row, so opening or closing
+       a panel is a pure translation again. */
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.8125rem;
+    /* rows keep their natural height whatever the panel's height is; the
+       rounded outline that fills the area lives on .table-wrap, the scroller,
+       so it no longer grows and shrinks with the row count */
+}
+
+/* The ten column widths, summing to the table's min-width above — ten again, now that
+   the protocol has its column back (it spent a while as a tag on the name).
+   App.tsx overwrites
+   them with the measured natural widths once per data set; these are what the table
+   renders with in the first frame, before that measurement.
+   Under fixed layout only the first row's widths are consulted, so the `th` is what
+   actually sets the column; the `td` selectors are kept so a rule elsewhere cannot
+   quietly re-introduce a per-cell width that the header no longer agrees with. */
+table.profiles th:nth-child(1),
+table.profiles td:nth-child(1) { width: 6.6%; }   /* type */
+table.profiles th:nth-child(2),
+table.profiles td:nth-child(2) { width: 11.3%; }   /* name */
+table.profiles th:nth-child(3),
+table.profiles td:nth-child(3) { width: 13%; } /* address */
+table.profiles th:nth-child(4),
+table.profiles td:nth-child(4) { width: 7.3%; }  /* port */
+table.profiles th:nth-child(5),
+table.profiles td:nth-child(5) { width: 8.5%; }  /* network */
+table.profiles th:nth-child(6),
+table.profiles td:nth-child(6) { width: 6.8%; }  /* tls */
+table.profiles th:nth-child(7),
+table.profiles td:nth-child(7) { width: 9.9%; }  /* latency */
+table.profiles th:nth-child(8),
+table.profiles td:nth-child(8) { width: 10.8%; }  /* speed */
+table.profiles th:nth-child(9),
+table.profiles td:nth-child(9) { width: 15.6%; } /* traffic */
+table.profiles th:nth-child(10),
+table.profiles td:nth-child(10) { width: 7.5%; } /* group */
+
+table.profiles th {
+    text-align: center;
+    color: var(--text-dim);
+    font-weight: 600;
+    font-size: 0.625rem;
+    letter-spacing: .09em;
+    padding: 8px 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--bg-3);
+    white-space: nowrap;
+}
+
+/* The protocol column: what a node is, in the colour of the subscription it came from.
+   The hue is set per row by App.tsx (--tab-hue, see hueFor) and is the very value the
+   drawer's card wears, so a node and its card come out one colour in both places — and
+   the column answers "whose node is this" without being asked.
+   The two saturations are the card's own pair (see .type-tag): the light theme's badge
+   is the more saturated of the two, because a deep hue on white reads as a different
+   colour rather than as the same one brighter. A step smaller than the rest of the row,
+   since a protocol is a label on the node rather than a value of it. */
+table.profiles td.type {
+    color: hsl(var(--tab-hue, 212) 32% 58%);
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: .07em;
+}
+
+[data-variant="light"] table.profiles td.type {
+    color: hsl(var(--tab-hue, 212) 45% 52%);
+}
+
+/* header labels are centred; the numeric columns keep their values right
+   aligned, which reads fine under a centred label */
+
+/* sortable result headers (寤惰繜 / 閫熷害) */
+table.profiles th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+table.profiles th.sortable:hover,
+table.profiles th.sorted {
+    color: var(--text);
+}
+
+.sort-mark {
+    margin-left: 4px;
+    font-size: 0.5rem;
+    color: var(--accent);
+}
+
+
+table.profiles td {
+    padding: 10px 12px;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    /* the th are already centred, so centring the data too lines every value up
+       under its own label instead of drifting against it */
+    text-align: center;
+}
+
+/* the numeric columns line up their digits: a column of proportional figures
+   shifts a pixel per row, and a list read top-down shows every shift */
+table.profiles td:nth-child(4),
+table.profiles td:nth-child(7),
+table.profiles td:nth-child(8),
+table.profiles td:nth-child(9) {
+    font-variant-numeric: tabular-nums;
+}
+
+/* The name and the address hold text of unbounded length, and text is scanned by its
+   left edge, so centring them leaves a ragged gap in front of every row. The headers
+   stay centred: a column heading is a short label in a known-width cell, and centring
+   it keeps the row of headings tidy, which matters more than the label lining up with
+   the data beneath it.
+   The protocol in front of them is a word too, but a short one out of a closed set, and
+   it reads better centred under its own heading. */
+table.profiles td:nth-child(2),
+table.profiles td:nth-child(3) {
+    text-align: left;
+}
+
+/* column separators: every cell except the first of its row. A whisper of a
+   rule — the columns read on alignment alone, and the full-weight lines were
+   what made the table a grid of boxes instead of a list */
+table.profiles th + th,
+table.profiles td + td {
+    border-left: 1px solid color-mix(in srgb, var(--line) 38%, transparent);
+}
+
+/* zebra keeps a wide list readable; hover / selected / running override it
+   below (same specificity, later in the file, or more classes) */
+table.profiles tbody tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.012);
+}
+
+table.profiles tbody tr {
+    cursor: pointer;
+    /* Positioned for the whole life of the row rather than only while it is on
+       its way across the list (see tr.flipping). A row's offsetTop is measured
+       against its offset parent, and a row that only became positioned halfway
+       through a sort would be measured against a different box on one side of
+       the journey than on the other. No offsets are written here, so nothing
+       moves because of it. */
+    position: relative;
+    transition: background-color .12s ease;
+}
+
+/* The pointer lights the row and stops there. It used to rise a pixel as well, with a
+   shadow under it and a lift in the stacking order to keep that shadow on top — three
+   parts of one gesture that read as the row being picked up. All three are gone: a list
+   of nodes is read by scanning down a column, and a row that shifts under the pointer
+   breaks the line the eye is following. The surface carries the whole answer now. */
+table.profiles tbody tr:hover {
+    background: var(--bg-3);
+}
+
+table.profiles tbody tr.selected {
+    background: var(--accent-soft);
+}
+
+/* running row wins over hover / selected */
+table.profiles tbody tr.running {
+    background: var(--green-bg);
+}
+
+table.profiles tbody tr.running:hover {
+    background: var(--green-bg-hover);
+}
+
+table.profiles tbody tr.running .name {
+    color: var(--green);
+    font-weight: 600;
+}
+
+table.profiles tbody tr.running td:first-child {
+    box-shadow: inset 3px 0 0 var(--green);
+}
+
+/* A row that is on its way to a new place while a test re-sorts the list (see the
+   flip effect in App.tsx). It is lifted above its neighbours for the length of
+   that journey: two rows crossing each other each paint a full-width background,
+   and without this the one drawn later cuts the other in half exactly where the
+   eye is following it. The class carries no offset of its own — the movement is
+   the animation's, and this is only the stacking. */
+table.profiles tbody tr.flipping {
+    z-index: 1;
+}
+
+/* Group switch entrance: the body rises from below while the header stays put.
+   Only tbody is animated, so the sticky thead never moves; and because
+   transform is a purely visual offset it cannot resize the table, so no
+   scrollbar flickers during the animation. The tbody is remounted via key={gid}
+   in App.tsx, which is what re-triggers this on every switch. */
+@keyframes profilesIn {
+    from {
+        opacity: 0;
+        transform: translateY(56px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* The transform-based entrance plays once per mount. It used to be kept off the
+   connection dialog's table, which borrowed .profiles and refreshed on a timer; that
+   table is gone now, so this is simply the one table with this class. */
+table.profiles tbody {
+    animation: profilesIn .8s cubic-bezier(.25, .46, .45, .94);
+}
+
+/* The tag wears the colour of the subscription it belongs to, not a fixed
+   per-protocol hue: the rail tab and every node row of that subscription then
+   read as one family. The hue is published by the table container as
+   --tab-hue (hueFor(gid) in App.tsx), with the app accent as the fallback. */
+.type-tag {
+    font-size: 0.6875rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    /* An inline-block rather than a plain inline: the same box, but one that can be told
+       to stay inside its cell. As an inline the badge ignored max-width and overflow
+       altogether, so when a column narrowed — a small window shrinks every column by the
+       same proportion — the cell had no choice but to clip it, and because that cell is
+       centred the cut landed on the badge's own left edge, where it read as a rendering
+       fault rather than as a long value. "shadowsocks" did it at a 560px table and
+       "trojan" did not, which is what made it look intermittent while the window was
+       being dragged.
+       Now the badge shrinks to the cell and its own text ellipsises, which is what every
+       other value in that table does. The drawer's tag stays a flex container — see
+       .subdrop-table .type-tag — and keeps this max-width and overflow, which it has the
+       room for. */
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: hsl(var(--tab-hue, 212) 45% 50% / .16);
+    border: 1px solid hsl(var(--tab-hue, 212) 40% 45% / .55);
+    color: hsl(var(--tab-hue, 212) 62% 68%);
+    font-weight: 500;
+}
+
+/* lighter tag hues wash out on white, so the light theme darkens them */
+[data-variant="light"] .type-tag {
+    background: hsl(var(--tab-hue, 212) 60% 50% / .12);
+    border-color: hsl(var(--tab-hue, 212) 45% 42% / .45);
+    color: hsl(var(--tab-hue, 212) 58% 36%);
+}
+
+/* In the subscription list the tag is not a protocol label but a badge, and it
+   carries the row's node count inside its outline to the right of the glyph — the
+   count is a fact about the subscription, so it belongs inside the subscription's
+   own badge rather than in a column of its own. flex is scoped to this table
+   because the main node table's tag holds a single word and must stay inline. */
+.subdrop-table .type-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.35;
+}
+
+/* The count reads as a number inside a badge, not as a second label, so it is
+   dimmed a step below the glyph and kept off the outline's own colour. */
+.subdrop-table .type-tag .tag-count {
+    font-size: 0.625rem;
+    opacity: .8;
+    /* a count is read down the column as much as across it, so the digits keep
+       one width each and the pills do not breathe with the numbers inside them */
+    font-variant-numeric: tabular-nums;
+}
+
+/* Thumbs-up marker for a low-latency node. Absolutely placed in the cell's
+   bottom-left corner so the centred number never shifts; the cell is the
+   positioning context. */
+table.profiles td.latency {
+    position: relative;
+}
+
+.lat-ok {
+    position: absolute;
+    left: 3px;
+    bottom: 1px;
+    font-size: 0.5625rem;
+    line-height: 1;
+    color: var(--green);
+    opacity: .85;
+    pointer-events: none;
+    /* a steady breath keeps the eye on the good nodes without turning into a
+       blink that draws more attention than the latency number itself */
+    animation: latOkPulse 1.4s ease-in-out infinite;
+    /* every visible row breathes at once — a column of them is a column of
+       perpetual animators, so each is handed to the compositor: opacity and
+       transform are the two it can run without repainting a glyph, and the
+       main thread stops paying for a decoration every frame */
+    will-change: opacity, transform;
+}
+
+@keyframes latOkPulse {
+    0%, 100% {
+        opacity: .9;
+        transform: scale(1);
+    }
+    50% {
+        opacity: .3;
+        transform: scale(.78);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lat-ok {
+        animation: none;
+    }
+}
+
+.addr {
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+}
+
+.name {
+    color: var(--text);
+    font-weight: 500;
+}
+
+.latency {
+    color: var(--text-dim);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Latency is graded by magnitude so a column can be ranked at a glance.
+   Only real measurements get a colour; 0 (untested) and negative (failed)
+   keep the dim default set above. */
+.latency.lat-1 { color: var(--lat-1); font-weight: 600; }
+.latency.lat-2 { color: var(--lat-2); font-weight: 600; }
+.latency.lat-3 { color: var(--lat-3); }
+.latency.lat-4 { color: var(--lat-4); font-weight: 600; }
+.latency.lat-5 { color: var(--lat-5); font-weight: 600; }
+
+/* dedicated speed column, same treatment as the latency column */
+.speed {
+    color: var(--text-dim);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* per-node traffic counters */
+.ptraffic {
+    color: var(--text-dim);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* connection detail columns */
+.port {
+    color: var(--text-dim);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.net,
+.tls,
+.pgroup {
+    color: var(--text-dim);
+}
+
+td.empty {
+    text-align: center;
+    color: var(--text-dim);
+    padding: 28px 0;
+}
+

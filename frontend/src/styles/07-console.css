@@ -1,0 +1,457 @@
+/* --- 07-console.css ---
+   the log panel: the console, its grip and head, the level picker and the category legend, and the lines themselves with their severities and categories.
+   (Split out of App.css; the order of these files is the cascade.) */
+
+/* console */
+.console {
+    /* The log panel takes the seat the way the table does, on the same number: it rides
+       clear of the panel by --seat-offset and gives the same amount back as a margin on
+       its right edge, so its left edge stops where the panel's right edge is and its
+       right edge stays against the window's.
+       The ride is why the margin is on this panel rather than on the column: a box that
+       moves has to be narrowed in the same breath, or the heading and the legend — both
+       held against its right edge — are carried off the window by the move itself. One
+       element reflowing once is affordable; it is the move that has to be a transform,
+       and it is the column's own transition, so the two arrive with the panel rather
+       than a beat after it. */
+    translate: var(--seat-offset, 0px);
+    transition: translate var(--door-dur, .44s) var(--door-ease, cubic-bezier(.4, 0, .2, 1));
+    margin-right: var(--seat-offset, 0px);
+    position: relative;
+    border-top: 1px solid var(--line);
+    background: #10151c;
+    display: flex;
+    flex-direction: column;
+    height: clamp(120px, 26vh, 260px);
+    /* The floor and ceiling live here as well as in the drag: a height restored
+       from a taller window is capped by this rather than trusted. */
+    min-height: 96px;
+    max-height: 72vh;
+    /* The panel opens and closes in the frame it is asked for: no entrance, no
+       departure — it is simply on screen, or not. */
+    box-shadow: 0 10px 26px -10px rgba(0, 0, 0, .62), 0 2px 6px -2px rgba(0, 0, 0, .5);
+}
+
+/* The log is read on a plain scroll box: the lines lie level and square to the
+   reader, arrive where the stream puts them, and nothing transforms them — no
+   entrance, no rim, no tilt. The two declarations below are functional, not
+   decorative, and both are load-bearing for App.tsx's follow logic. */
+.console-body {
+    /* The rows are measured against this box, and a row's offsetTop is measured against its
+       offsetParent — which is the nearest positioned ancestor, and was the panel rather than
+       the box, so every row's place on the face was out by the height of everything above
+       it. */
+    position: relative;
+    /* And the browser is told not to hold the view still on its own account. Rows that are
+       arriving are moving, and the anchoring heuristic answers a scroll itself — it moves the
+       view to keep whatever it anchored on where it was — which, against a panel that is
+       following the end of the log on purpose, is the view being dragged back a few hundred
+       pixels mid-stream. */
+    overflow-anchor: none;
+}
+
+/* The resize handle: a strip that straddles the panel's top border, so the line
+   the pointer is aiming at is the line it grabs. It is drawn as a hairline that
+   lights up on hover — the same accent the rest of the app marks "live" with —
+   and nothing more: the border itself is the affordance. */
+.console-grip {
+    position: absolute;
+    top: -4px;
+    left: 0;
+    right: 0;
+    height: 9px;
+    z-index: 2;
+    cursor: ns-resize;
+}
+
+.console-grip::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 4px;
+    height: 1px;
+    background: transparent;
+    transition: background .15s ease;
+}
+
+.console-grip:hover::after,
+.console.resizing .console-grip::after {
+    background: var(--accent);
+}
+
+.console-grip:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: -2px;
+}
+
+/* Mid-drag the pointer is somewhere over the log itself, so the resize cursor and
+   the refusal to select text have to hold for the whole panel, not just for the
+   handle. */
+.console.resizing,
+.console.resizing * {
+    cursor: ns-resize !important;
+    user-select: none;
+}
+
+/* title bar: caption, then the two controls that are about the panel rather than about
+   a line — the clear and the collapse. It is a strip raised a step above the panel's
+   floor — a lit top edge (the light arriving over the reader's shoulder again) and a
+   shadow under its bottom border, so the head reads as sitting in front of the log
+   rather than painted on the same sheet. */
+.console-head {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px 5px 14px;
+    background: linear-gradient(rgba(255, 255, 255, .05), rgba(255, 255, 255, 0)), var(--bg);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, .04), 0 3px 8px rgba(0, 0, 0, .38);
+    border-bottom: 1px solid var(--line);
+}
+
+.console-title {
+    font-size: 0.6875rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    white-space: nowrap;
+}
+
+/* How loud a line has to be, on the head beside the caption: a dropdown of the
+   four levels now, each option named in words. Resting quiet — the head is the
+   panel's narrowest strip, and this is a control nobody touches twice a session
+   — and the edge and the wash appear on hover, so the control has a frame
+   exactly when it is being aimed at. Each level's value carries the colour that
+   its own lines will come in, so the head and the body read as one story. */
+.log-level {
+    height: 22px;
+    padding: 0 4px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    outline: none;
+    cursor: pointer;
+    transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+
+.log-level:hover,
+.log-level:focus-visible {
+    border-color: var(--line);
+    background: var(--bg-3);
+}
+
+.log-level[data-lvl='normal'] { color: var(--accent); }
+.log-level[data-lvl='warn'] { color: var(--amber); }
+.log-level[data-lvl='error'] { color: var(--red); }
+
+/* The collapse button is the odd one out in the head: everything else describes
+   the log, this one dismisses it. Parking it at the far right keeps it from
+   being read as part of the filter/legend group, and the auto margin absorbs
+   whatever space the legend leaves behind. */
+.console-collapse {
+    margin-left: auto;
+}
+
+/* The generic head rule above gives every icon a trailing gap so it clears the
+   caption that follows it. The collapse button has no caption, so that gap would
+   sit inside the button and knock the chevron off centre. */
+.console-collapse .ic {
+    margin-right: 0;
+}
+
+/* The filter as a column beside the log rather than a menu over it: every choice is
+   in the panel at once, so which one is in effect and what else there is to choose
+   are both readable without opening anything — and the choices cannot cover the very
+   lines they are filtering. The width comes from its own labels (a two-character name
+   and a six-character one have to fit the same column in two languages); the
+   remainder of the row is the log.
+   And no floor under that width: the labels are what sets it, and a minimum only pads
+   the column with a strip of nothing — which is what a two-character label wearing 62px
+   came out as. The one thing a floor was ever covering for is the scrollbar, and an auto
+   one is added *outside* max-content rather than inside it, so it costs nothing here. */
+.console-main {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+
+.log-picker {
+    flex: 0 0 auto;
+    align-self: stretch;
+    width: max-content;
+    padding: 4px 3px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border-right: 1px solid var(--line);
+    /* The column stands a step in front of the log it filters: a wash of light down
+       its face and a shadow cast onto the log's floor at its right edge, the way a
+       card leaning on a console throws one. The log's own floor is a shade darker
+       under that edge for a few pixels, which is what sells the step as depth rather
+       than as a line (the inset shadow on .console-body draws it). */
+    background: linear-gradient(rgba(255, 255, 255, .035), rgba(255, 255, 255, 0) 60%);
+    box-shadow: 3px 0 8px -2px rgba(0, 0, 0, .45);
+}
+
+/* The chosen one also carries the accent wash. The colour in the word is what says
+   which one is in force; the wash is what makes the word findable — at the far left of
+   a panel whose lines all start at the same edge, a colour alone has to be looked for,
+   and the reader has just opened the panel to find it. */
+.log-picker .log-filter-item.on {
+    background: var(--accent-soft);
+}
+
+/* One column: the label, and nothing beside it. The column the tick used to live in cost
+   every label width in the one panel where width is scarce — and the tick said what the
+   label's colour already says, so the same reading is now said once, in a word. */
+.log-filter-item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 6px 8px;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.75rem;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.log-filter-item:hover {
+    background: var(--bg-3);
+}
+
+/* The label is a word, not a tag: the routes are named in the app's own
+   language even though the log quotes sing-box's tags. It carries the reading of the
+   whole column — dim is "not the one in effect", the accent is "this one" — which is
+   what the tick used to say from inside a column of its own. */
+.log-filter-item span {
+    color: var(--text-dim);
+}
+
+.log-filter-item.on span {
+    color: var(--accent);
+}
+
+/* The log itself: the key to its colours and then the lines they explain, as one
+   column. The key is a row of its own rather than a layer over the lines, so it never
+   covers the line it is describing — and it is outside the scroll box, so the lines
+   pass under it instead of carrying it away. */
+.console-log {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* The key to the colours. Deliberately not a filter: the categories are read in one
+   stream, so all this has to do is say what each colour stands for. It is held at the
+   log's top right — the eye arrives at the lines' left edge first, so the explanation
+   belongs on the far side of what it explains — and it is one line that neither wraps
+   nor scrolls: five names is the whole of it, and a key you have to scroll to finish
+   reading is not a key. */
+.log-legend {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 2px 10px 3px;
+    white-space: nowrap;
+}
+
+.log-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.65625rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.log-key .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    background: var(--cat, var(--text-dim));
+}
+
+/* A category whose stream is arriving breathes: the dot pulses between full
+   colour and a dim glow in its own hue (var(--cat) comes from the cat-* class).
+   The breath is opacity only — size and position stay put, so the legend never
+   shifts while the panel scrolls. The stream's last line lets the cycle run
+   out (the timer in App.tsx drops .live), so there is no hard cut-off.
+   The glow rides the dot's own opacity now — the box-shadow sits static on the
+   dot and the keyframes dim the pair together — because an animated shadow is
+   a repaint per frame, and five of these dots streaming was the log panel's
+   permanent tax on the main thread. The read is the same breath. */
+.log-key.live .dot {
+    box-shadow: 0 0 4px var(--cat, transparent);
+    animation: logBreath 1s ease-in-out infinite;
+    will-change: opacity;
+}
+
+@keyframes logBreath {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: .35;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .log-key.live .dot {
+        animation: none;
+    }
+}
+
+/* Just the scroll box: the type lives on .logline, which is every child here,
+   so there is one place to set it and the compact variant only has to touch
+   one rule. The padding is small on the left because each line carries its own
+   colour rule there. */
+.console-body {
+    flex: 1;
+    overflow-y: auto;
+    /* Horizontal overflow is clipped rather than left to compute: an axis left
+       visible alongside a scrolling one computes to auto, so stray pixels would
+       become scrollable overflow and the panel would grow a horizontal scrollbar
+       for them. Fixed-position descendants are outside this box either way, which
+       is what the log's own context menu is. */
+    overflow-x: hidden;
+    padding: 6px 10px 8px 4px;
+    /* The log sits in a recess: the floor is a shade below the panel's own, and the
+       top and bottom of the well are shaded inward — dark at the top lip where the
+       head's shadow falls into it, lighter at the bottom where the light would land.
+       An inset well is what makes the picker's shadow (cast onto this floor) read as
+       depth rather than as a smudge, and it is where the lines live, so the lines are
+       literally set into the panel rather than laid on it. */
+    background: rgba(0, 0, 0, .22);
+    box-shadow: inset 0 12px 16px -14px rgba(0, 0, 0, .85), inset 0 -10px 14px -12px rgba(0, 0, 0, .6);
+}
+
+/* One stream, many sources. The category rides on the colour of the message
+   itself, which is what the eye reads; it used to also draw a rule down the left
+   edge of every line, and that rule is gone — with the drum curving the lines it
+   read as a rail floating a pixel in front of the text. The time is split into
+   its own dimmed column, so in a mixed stream it orders the lines instead of
+   running into them. A breath of vertical padding keeps consecutive lines from
+   touching, which is what makes dense streams read as lines rather than as a
+   wall. */
+.logline {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 1px 10px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.78125rem;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* A zebra half a shade from nothing: enough to carry the eye back to the left
+   edge on the return sweep of a scan, not enough to read as stripes. Hover
+   stays the strongest of the three surfaces. */
+.logline:nth-child(even) {
+    background: rgba(255, 255, 255, .018);
+}
+
+.console-body .logline:hover {
+    background: rgba(255, 255, 255, .045);
+    /* The line comes forward a little under the pointer — out of the well it sits
+       in, by two pixels and a shade of extra light. */
+    transform: translateX(2px);
+    filter: brightness(1.18);
+}
+
+.logline .stamp {
+    flex: 0 0 12ch;
+    color: var(--text-dim);
+    opacity: .55;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .02em;
+    white-space: pre;
+}
+
+.logline .msg {
+    flex: 1;
+    min-width: 0;
+    color: var(--cat, var(--text));
+}
+
+/* Severity overrides category: an error line wears the alarm hue on its rule
+   and its text, and a wash behind it so a scan down the stream catches it even
+   out of the corner of the eye. Warnings are the same gesture at half volume. */
+.logline.err {
+    --cat: #ff6b6b;
+    background: rgba(229, 57, 53, .07);
+}
+
+.logline.warn {
+    --cat: #ffd166;
+    background: rgba(255, 193, 7, .055);
+}
+
+/* One hue per category, declared once and read by both the lines and the key in
+   the header, so a colour can never mean one thing in a line and another in the
+   legend. Bare class names rather than .logline-scoped ones: the legend's keys
+   carry the same class. */
+.cat-core {
+    --cat: #f5a3c7;
+}
+
+.cat-speedtest-url {
+    --cat: #4dd0e1;
+}
+
+.cat-speedtest-tcp {
+    --cat: #81c784;
+}
+
+.cat-speedtest-full {
+    --cat: #ffb74d;
+}
+
+.cat-speedtest-download {
+    --cat: #ba68c8;
+}
+
+.logline.dim {
+    color: var(--text-dim);
+}
+
+/* The head of a run: the store marks it and the panel draws it as a divider, so
+   the boundary between two runs is visible without being read as output. It
+   carries none of the category colour — a heading belongs to no category — and
+   the space above it does the separating that a bar of punctuation used to.
+   The half-weight bold gives it just enough voice to be a heading without
+   shouting over the lines it introduces. */
+.logline.section {
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    color: var(--text-dim);
+    font-size: 0.71875rem;
+    letter-spacing: .05em;
+}
+
+.logline.section .msg {
+    color: var(--text-dim);
+    font-weight: 600;
+}
+
+/* The first thing in the stream has nothing above it to be separated from. */
+.logline.section:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+}
+

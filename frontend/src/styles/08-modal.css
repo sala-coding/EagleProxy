@@ -1,0 +1,163 @@
+/* --- 08-modal.css ---
+   the modal: the anchored pane that grows out of a line, the way it leaves the window's right border, and the plain fade in and out.
+   (Split out of App.css; the order of these files is the cascade.) */
+
+/* modal */
+/* The backdrop fades in step with the panel, otherwise the mask pops in while
+   the dialog is still mid-swing and the two read as separate events. */
+@keyframes modalMaskFade {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.modal-mask {
+    animation: modalMaskFade .3s ease-out both;
+}
+.modal-mask {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+/* The anchored mask is no longer a mask. A pane that grows out of a list is not a
+   modal over that list, so nothing is dimmed; the flex centring is left alone
+   because the pane is fixed-positioned and places itself regardless. It still
+   covers the window, because a click anywhere is the only way to say "not this
+   one" — and it sits above the drawer (89) so that gesture reaches it. */
+/* The connections window is a panel you consult while you work, not a modal you
+   answer, so its mask neither dims nor catches: the node table behind it stays lit
+   and every click on it lands on it. It is selected by the dialog it contains rather
+   than by a prop, so the mask and the window cannot end up disagreeing about which of
+   the two they are.
+
+   That also removes the click-outside-to-dismiss a modal gets from its mask — hence
+   Escape and the × (see ConnectionsDialog). The subscriptions drawer keeps the old
+   arrangement on purpose: it is a picker, and the table must not be clickable while a
+   choice is open. */
+.modal-mask:has(> .conn-modal) {
+    background: transparent;
+    pointer-events: none;
+    /* And it stands where the drawer stands, not where a dialog stands. The mask carries
+       z-index 100, which is above the rail (90) on purpose — a centred dialog covers the
+       rail along with everything else — but this panel is not a centred dialog: it is the
+       drawer's twin, same left edge, same width, same hinge. Left at 100, its box (which
+       reaches to x = 40 at the end of the close, exactly the rail's strip) was painted
+       over the rail, and the panel's own edge and surface showed up inside it for the
+       length of the exit. At 88 it is under the rail again, and under the drawer too, so
+       a drawer arriving to take the seat from it arrives on top. */
+    z-index: 88;
+}
+
+.modal-mask:has(> .conn-modal) > .conn-modal {
+    pointer-events: auto;
+}
+
+.modal-mask.anchored {
+    background: transparent;
+    z-index: 90;
+}
+
+/* The pane keeps the dialog's own size — same width, same height, same radius, same
+   padding as the centred card it replaces. Only its seat and its entrance change:
+   the left border lands on the list's right border and the top border on the
+   clicked row's, so the form reads as belonging to that row instead of floating
+   over the middle of the window. */
+.modal.anchored {
+    position: fixed;
+    left: var(--fly-x, 0px);
+    top: var(--fly-y, 0px);
+    /* the one concession to the new seat: the original 88vh cap still applies, but
+       a pane dropped low in a short window must not hang off the bottom edge.
+       The layout effect in App.tsx normally slides it up before this matters. */
+    max-height: min(88vh, calc(100vh - var(--fly-y, 0px) - 8px));
+    /* The travel is the distance from the window's right border to the pane's final
+       seat, written by the layout effect in App.tsx. A fixed few pixels would be a
+       nudge; this is the whole crossing. */
+    --fly-travel: 40px;
+    animation: paneOut .52s cubic-bezier(.32, .72, .28, 1) both;
+    transform-origin: left center;
+}
+
+/* It comes out of the window's right border, so it comes out sideways and it comes
+   out slowly: half a second for the whole crossing, easing out early and landing
+   softly, so the card is read as travelling rather than as snapping into place.
+   The distance is --fly-travel, which puts the card's left edge on the window's
+   right border at the start — genuinely outside the window, not nudged a little.
+
+   Opacity finishes at 55% rather than at the end: a card that stays ghostly for the
+   whole slide looks like a dissolve, and the point of the motion is that you can
+   watch where it came from. Transform is absent from that keyframe, so the slide
+   keeps interpolating across the whole duration. */
+@keyframes paneOut {
+    0% {
+        opacity: 0;
+        transform: translateX(var(--fly-travel)) scale(.985);
+    }
+    55% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* And it goes back the way it came — a little quicker, because a dismissal the user
+   has already decided on should not hold them for half a second, and eased in so it
+   accelerates off rather than easing into place. */
+@keyframes paneIn {
+    from {
+        opacity: 1;
+        transform: none;
+    }
+    35% {
+        opacity: .9;
+    }
+    to {
+        opacity: 0;
+        transform: translateX(var(--fly-travel)) scale(.985);
+    }
+}
+
+/* .pane-out outranks the entrance at (0,3,0) against (0,2,0), so the class that
+   marks the exit takes over the animation outright — the two must not blend. The
+   exit covers the same distance as the entrance in roughly two thirds of the time:
+   quick enough not to hold up a dismissal, long enough that the card is still seen
+   travelling rather than blinking out of existence. */
+.modal.anchored.pane-out {
+    animation: paneIn .32s cubic-bezier(.5, 0, .78, .6) both;
+}
+
+/* A plain fade, in and out. Named for what it is rather than for the one dialog that
+   uses it: it is what a motion degrades to when the movement is dropped but the fact
+   that something happened still has to be communicated. */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+@keyframes fadeOut {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* The travel is what the setting is asking to be spared, not the fact that
+       something happened: the pane still fades, it just stops sliding across the
+       window. Removing the motion outright would make it appear with no
+       transition at all, which helps nobody. */
+    .modal.anchored {
+        animation-name: fadeIn;
+        animation-duration: .18s;
+    }
+
+    .modal.anchored.pane-out {
+        animation-name: fadeOut;
+        animation-duration: .14s;
+    }
+}
+

@@ -1,0 +1,2556 @@
+/* --- 09-settings.css ---
+   the settings dialog: one card per group, the rows and switches and fields they hold, the type scale and the theme picker, and the rest of the form.
+   (Split out of App.css; the order of these files is the cascade.) */
+
+/* --- settings dialog: one card per group, each with its own head ---
+   The dialog holds several unrelated things — where the core and the data live,
+   the external cores, the TUN switches, the routing list, the raw settings object
+   — and a bordered card per group gives each its own territory, so a long JSON
+   blob no longer reads as part of the path fields above it.
+
+   Each card's title is a head rather than a floating caption: it runs the card's
+   full width on the same 1px rule the dialog's own title bar uses (.modal-head —
+   same --line, same --bg behind it), so a group reads as a small window with a
+   caption instead of as a box with a word in it. The geometry stays tight: the
+   cards are containers, not layouts, and the dialog has to fit one screen. */
+.set-group {
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    background: var(--bg-2);
+    /* no top padding: the head carries that edge, and it has to reach the border.
+       The sides and the gap between cards are tighter than they first look like they
+       should be, because this dialog is a stack of nine cards: at 12px each, the four
+       numbers of this rhythm add up to most of a screenful of nothing. */
+    padding: 0 10px 8px;
+    margin: 0 0 7px;
+    /* No overflow here on purpose. The head is pulled out to the card's borders, and
+       the obvious way to keep its background off the rounded corners is to hide the
+       card's overflow — which also hides whatever does not fit, so any card whose
+       height is ever decided by something other than its own contents loses the rows
+       below the fold. The head carries the corners itself instead (below), which
+       costs nothing and cannot swallow a field. */
+}
+
+.set-group-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    /* pulled out to the card's borders, the way .modal-head runs across its own
+       dialog: the head is a band, not an indented line of text */
+    /* the negative margin has to match the card's own side padding above, or the band
+       stops short of the borders it is drawn to reach */
+    margin: 0 -10px 7px;
+    padding: 5px 10px;
+    font-size: 0.625rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+    /* 7 = the card's own 8px radius less its 1px border: the band starts where the
+       card's border does, so its corners sit exactly on the card's. */
+    border-radius: 7px 7px 0 0;
+}
+
+/* the little accent bar that ties the title to the card's border */
+.set-group-title::before {
+    content: "";
+    width: 3px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--accent);
+}
+
+/* Two pairs of cards share a row instead of taking one each: paths with the
+   startup/type-scale pair, and the external cores with the TUN switches. Each is a
+   handful of short rows, and a row of its own spends the dialog's whole width on them
+   and then asks for a scroll.
+   A flex pair around those two rather than a grid over the whole body: the groups
+   are of very different heights, and a grid would also have to be told which of them
+   may span it. Only these pairs are wrapped, and every other card keeps the full
+   width its contents need — with the body left as the plain scroller it was. */
+/* tighter field rhythm inside a card than the dialog's default 12px labels */
+.set-group label {
+    margin: 4px 0 2px;
+    font-size: 0.6875rem;
+}
+
+/* The controls themselves, one notch shorter. The 6px the rest of the app's forms use is
+   what makes a card of twelve of them taller than the window. Scoped to the settings
+   cards — the node editor and the routing editor have their own rhythm — and reaching
+   through the field so that it outranks the shared .jf-field input rule, which would
+   otherwise win on source order. */
+.set-group .jf-field input[type="text"],
+.set-group .jf-field input:not([type]),
+.set-group .jf-field input[type="number"],
+.set-group .jf-field textarea,
+.set-group .jf-field select {
+    padding: 4px 7px;
+}
+
+/* A field is one row: its label in a column of its own on the left, its control filling
+   the rest. This used to skip the raw cards — their fields can nest, and a nested object
+   beside a label looked like something a two-column grid should keep out of. It does not:
+   the nested block simply lands in the control column, which is still some 470px of a
+   660px dialog, and what the exclusion bought instead was the layout the raw cards had —
+   a label on its own line above its own full-width input, twelve times over, for values
+   as short as a number or a flag. The few controls that are genuinely tall (a textarea, a
+   nested object) keep that column and are no worse off for it. */
+.set-group .jf-field {
+    display: grid;
+    /* wide enough for the longest short label ("Data directory" / the protocol
+       names) without clipping it on a 660px dialog */
+    grid-template-columns: 150px 1fr;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 5px;
+}
+
+/* A label that does not fit is cut rather than wrapped, and the whole of it is in its
+   title: a row whose label takes two lines takes its control down with it. */
+.set-group .jf-field > label {
+    margin: 0;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* A field on its own line, label above control. Worn by the tall controls — the TUN
+   card's two bypass lists — where 150px of label column and 1fr of control gave the
+   textarea what a quarter of the card leaves it and a list with six lines wrapped
+   into a ribbon. Stacked, the list is a full column wide and the label reads as the
+   box's name rather than as its row's other half.
+
+   The frame's label-column rules are undone along with it: a label over a box wants
+   to start where the box does, and a label that may wrap reads better than one cut. */
+.set-group .jf-field.jf-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+}
+
+.set-group .jf-field.jf-stack > label {
+    text-align: left;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+}
+
+/* The TUN card's labels read from the left rather than from the column of a form
+   being filled in. Its rows are stacked frames of numbers and switches — the card
+   was left full width for them (see the note on `set-group .jf-field`) — and a
+   right-hand label against a value on the next half of the same line names nothing
+   on its side; left, the name sits with the line it names, the way its own stacked
+   rows already read. */
+.set-tun .jf-field > label {
+    text-align: left;
+}
+
+/* The inbound card's labels read from the left, like the TUN card's above: the card's
+   rows are one labelled value after another down the same edge, and a right-hand label
+   against a left-hand value reads as two columns that never meet. */
+.set-inbound .jf-field > label {
+    text-align: left;
+}
+
+/* The core card's labels read from the left, for the same reason as the inbound card's
+   (see .set-inbound): one labelled value per line down the same edge. */
+.set-core .jf-field > label {
+    text-align: left;
+}
+
+/* The subscription, speed-test and hotkey cards join them (see .set-inbound and
+   .set-core): the remaining raw cards read alike, so the label column answers to the
+   same edge everywhere on the sheet's cards. */
+.set-subs .jf-field > label,
+.set-test .jf-field > label,
+.set-hotkeys .jf-field > label {
+    text-align: left;
+}
+
+/* The last row of a card sits on the card's own padding rather than adding to it:
+   without this the bottom of every group comes out deeper than its sides. */
+.set-group > :last-child {
+    margin-bottom: 0;
+}
+
+/* Switches are rows too, but of their own kind: the box leads and the caption
+   follows, so the pair reads as a switch rather than as a labelled field.
+   The box now sits at the row's right end: the far edge is where a switch reads as
+   "the state of this row" — the whole line between name and box is the switch's
+   body — rather than as a second column of values parked beside the labels. */
+.set-group .jf-check {
+    margin-top: 5px;
+    justify-self: end;
+}
+
+/* a switch followed by a labelled field needs a line of its own: without this
+   the next label reads as the checkbox's caption. :not(:last-child) keeps the
+   card-bottom rule above winning when the switch ends the card. */
+.set-group .jf-check:not(:last-child) {
+    margin-bottom: 6px;
+}
+
+.set-group .jf-check + .jf-check {
+    margin-top: 3px;
+}
+
+/* The whole row is the target, so it answers the pointer as one thing: a switch
+   whose caption does not light up with its box reads as two objects. */
+.set-group .jf-check:hover span {
+    color: var(--text);
+}
+
+/* Dropdowns in a card follow the same geometry as its inputs: the .gf-row rule is
+   scoped to the routing dialog, and without this a select would fall back to the
+   browser's own chrome and stand out of the row it sits in. Full width by the same
+   rule the inputs obey — a select capped at 220px beside a field that runs to the
+   card's edge reads as two different kinds of control. */
+.set-group select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 6px 8px;
+    font-size: 0.8125rem;
+    outline: none;
+}
+
+.set-group select:focus {
+    border-color: var(--accent);
+}
+
+/* What is in a path or a number is read character by character — a directory, an
+   executable, an MTU — so those controls get the monospace face this app uses for
+   addresses and logs. Specificity has to outrank .jf-field's own input rule, which
+   is why the selector reaches through the field. */
+.set-group .jf-field input.mono,
+.set-group .jf-field input[type="number"] {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+}
+
+/* A hover says the row is the control it looks like, without the input having to
+   light up before it has been touched. */
+.set-group .jf-field input:hover:not(:focus) {
+    border-color: var(--line-strong);
+}
+
+/* The hint belongs to the group rather than to a field, so it keeps the card's own
+   left edge instead of the label column, and it is set a touch looser than the
+   fields around it: it is a sentence, not a value. */
+.set-group .hint {
+    margin: 10px 0 2px;
+    line-height: 1.65;
+}
+
+/* The type scale, drawn as a row of cells: the setting is judged by eye, and a row of
+   countable steps lets the reader see how much room is left in either direction before
+   taking it — which three named stops cannot say. The readout beside it gives the
+   number the eye is actually choosing between. */
+.ui-scale {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* A control's own name, at the left of it: the frame's legend names the frame, and the
+   control keeps its own name all the same. Dim and small — it is a name, not the value.
+   The theme bars' tone tags are the same thing in the same place, so they are the same
+   rule: two rows of names that drifted apart would read as two kinds of card. */
+.ui-scale-label,
+.theme-tag {
+    flex: 0 0 auto;
+    font-size: 10px;
+    line-height: 1;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+}
+
+/* The rail: the range cut into equal pieces, one per step, wrapped in a rounded
+   outline the way a framed level meter is. It is a capsule rather than a plain
+   rectangle so the lit run at either end reads as having reached an end, and the
+   frame is --line-strong — the weight this app gives edges that are structure rather
+   than shading. */
+.ui-scale-track {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    height: 20px;
+    /* the cells sit inside the frame rather than under it, which is what makes the
+       first and last of them stop short of the round ends */
+    padding: 3px;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    background: var(--bg);
+    cursor: pointer;
+}
+
+/* One cell. Unlit it is a notch in the rail; lit it is the accent. Both are drawn from
+   the same box, so the run of lit cells ends exactly where the value does — the fill
+   is not a second element that could disagree with the number of cells. */
+.ui-scale-cell {
+    flex: 1 1 0;
+    min-width: 0;
+    border-radius: 2px;
+    background: var(--bg-3);
+}
+
+.ui-scale-cell.on {
+    background: var(--accent);
+}
+
+/* The rail is the control, so it carries the focus ring rather than each of its cells:
+   one stop in the tab order, one ring, and the arrows move inside it. */
+.ui-scale-track:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* Hovering says which half of the rail is still to be had, without pre-lighting the
+   cell the pointer happens to be over: the value only moves when it is chosen. */
+.ui-scale-track:hover .ui-scale-cell:not(.on) {
+    background: var(--line);
+}
+
+/* The number the eye is choosing between, in the monospace face the app uses for
+   values, and wide enough for the widest of them so the track does not shift as it
+   grows. */
+.ui-scale-read {
+    flex: 0 0 auto;
+    min-width: 38px;
+    text-align: right;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    color: var(--text-dim);
+}
+
+/* The theme picker, drawn as the type scale above is drawn: one bar to a tone, each bar a
+   row of equal cells, and every cell painted in its own palette — the theme's own
+   background with its accent as the mark inside, the two values that say which theme it
+   is before the name is read. The same control as the type scale because it is the same
+   kind of setting: a thing judged by eye, whose stops are countable rather than named, so
+   one bar holds nine palettes where nine labelled pills would need a second line.
+   The bar is a capsule with its cells inside it, the way a framed level meter is: the
+   frame is --line-strong, the weight this app gives edges that are structure rather than
+   shading, and the cells keep their own colours against it. */
+.theme-track {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    height: 20px;
+    /* the cells sit inside the frame rather than under it, which is what makes the first
+       and last of them stop short of the round ends */
+    padding: 3px;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    background: var(--bg);
+    cursor: pointer;
+}
+
+/* The part of the capsule that is the slider: the nine stops, driven by press, drag,
+   arrows and a double-click. It is named apart from the frame because the frame holds one
+   more thing that is not a stop (see .theme-custom) — a slider's children are its stops,
+   and a focusable control among them would put two things in one tab stop. The nine take
+   nine shares of the frame and the custom cell takes the tenth, which is what makes every
+   cell the same width as its neighbour — the custom one included. */
+.theme-cells {
+    flex: 9 1 0;
+    min-width: 0;
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    cursor: pointer;
+}
+
+/* The bar's tenth cell: the reader's own palette, which is not one of the eighteen but
+   belongs to both bars — so it is drawn as what it is, a cell, rather than as a button
+   standing beside them. It wears what a cell wears (see .theme-swatch): its own ground
+   with its accent as the dot, and until there is a palette to paint, the wheel the panel
+   offers. It opens the panel instead of switching on the spot: its theme is not known
+   until the two choices in it are made, and a save is what wears it. */
+.theme-custom {
+    padding: 0;
+    cursor: pointer;
+}
+
+/* Nothing made yet: the dot is the wheel the panel offers, a size larger than the others'
+   because a conic wheel at seven pixels is a smudge. */
+.theme-custom:not(.made)::after {
+    width: 10px;
+    height: 10px;
+    background: conic-gradient(from 0deg,
+        hsl(0, 62%, 55%), hsl(30, 62%, 55%), hsl(60, 62%, 55%), hsl(90, 62%, 55%),
+        hsl(120, 62%, 55%), hsl(150, 62%, 55%), hsl(180, 62%, 55%), hsl(210, 62%, 55%),
+        hsl(240, 62%, 55%), hsl(270, 62%, 55%), hsl(300, 62%, 55%), hsl(330, 62%, 55%),
+        hsl(0, 62%, 55%));
+}
+
+/* A button of its own in the tab order, so it takes a ring of its own when the keyboard
+   reaches it — the same ring the slider takes (see below). */
+.theme-custom:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* The palettes, as two labelled rows: the cool nine over the warm nine, the tone's name
+   at the left of each bar naming it, the way a form row names the control beside it. The
+   pair stands as one block of palettes; the name is spoken too, for a reader who cannot
+   see the colours (see the aria-label in App.tsx). */
+.theme-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* One row of the pair: the name, then the bar. The bar takes what is left of the width,
+   which is what keeps the two of them the same length. */
+.theme-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* The cell's dropdown: its own panel, asking to be read as a small form of its own
+   rather than as an item in the theme card. It is fixed to the viewport because both
+   seats the card can sit in clip their overflow, and it is put under the cell it was
+   pressed at by hand — the 8px margins here are the ones that placement keeps it inside
+   of (see toneAnchor in App.tsx). */
+.tone-pop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 320px;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.4);
+    z-index: 130;
+}
+
+.tone-pop-title {
+    font-weight: 600;
+}
+
+.tone-hues {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.tone-hue {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: hsl(var(--hue), 62%, 50%);
+    border: 2px solid transparent;
+    cursor: pointer;
+}
+
+.tone-hue:hover { transform: scale(1.08); }
+
+.tone-hue.on {
+    border-color: var(--text);
+    box-shadow: inset 0 0 0 2px var(--bg-2);
+}
+
+.tone-pop-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+/* One cell of a bar: the palette itself, divided equally with its neighbours so the nine
+   are comparable at a glance. The edge is not decoration — a dark palette's ground and
+   the rail behind it are often the same colour, and the edge is what tells the cell from
+   the gap it sits in. */
+.theme-swatch {
+    flex: 1 1 0;
+    min-width: 0;
+    border-radius: 2px;
+    border: 1px solid var(--line-strong);
+    background: var(--sw-bg, var(--bg));
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.theme-swatch::after {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--sw-accent, var(--accent));
+}
+
+.theme-swatch:hover {
+    border-color: var(--text-dim);
+}
+
+/* The slider is the control, so it carries the focus ring rather than each of its cells:
+   one stop in the tab order, one ring, and the arrows move inside it — the same as the
+   type scale above. The capsule keeps no ring of its own: a ring belongs to the part
+   that answers the keyboard (see .theme-cells and .theme-custom). */
+.theme-cells:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* The chosen one says so the way the type scale's chosen cell does — in the accent — but
+   drawn inside it rather than around it: the cells are two pixels apart, and a ring that
+   hung outside would be painted over by the neighbour to its right. An accent edge and a
+   halo of the same colour, so it reads over a palette of any brightness. */
+.theme-swatch.active {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* The previews, painted from the palettes themselves so a swatch cannot claim a
+   theme the app does not have. */
+.theme-swatch[data-swatch="dark"] {
+    --sw-bg: #161b22;
+    --sw-accent: #4f9cf9;
+}
+
+.theme-swatch[data-swatch="light"] {
+    --sw-bg: #f5f6f8;
+    --sw-accent: #2f6fdb;
+}
+
+.theme-swatch[data-swatch="nord"] {
+    --sw-bg: #2e3440;
+    --sw-accent: #88c0d0;
+}
+
+.theme-swatch[data-swatch="dracula"] {
+    --sw-bg: #282a36;
+    --sw-accent: #bd93f9;
+}
+
+.theme-swatch[data-swatch="one-dark"] {
+    --sw-bg: #282c34;
+    --sw-accent: #61afef;
+}
+
+.theme-swatch[data-swatch="gruvbox"] {
+    --sw-bg: #282828;
+    --sw-accent: #fabd2f;
+}
+
+/* the cool eight */
+.theme-swatch[data-swatch="tokyo-night"] { --sw-bg: #1a1b26; --sw-accent: #7aa2f7; }
+.theme-swatch[data-swatch="catppuccin"]  { --sw-bg: #1e1e2e; --sw-accent: #b4befe; }
+.theme-swatch[data-swatch="oceanic"]     { --sw-bg: #1b2b34; --sw-accent: #6699cc; }
+.theme-swatch[data-swatch="aurora"]      { --sw-bg: #0e2229; --sw-accent: #34d3a6; }
+
+/* the warm eight */
+.theme-swatch[data-swatch="everforest"]  { --sw-bg: #2b3339; --sw-accent: #a7c080; }
+.theme-swatch[data-swatch="coffee"]      { --sw-bg: #241e1a; --sw-accent: #d29a5f; }
+.theme-swatch[data-swatch="sunset"]      { --sw-bg: #221427; --sw-accent: #ff8c5a; }
+.theme-swatch[data-swatch="clay"]        { --sw-bg: #2b1f18; --sw-accent: #d1785a; }
+.theme-swatch[data-swatch="ember"]       { --sw-bg: #241413; --sw-accent: #e07a4c; }
+.theme-swatch[data-swatch="bordeaux"]    { --sw-bg: #201217; --sw-accent: #d97687; }
+.theme-swatch[data-swatch="amber"]       { --sw-bg: #241b0e; --sw-accent: #d9a53e; }
+.theme-swatch[data-swatch="cinnamon"]    { --sw-bg: #231712; --sw-accent: #c46a3e; }
+
+/* In a card that shares its row the label column is gone: 150px of right-aligned
+   text beside a field would leave the field about as wide as the label it names. The
+   label goes above the control instead — the same row, turned on its side — and the
+   control keeps the card's whole width.
+   Guarded on the same width the pair itself is guarded on, and that is the whole point
+   of the guard: below it the pair stops being two half-width cards and becomes a stack
+   of full-width ones, where the column costs nothing and the rest of the dialog keeps
+   it. Without the guard the two drifted apart — a full-width card left holding a
+   90px label column with its controls stretched across the whole width. */
+/* --- the settings dock ---
+   Pushed up from the status bar's left end, a 500px-wide, 700px-tall panel split into
+   a column of subjects and a column of their cards. It is a dock, not a dialog: no
+   mask, no seat — instead of covering the window it stands on the bar it came out
+   of and leaves everything else alone, which is why it is gone from the tab order
+   only while it is not there (see the entrance below for z-order). */
+
+.settings-dock {
+    position: fixed;
+    z-index: 89;
+    left: var(--rail-w, 40px);
+    /* standing on the bar: its own edge rides the bar's top, the way the exit panel
+       and the two menus beside it do. */
+    bottom: var(--status-h, 30px);
+    /* 540 × 600, with the height filed to fit a short window so the panel never hangs
+       off its floor: the bar is the floor it stands on, not the window's. 540 rather
+       than the 500 it opened at: after the 138px nav and the frame, the card on the
+       right was ~360px wide, and that is the width the mode cards, the two resolver
+       catalogues and the raw-settings rows were being laid out in — forty more is the
+       difference between a column of ellipses and a column of values. */
+    width: min(540px, calc(100vw - 48px));
+    height: min(600px, calc(100vh - var(--status-h, 30px) - 24px));
+    /* The floor and the ceiling of a height the reader has dragged (see the grip below),
+       written here as well as in the drag itself (clampDockHeight in App.tsx), so that
+       neither end of a height restored on another window is trusted: the drag and the
+       stylesheet have to agree on the numbers, and these are the ones that hold. */
+    min-height: 260px;
+    max-height: calc(100vh - var(--status-h, 30px) - 24px);
+    display: grid;
+    grid-template-rows: auto 1fr;
+    overflow: hidden;
+    /* --line-strong and not --line: the dock floats above the whole window's content —
+       logs, nodes, the drawer — any of which can be running right behind it, and at
+       --line's weight its edge dissolved into whatever it covered. The same step every
+       other floating surface takes. */
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    background: var(--bg-2);
+    /* A heavier cast than the default panel shadow, plus a hair of inner light along
+       the top: the read is "a sheet lifted off the page", and the light catching its
+       edge is what draws the outline on a dark floor. */
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, .35),
+        0 18px 48px rgba(0, 0, 0, .5),
+        inset 0 1px 0 rgba(255, 255, 255, .06);
+    /* The arrival is the bar's own gesture: the panel rises out of it. A panel
+       anxiously springing all the way from the floor would be the tray announcing
+       itself; this one is a drawer pulled up one stop, and short travel + a slow
+       tail is the whole read. */
+    transform-origin: left bottom;
+    animation: dockIn .3s cubic-bezier(.05, .68, .24, 1) both;
+}
+
+@keyframes dockIn {
+    from {
+        opacity: 0;
+        transform: translateY(28px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* The way out is the arrival run backwards — the same drawer pushed back into the
+   bar (see requestClose in App.tsx, which waits out this run before unmounting). */
+.settings-dock.closing {
+    animation: dockOut .22s cubic-bezier(.4, 0, .6, 1) both;
+}
+
+@keyframes dockOut {
+    from {
+        opacity: 1;
+        transform: none;
+    }
+
+    to {
+        opacity: 0;
+        transform: translateY(28px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* Arrival: no motion at all — the panel is simply there. The pair used to
+       share one fadeOut rule, which meant a machine with animations turned off
+       got a dock that arrived already invisible: present in the DOM, laid out,
+       and at opacity 0, so pressing the logo looked like nothing happening and
+       the next press closed a panel the reader never saw. */
+    .settings-dock {
+        animation: none;
+    }
+    /* Exit: the short fade is the one motion kept, so a dismissal still reads
+       as one. */
+    .settings-dock.closing {
+        animation: fadeOut .14s ease both;
+    }
+}
+
+/* The dock's top edge as a handle, the way the log panel's is: the panel stands on the
+   bar and grows up from it, so the edge that moves is the one at the top. It sits inside
+   the panel rather than straddling the border, because the dock clips its overflow and a
+   strip hanging above it would be half a row of dead pixels. A hairline along that edge
+   lights up on hover — the accent the app marks "live" with — and nothing more: the
+   border and the cursor over it are the affordance. */
+.dock-grip {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 10px;
+    /* over the head, which is the panel's first row and carries a background of its own */
+    z-index: 3;
+    cursor: ns-resize;
+    touch-action: none;
+}
+
+.dock-grip::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 1px;
+    background: transparent;
+    transition: background .15s ease;
+}
+
+.dock-grip:hover::after,
+.settings-dock.resizing .dock-grip::after {
+    background: var(--accent);
+}
+
+.dock-grip:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: -2px;
+}
+
+/* Mid-drag the pointer is somewhere over the panel, so the resize cursor and the refusal
+   to select text have to hold for the whole dock, not just for the handle. */
+.settings-dock.resizing,
+.settings-dock.resizing * {
+    cursor: ns-resize !important;
+    user-select: none;
+}
+
+/* The head: the bar's own title strip. The subject of the panel is answered by the
+   nav below-left, and the run of buttons (check / cancel / save) sits at the end of
+   the strip, where the eye looking for the way out already goes. */
+.set-dock-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    /* Compact: the strip is a nameplate and nothing more, so it takes the title's
+       own line-height plus a step of air on each side — the panel's height is the
+       cards' room, and every pixel spent here was one taken off them. */
+    padding: 5px 12px 5px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-3, var(--bg-2));
+}
+
+.set-dock-title {
+    flex: 1 1 auto;
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+/* The two columns: subjects on the left, the card shown on the right. */
+.set-dock-body {
+    display: grid;
+    grid-template-columns: 138px 1fr;
+    min-height: 0;
+}
+
+/* The cards column is the carousel the cards are positioned against: it takes no
+   padding of its own — the cards carry theirs — and its own edges are where a card's
+   travel starts and stops. */
+.set-cards {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* --- the cards at dock width ---
+   The card rules above were sized for the 660px dialog the sheet used to be, and the
+   dock's carousel is ~360px: every number that was "wide enough for the longest label
+   without clipping on a 660px dialog" is now a third of the card. These overrides re-fit
+   the geometry for the narrow column — nothing in them reaches outside the dock. */
+
+/* The label column: 150px was sized for six-character English labels; the dock's labels
+   in Chinese are three or four characters. A third of the width comes back to the
+   control, which is the column that wanted it. */
+.settings-dock .set-group .jf-field {
+    grid-template-columns: 88px 1fr;
+    gap: 8px;
+}
+
+/* The dock's 88px column would be where a boxed row lands — the box is the row's only
+   child, and a grid's first child goes to the first track. Boxed rows (the nested
+   objects, the long values, the line lists) have their name on the border themselves,
+   so they take the whole line and no label column stands beside them. */
+.settings-dock .set-group .jf-field.jf-object,
+.settings-dock .set-group .jf-field.jf-long {
+    grid-template-columns: 1fr;
+}
+
+/* A grid of two or three short values beside each other (the sheet gave them the 
+   window's width to sit in) has ~170px a column here: a URL field in one is a column
+   of ellipses. One line each — the numbers still read, the URL fields keep their end. */
+.settings-dock .jsonform[data-cols] {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+
+/* The startup card's palette rows. Each bar is a name and nine cells and a tenth of the
+   reader's own, and the two rows take the card's width between them: a dock this wide
+   still leaves every cell wide enough to read a palette in. Nothing wraps — a card
+   narrow enough that it would have to would rather squeeze the cells than break the
+   pair into rows that no longer stand in the same columns. */
+
+
+/* The inbound row: the address, the port and the two probes beside them. The frame
+   hands the row back the width the label column used to hold (see .port-box), and four
+   controls that fit on one line should have it: the address grows into what is left,
+   the port keeps the four digits it holds, and the buttons keep their own width, so a
+   window narrow enough to wrap them wraps them as a pair rather than stretching one
+   across a line of its own. */
+.settings-dock .port-stack > .input-row {
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.settings-dock .port-stack > .input-row > input.mono {
+    flex: 1 1 110px;
+}
+
+/* Carries the tag so that it outranks the rule above: the port wears .mono too, and
+   without the tie broken it took the address's floor as well as its own — the number
+   came out as wide as the address, which is what pushed the second probe onto a line
+   of its own with the row still half empty. */
+.settings-dock .port-stack > .input-row > input.port-num {
+    flex: 0 0 78px;
+}
+
+.settings-dock .port-stack > .input-row > .btn {
+    flex: 0 0 auto;
+    padding: 4px 8px;
+}
+
+/* The left column of the dock: the subjects, named one under the other. A column
+   rather than the band the sheet used to carry, because the dock is tall and narrow —
+   twelve names side by side would be an unreadable strip, where here they are a
+   table of contents standing where a toc stands. */
+.set-nav {
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 8px;
+    border-right: 1px solid var(--line);
+    scrollbar-width: thin;
+}
+
+/* One name each, full width, stacked. */
+.set-nav-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow-y: visible;
+}
+
+.set-nav-item {
+    position: relative;
+    flex: none;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-dim);
+    /* the left padding clears the active card's own marker bar, so the words sit on
+       one column whether the entry is lit or not */
+    padding: 5px 10px 5px 14px;
+    font-size: 0.6875rem;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+
+.set-nav-item:hover {
+    color: var(--text);
+    background: var(--bg-3);
+}
+
+/* The lit entry is the card on screen, and it wears the accent the group titles carry:
+   the same mark, saying the same thing about the same card. A wash behind the words
+   rather than a box around them — the entry is the thing being looked at, and a wash
+   reads as "here" where an outline reads as "pressable". */
+.set-nav-item.active {
+    color: var(--accent);
+    border-color: transparent;
+    background: var(--accent-soft);
+}
+
+/* The marker bar, the same 3px pill the group titles open with: one motif, twice, is
+   what ties the two columns of the panel together. */
+.set-nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    width: 3px;
+    height: 12px;
+    transform: translateY(-50%);
+    border-radius: 2px;
+    background: var(--accent);
+}
+
+/* The hairline between the hand-written cards and the raw-settings groups: the list
+   is a table of contents in two parts, and the seam is where the second begins. */
+.set-nav-sep {
+    height: 1px;
+    margin: 7px 6px;
+    background: var(--line);
+}
+
+/* The arrows are drawn in borders rather than loaded as glyphs — one arrow, two
+   directions, and the left one is the right one turned around. */
+.nav-caret {
+    width: 0;
+    height: 0;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    border-left: 5px solid currentColor;
+}
+
+.nav-caret.flip {
+    transform: scaleX(-1);
+}
+
+/* A card of the carousel — the card itself, not a wrapper around one. The dock's
+   children are already the cards, and a track of columns would have pushed every one of
+   them a level deeper to hold nothing. Its place comes from App.tsx: the distance to the
+   slide on screen, in widths of this box plus the gutter between cards.
+
+   Its height is the carousel's, not its content's: top and bottom together, so every
+   card is the same frame however much is in it. A card that stopped where its fields
+   stopped left the panel looking like it had failed to finish — and stepping through the
+   nav, the frame is what stays put while the subject changes. What does not fit scrolls
+   inside the frame.
+
+   Hidden as well as moved, because a card the reader cannot see is not a place for the
+   caret to land. Visibility flips at the start of a move and holds to the end of it, so
+   the arriving card is there to be seen while the leaving one is on its way out, and the
+   cards past it are simply not there. */
+.set-slide {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow-y: auto;
+    visibility: hidden;
+    transition: transform .34s cubic-bezier(.4, 0, .2, 1), visibility .34s;
+}
+
+.set-slide.on {
+    visibility: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* the travel is what this setting asks to be spared; the cards still change */
+    .set-slide {
+        transition: visibility .01s;
+    }
+}
+
+/* The two notices that are about the sheet rather than about the card on screen — one
+   says the file is still being read, the other arrives out of a manual update check.
+   They hang over the carousel instead of taking a card each. */
+.set-notice {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* The startup card asks for its label column — its labels are short and its controls (a
+   rail, a row of discs, a pair of inputs) read better beside their name than under it —
+   and its labels start at the card's left edge, because the 开机自启 switch above them
+   shares that edge and a right-aligned column beside it made two left edges in one card.
+   Both rules used to live under .set-pair, which the card is no longer part of. */
+.set-group.set-side-labels .jf-field {
+    grid-template-columns: 90px 1fr;
+    gap: 8px;
+}
+
+.set-group.set-side-labels .jf-field > label {
+    text-align: left;
+}
+
+/* --- the cards at dock width, second pass ---
+   The first pass re-fit the geometry the sheet handed down. This one re-lays the three
+   cards whose layout was written for a column twice this wide: the routing mode cards,
+   the DNS card's three columns, and the raw-settings groups that still asked for a grid
+   of columns. All of it is scoped to the dock, so the sheet's own rules are untouched. */
+
+/* The routing card. Four mode cards across ~380px is ~80px a card — a Chinese name and
+   a note fighting for one line. Two by two reads as the table of directions it is, and
+   every card gets room for its note. */
+.settings-dock .rt-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+}
+
+.settings-dock .rt-card {
+    padding: 8px 10px;
+    gap: 2px;
+}
+
+/* The rule lists, one to a line: minmax(220px) in a 380px column put two boxes beside
+   each other with neither wide enough for a rule line, and the block card's two lists
+   read as one squeezed pair. */
+.settings-dock .rt-lists {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-dock .rt-list textarea {
+    height: 120px;
+}
+
+/* The DNS card, stacked. Three columns of ~115px each put the two resolver catalogues into
+   columns no address could live in; a column each turns the card into what it is — the two
+   answers, then the two lists they are chosen from. Side by side at dock width the two
+   tables were half a card apiece, and a table half a card wide is a table whose entries
+   cannot be read whole: the address is the longest thing on a row and the first to go. The
+   pair is still read as a pair — they are the two answers, one above the other — and the
+   card scrolls for the rest, as its neighbours do. The seam drawn between two side-by-side
+   columns goes with them. */
+.settings-dock .rt-dns {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+}
+
+.settings-dock .rt-dns > .dns-col:last-child::before {
+    display: none;
+}
+
+/* Three digits and a unit word are what the latency column ever holds ("240 ms" is a slow
+   resolver), and the width it gives back goes to the name — the column that has to hold
+   "Cloudflare (one.one.one.one)" beside a bare number. */
+.settings-dock .dns-table-head > span:nth-child(2),
+.settings-dock .dns-row-ms {
+    flex: 0 0 44px;
+}
+
+/* The catalogue's address column was sized for the longest URL there is on a card three
+   times this wide; a full-width column of the dock is two thirds of that, so it takes what
+   there is rather than what it would like — the name keeps enough of itself to be told
+   apart, and the address truncates, which is what the column already knows how to do. The
+   floor under the table is raised from the 100px of a card with a table in it: a catalogue
+   paged one screenful at a time is read in pages of six rather than of three. */
+.settings-dock .dns-table-wrap {
+    --dns-addr-w: 190px;
+    min-height: 150px;
+}
+
+/* The custom DNS panel covers whatever the tables cover, which stacked is the whole block.
+   Neither line is named, which is what makes it the whole block: with the two catalogues
+   stacked the rows are implicit, and an area asked for by line number measured out as the
+   first row alone — the panel covered one resolver and left the other under it. With both
+   placements auto the containing block is the grid's own box (see .dns-panel). */
+.settings-dock .dns-panel {
+    grid-column: auto;
+    grid-row: auto;
+}
+
+/* The rule sets, as a framed list rather than loose lines: the tag, its state and its
+   action sit on ruled rows the way the resolver catalogue below does, so the two lists
+   a reader compares wear the same face. */
+.settings-dock .rs-list {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    padding: 1px 8px;
+    max-height: 200px;
+    margin-bottom: 8px;
+}
+
+.settings-dock .rs-row {
+    padding: 4px 0;
+}
+
+.settings-dock .rs-row + .rs-row {
+    border-top: 1px solid var(--line);
+}
+
+/* The raw-settings cards, re-fit for a card ~380px wide. The hotkey and subscription
+   grids can hold two columns here — a combination and a switch each want less than half
+   the card — while the three-column test card keeps the single line its URLs need. */
+.settings-dock .jsonform[data-cols="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* The cards' own rhythm: a breath more padding than the sheet's tight 10px, and the
+   title band's overhang riding along with it. */
+.settings-dock .set-group {
+    padding: 0 12px 10px;
+}
+
+/* The nameplate is back — but as a sticky: the band holds at the top of the card's
+   scroller while the rows it names go by under it. Its own background and hairline
+   are what make that honest — the field behind it is covered exactly to the band's
+   edge — and as a positioned element it paints over the rows beneath it by the
+   browser's own order, so no z-index war is declared here. It lifts off its old
+   seat only when the card's own bottom comes up to meet it, which in a slide of
+   one card is the end of the scroll. */
+.settings-dock .set-group-title {
+    margin: 0 -12px 9px;
+    position: sticky;
+    top: 0;
+    /* Above the card's own positioned rows: .kind-box is relative, and two
+       positioned siblings with no explicit order paint in document order — the
+       frame coming after the band would slide over it and read as the band being
+       transparent. One step of z takes the whole story back to "covered by the
+       band", in every theme, because the band's ground is a theme variable. */
+    z-index: 1;
+}
+
+.settings-dock .set-group .jf-field {
+    margin-bottom: 6px;
+}
+
+/* The two frames a card's rows are gathered into, one geometry read two ways:
+   the looks box, whose legend names the rows inside it (the type scale and the palette,
+   the inbound address and its port — one subject, and the frame is its name), and the
+   kind box, whose legend names only what the rows have in common — they are the fields a
+   reader fills in, or they are the switches — so every row inside keeps its own name in
+   the card's label column (see `grouped` in JsonForm, which is what draws them).
+   The title is the legend a bordered block was asking for — a frame has to say what
+   holds its rows together, and it does so on the border itself: it sits astride the
+   frame's top edge, its own patch of the card's surface cutting the line where it
+   crosses, so the words read as part of the border rather than as text dropped beside
+   it. (The dev build's theme switcher in the rail carries the same two controls loose;
+   the frame is what keeps 启动卡's copy from reading as two unrelated rows.) */
+.look-box,
+.kind-box {
+    position: relative;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    /* The legend rides the top edge, so the frame opens under it rather than behind
+       the card head; the bottom padding is the last field's own margin minus a step,
+       so the frame hugs its contents the way the card's other rows hug theirs. */
+    margin: 7px 0 9px;
+    padding: 10px 10px 2px;
+}
+
+.look-box-title {
+    position: absolute;
+    top: 0;
+    left: 9px;
+    transform: translateY(-50%);
+    padding: 0 6px;
+    background: var(--bg-2);
+    color: var(--text-dim);
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    /* The line the legend sits on is the frame's, and a word set on a line that runs
+       behind it must occupy that line fully or the border peeks through the gaps. */
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+/* Inside the looks box the rows carry no label of their own — the frame's legend is
+   their name, and the hints ride the controls and the frame itself — so the side-label
+   grid is dropped and the control fills the row. Two wider selectors in front of this
+   one set that grid and the margin, so this one has to reach through .set-group to match
+   their weight and come later to win it.
+   The kind box is deliberately not in this rule: its legend names the kind rather than
+   the rows, so its rows keep the label column, and what a hand-written row of a kind
+   wears inside one frame is what a generated row of the same kind wears in the other
+   (see `extraRows` in JsonForm). */
+.set-group .look-box .jf-field {
+    grid-template-columns: 1fr;
+    gap: 4px;
+    margin-bottom: 9px;
+}
+
+/* The frame hugs its contents: the last row's margin is the frame's own padding. */
+.set-group .look-box .jf-field:last-child {
+    margin-bottom: 0;
+}
+
+/* --- the sheet at table width ---
+   Nothing to narrow. The panel is measured against the node table, so it is as wide as
+   the table is sitting: the whole content column on a quiet window, and the short width
+   the drawer or the log panel leaves it when one of them is out. The label column and
+   the column groups keep the numbers they were sized at, because the widest they ever
+   see is the widest case they were sized for. */
+
+/* The raw-settings cards used to be one block with a scroll of its own, because one
+   block holding every key could grow without bound. They are groups now (see
+   SETTING_GROUPS), each a few rows tall, and they scroll with the dialog like every
+   other card — a scroll inside a scroller is what a nested max-height buys. */
+
+/* --- the door swing ---
+   The panel rotates around its right edge, which rides the table's left border, so it
+   reads as a door swinging open rather than a card fading in. perspective() lives inside the transform so no
+   wrapper element has to establish a 3D context. `both` holds the final frame:
+   without it the panel would snap back to its untransformed state on the first
+   frame and the whole effect would be invisible.
+
+   One motion, two users. The connect dialog (the `flip` prop) and the subscriptions
+   drawer open on exactly these frames — the drawer used to have its own, which meant
+   two sets of numbers to keep in step for what is the same gesture. Naming them for
+   the motion rather than for one of its users is what makes the second one a
+   reference instead of a copy.
+
+   Deliberately not gated on prefers-reduced-motion. This is the app's one piece of
+   theatre: it is what says a panel came from somewhere, and a version that is
+   suppressed on a machine whose animations happen to be off is not a reduced
+   version of the gesture, it is the absence of one — which is how this drawer ended
+   up snapping into place with nothing in between. The travel is short, on an axis,
+   and it stops; nothing loops and nothing moves across the field of view. The
+   setting's users are still served everywhere else in the app: the anchored pane,
+   the latency dot, the toggle pulse and the expiry nudge all stand down.
+
+   The entrance leans the panel away from the viewer — the far edge starts behind the
+   window and swings forward into place, so the drawer reads as unfolding out of the
+   rail rather than swinging at the reader. A positive angle is what sends that edge
+   away (+X rotates toward -Z). The exit below sweeps the other way on purpose: a door
+   that opens away from you closes toward you, and the two are on opposite arcs. */
+@keyframes doorFlipIn {
+    from {
+        opacity: 0;
+        /* The slide is the point, not a nudge. The table gives up the rail's width plus the
+           panel's own; this gives back exactly the panel's own width and the gap over the
+           same beat, so the panel's right edge — its hinge — sits on the table's left edge
+           at every moment of the swing rather than only at its two ends. The rail is the
+           same on both sides of that equation and cancels out, which is why the offset is
+           the panel's width and the gap and nothing else.
+
+           The exit has no such slide on purpose: the panel is already mounted by then,
+           so its seat transitions with the gutter and the two are in step by
+           construction. Carrying the offset in both would move it twice. */
+        transform:
+            perspective(1100px) rotateY(-72deg)
+            translateX(calc(-1 * (var(--panel-w, 430px) + var(--panel-gap, 8px))));
+    }
+
+    /* Two and a half degrees past flat, given back over the last fifth of the swing. A
+       panel that arrives at zero and stops is a panel being placed; one that comes a
+       little past and settles is a panel with weight in it. The hinge is the panel's
+       right edge, so what travels in those two degrees is its free end — the far edge,
+       over the rail — and that is the edge the eye watches to say whether a panel landed
+       or was merely set down. */
+    84% {
+        opacity: 1;
+        transform: perspective(1100px) rotateY(2.4deg) translateX(0);
+    }
+
+    to {
+        opacity: 1;
+        transform: perspective(1100px) rotateY(0) translateX(0);
+    }
+}
+
+/* Closing swings the panel the other way — into the screen — and carries it all
+   the way to 90 degrees, where it is exactly edge-on and therefore invisible.
+   72 degrees left a visible sliver, so the panel appeared to shrink to a strip
+   rather than disappear.
+
+   The origin is the shared edge (see .subdrop): what turns is the panel's far end,
+   and the line it turns on does not move. Same direction as the entrance, not the
+   opposite one.
+
+   Opacity is held at 1 for most of the sweep and dropped only at the end: fading
+   from the start would make it ghost away long before it reaches edge-on. */
+@keyframes doorFlipOut {
+    from {
+        opacity: 1;
+        transform: perspective(1100px) rotateY(0) translateX(0);
+    }
+
+    /* The same two and a half degrees, in the other order and therefore felt as a push
+       rather than as a bounce: the panel is pressed back out a little before it goes,
+       the way a door swings when it is given one. It costs 60ms and it is the whole
+       difference between a dismissal and a disappearance. */
+    15% {
+        transform: perspective(1100px) rotateY(2.4deg) translateX(0);
+    }
+
+    70% {
+        opacity: 1;
+    }
+
+    to {
+        opacity: 0;
+        transform:
+            perspective(1100px) rotateY(-90deg);
+    }
+}
+
+.modal.flip {
+    /* Its own right edge, which in this seat is the node table's left edge — the same
+       hinge the subscriptions drawer turns on, and for the same reason: it is the edge
+       the two share, so it is the one that can stay put while the panel turns. */
+    transform-origin: right center;
+    /* The timing lives on .app, with the drawer that shares these frames — see
+       --door-dur. */
+    animation: doorFlipIn var(--door-dur, .44s) var(--door-ease, cubic-bezier(.4, 0, .2, 1)) both;
+}
+
+/* The close, on the same timing as the entrance (--door-dur) rather than a
+   duration and a curve of its own: a panel that opens in a beat and takes two to
+   close reads as two different objects, and the closing half of a gesture is the
+   half a reader sees when they change their mind about it.
+   It does sweep further, because it has to reach exactly 90 degrees to be edge-on
+   and therefore invisible; 72 degrees left a visible sliver. It covers those extra
+   degrees in the same time, fading out over its last third so they are never seen
+   head-on. */
+.modal.flip.flip-out {
+    animation: doorFlipOut var(--door-dur) var(--door-ease) both;
+    /* no lead on the way out — the panel goes at once, and the table takes its width
+       back only when this has finished */
+    animation-delay: 0s;
+}
+.modal {
+    width: 520px;
+    max-width: 92vw;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .5);
+}
+
+.modal.wide {
+    width: min(780px, 92vw);
+}
+
+.modal.narrow {
+    width: 430px;
+}
+
+.modal h2 {
+    margin: 0 0 16px;
+    font-size: 1rem;
+}
+
+.modal label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin: 12px 0 6px;
+}
+
+.modal input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 8px 10px;
+    font-size: 0.8125rem;
+    outline: none;
+}
+
+.modal input:focus {
+    border-color: var(--accent);
+}
+
+.modal-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 20px;
+}
+
+.code {
+    background: #10151c;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    max-height: 460px;
+    overflow: auto;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    white-space: pre;
+    color: var(--text);
+}
+
+/* icons */
+.btn .ic {
+    margin-right: 6px;
+}
+
+.btn.tiny .ic {
+    margin-right: 4px;
+}
+
+.btn.icon-only .ic {
+    margin-right: 0;
+}
+
+.btn.icon-only {
+    padding: 6px 10px;
+}
+
+.btn.icon-only.active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+/* The rail's lit switch, and the lamp that says so. The glyph is the light itself: it
+   cycles dark -> bright -> dark, so the glow reads as coming from the icon rather than
+   from the button. The rest state is deliberately dim (not merely "less bright"),
+   otherwise the contrast between the two halves is too small to notice on a small
+   glyph. Only the icon breathes — see .appnav-btn.switch. */
+/* The glyph is an inline SVG, and text-shadow never paints on SVG content —
+   the two shadow stops were writing a per-frame paint into the keyframes for
+   an effect the eye never saw. The glow is the icon's own colour breathing;
+   opacity and transform alone, on the compositor. */
+@keyframes toggleIconGlow {
+    0%, 100% {
+        opacity: .18;
+        transform: scale(.85);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.08);
+    }
+}
+
+.appnav-btn.switch.active .ic {
+    will-change: opacity, transform;
+}
+
+/* A switch whose press has not been answered yet. It has already taken its lit
+   colour (toggleSP paints before the call returns), so this is the "still working"
+   on top of that: a quicker breath than the resting glow, which is what keeps the
+   two readable as two states. It matters most for TUN, where the core is stopped
+   and restarted and the internal driver sends the app through UAC and back as a new
+   process — seconds of a button that would otherwise look untouched. */
+.appnav-btn.switch.busy .ic {
+    animation: toggleIconBusy .55s ease-in-out infinite;
+}
+
+@keyframes toggleIconBusy {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: .35;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .appnav-btn.switch.active .ic,
+    .appnav-btn.switch.busy .ic {
+        animation: none;
+    }
+}
+
+.modal-head .btn .ic {
+    margin-right: 0;
+}
+
+.sidebar-title .ic {
+    color: var(--text-dim);
+}
+
+.pill .ic {
+    margin-right: 4px;
+}
+
+/* bottom dock */
+/* A wrapper for the status bar, and nothing else. flex:0 0 auto is a guard, not
+   styling — as a flex item of .app this wrapper is shrinkable by default, so a
+   tall node list could squeeze it and slide the status bar up the window. */
+.bottom-dock {
+    flex: 0 0 auto;
+    /* Pulled back out of .app's left padding by exactly the gutter, which is what
+       makes the bar the full width of the window instead of stopping where the drawer
+       begins. The gutter is the rail plus the drawer when it is out, so this is the one
+       declaration that has to follow it; the bar's contents are held to the right, so
+       nothing inside it moves when the drawer opens and closes. */
+    margin-left: calc(0px - var(--rail-w, 40px));
+}
+
+.sidebar-title {
+    display: flex;
+    align-items: center;
+    /* icon pins to the left edge, caption to the right one, with the space
+       between them doing the separating */
+    justify-content: space-between;
+}
+
+.hint {
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    margin: 0 0 8px;
+}
+
+.dim {
+    color: var(--text-dim);
+}
+
+/* The servers of a hand-written dns section, as rows (see DnsServerRow). A block of its own
+   above the raw text, wearing the same edge the tables in this card wear — the two are two
+   halves of one setting, and the box below is what is left of it.
+   
+   A row wraps rather than scrolls: six fields are more than a narrow card holds on one line,
+   and a second line of them is still one server. */
+.dns-obj {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    overflow: hidden;
+}
+
+.dns-obj-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 4px 8px;
+    background: var(--bg-3);
+    border-bottom: 1px solid var(--line);
+    color: var(--text-dim);
+    font-size: 0.625rem;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+/* A row of six fields, two to a line, each in a column of its own.
+
+   A grid rather than the wrapping flex row this was: a server carries six fields and the
+   panel is about four hundred pixels wide, so they never fitted on one line — but a flex row
+   that wraps lays each row out on its own, which puts the second server's address where the
+   first server's path is, and the third one's delete button hard against its type. Something
+   that is a table of servers has to be laid out as one.
+
+   Two lines, and the same three columns for both: the first line is what a resolver *is*
+   (its tag, its type, where it points) and the second is what it does (the path for the
+   HTTP-shaped ones, an outbound to go through, and which other server resolves its own
+   name). Four tracks, the fourth being the delete button's own column — a column and not a
+   tail, so that it stands in the same place on every row.
+
+   Fields a type has no use for are simply not placed (see the JSX): the grid takes the lines
+   it is given, so a `local` server is one line of two fields and nothing else. */
+.dns-obj-row {
+    display: grid;
+    /* Wide enough for 类型's longest word — `fakeip`, with the select's own arrow after it —
+       and for a tag like `dns-remote`; the address takes whatever is left, which is the one
+       field whose content has no length to plan for. */
+    grid-template-columns: 128px 84px minmax(0, 1fr) 24px;
+    align-items: center;
+    gap: 4px 6px;
+    padding: 5px 8px;
+}
+
+.dns-obj-in.obj-tag {
+    grid-area: 1 / 1;
+}
+
+.dns-obj-in.obj-type {
+    grid-area: 1 / 2;
+}
+
+.dns-obj-in.obj-addr {
+    grid-area: 1 / 3;
+}
+
+.dns-obj-in.obj-path {
+    grid-area: 2 / 1;
+}
+
+.dns-obj-in.obj-detour {
+    grid-area: 2 / 2;
+}
+
+.dns-obj-in.obj-resolver {
+    grid-area: 2 / 3;
+}
+
+.dns-obj-row + .dns-obj-row {
+    border-top: 1px solid var(--line);
+}
+
+/* The fields. Each carries a placeholder as its example and a tooltip for what the field is,
+   because a row six fields wide has no room for six labels — and each fills the column it was
+   given rather than sizing itself, which is what keeps the columns straight down the list. */
+.dns-obj-in {
+    width: 100%;
+    min-width: 0;
+    padding: 2px 6px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.6875rem;
+    outline: none;
+}
+
+.dns-obj-in:focus {
+    border-color: var(--accent);
+}
+
+.dns-obj-del {
+    grid-area: 1 / 4;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-dim);
+    cursor: pointer;
+}
+
+.dns-obj-del:hover {
+    color: var(--red);
+    background: var(--bg-3);
+}
+
+/* editor */
+.editor-body {
+    max-height: 60vh;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.rawjson {
+    width: 100%;
+    background: #10151c;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 10px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    outline: none;
+    resize: vertical;
+}
+
+.errline {
+    color: var(--red);
+    font-size: 0.75rem;
+    margin-top: 8px;
+    white-space: pre-wrap;
+}
+
+.jsonform .jf-field {
+    margin-bottom: 10px;
+}
+
+/* The line under a field that has a rule to state rather than a name to give: the ones
+   whose rule used to be a parenthetical on the label, where the 150px column cut it off
+   mid-sentence (see hint.* in i18n). Dimmer and smaller than the field's own label,
+   because it explains the field rather than introducing it. */
+.jf-hint {
+    margin-top: 3px;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    color: var(--text-dim);
+}
+
+.jf-field > label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-bottom: 3px;
+}
+
+.jf-field input[type="text"],
+.jf-field input:not([type]),
+.jf-field input[type="number"],
+.jf-field textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 6px 8px;
+    font-size: 0.8125rem;
+    outline: none;
+}
+
+.jf-field input:focus,
+.jf-field textarea:focus {
+    border-color: var(--accent);
+}
+
+/* A hotkey field holds a combination rather than a caret, so while it listens its focus
+   says "the next press is recorded here" rather than "the cursor is here": the same
+   accent every focused input gets, with the field's own surface lifted behind it. */
+.hk-input.listening {
+    border-color: var(--accent);
+    background: var(--bg-3);
+    color: var(--text-dim);
+}
+
+/* The combination that was refused, in the dialog that says why: the one piece of that
+   sentence which is a value rather than a word, so it is set as one — the face the app
+   uses for anything read character by character. */
+.hk-clash-key {
+    margin: 0 2px;
+    font-family: var(--font-mono);
+    color: var(--text);
+}
+
+/* A nested object is drawn as its own boxed block, its name riding the border the way
+   every frame in the settings sheet names itself (see .look-box-title — the legend sits
+   astride the edge and the line the word is set on must be fully occupied or the border
+   peeks through the gaps). A vertical bar beside the row's label column used to stand in
+   for the frame; a reader then had to take the name from a column that belonged to the
+   row rather than to the fields inside it. The row this block sits in gives its width
+   over whole (see .jf-object), so the frame runs the card's width like the card's other
+   frames. */
+.jf-field.jf-object {
+    grid-template-columns: 1fr;
+    grid-column: 1 / -1;
+}
+
+.jf-nested {
+    position: relative;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 12px 10px 2px;
+    margin: 7px 0;
+}
+
+/* A long value is boxed whole and its name rides its own top border — the same legend
+   the frames and the nested blocks carry (see .look-box-title): a textarea is tall as
+   its content regardless of the label column's reach, and a name parked at the foot of
+   a 150px column reads as captioning nothing. The label sits astride the box's top
+   edge, its ground covering the border line it interrupts. */
+.jf-field.jf-long {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-column: 1 / -1;
+    margin-top: 10px;
+}
+
+.jf-field.jf-long > label {
+    position: absolute;
+    top: 0;
+    left: 9px;
+    transform: translateY(-50%);
+    padding: 0 6px;
+    margin: 0;
+    background: var(--bg-2);
+    color: var(--text-dim);
+    font-size: 0.625rem;
+    letter-spacing: .08em;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: visible;
+}
+
+.set-group .jf-nested .jf-field {
+    grid-template-columns: 1fr;
+}
+
+.set-group .jf-nested .jf-field > label {
+    text-align: left;
+}
+
+.jf-nested::before {
+    content: attr(data-title);
+    position: absolute;
+    top: 0;
+    left: 9px;
+    transform: translateY(-50%);
+    padding: 0 6px;
+    background: var(--bg-2);
+    color: var(--text-dim);
+    font-size: 0.625rem;
+    letter-spacing: .08em;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.jf-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8125rem;
+}
+
+/* `.modal label` (0,1,1) sets display:block and beat this rule's (0,1,0), so
+   every checkbox row inside a dialog laid out as two blocks: the box stretched
+   across the card and the caption dropped to the next line. Matching the
+   specificity is what puts the box and its label back on one line — the same
+   conflict the `.gform .gf-row` rule above has to work around. */
+.modal .jf-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* ...and `.modal input` (width:100%) is the other half of that: a checkbox is
+   not a text field, and a full-width one pushes its caption to the far edge of
+   the card. So the box is given its own size here — and, since it has to be
+   drawn by hand to be anything but the browser's square, it is drawn as what it
+   is: a switch, a capsule with a knob, off to the left on the card's own
+   surface and on to the right in the accent.
+
+   One rule for every switch in the app: every .jf-check is inside a modal, so
+   this is the only place the box is styled, and the several layouts that place
+   one (a card row, the MTU line, the theme row, beside the 兜底解析 select)
+   go on setting their own margins and leaving the box alone. */
+.modal .jf-check input[type="checkbox"] {
+    -webkit-appearance: none;
+    appearance: none;
+    position: relative;
+    flex: 0 0 auto;
+    width: 34px;
+    height: 18px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    background: var(--bg);
+    cursor: pointer;
+    transition: background .16s, border-color .16s;
+}
+
+/* The knob, absolute inside the box so it travels by translate — the one property the
+   compositor moves on its own. Its geometry is what centres it: 12px in an 18px box
+   with a 1px border leaves 2px above and below, and 2px in from the left at rest. */
+.modal .jf-check input[type="checkbox"]::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: translate .16s, background .16s;
+}
+
+/* On: the accent fill and the colour the app puts on top of one (see .btn.primary), so
+   the switch and the button agree about what "on" looks like. */
+.modal .jf-check input[type="checkbox"]:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.modal .jf-check input[type="checkbox"]:checked::after {
+    translate: 16px 0;
+    background: var(--on-fill);
+}
+
+/* Keyboard only: the pointer already gets the caption lighting up on hover (see
+   .set-group .jf-check:hover), and a ring on every click would be noise. */
+.modal .jf-check input[type="checkbox"]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* picklist */
+.picklist {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 50vh;
+    overflow-y: auto;
+}
+
+.picklist li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.8125rem;
+}
+
+.picklist li:hover {
+    background: var(--bg-3);
+}
+
+.picklist li.active {
+    background: var(--accent-soft);
+}
+
+.picklist li.empty {
+    color: var(--text-dim);
+    cursor: default;
+    justify-content: center;
+}
+
+.row-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.modal-head h2 {
+    margin: 0;
+}
+
+.modal-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.modal {
+    max-height: 88vh;
+    overflow-y: auto;
+}
+
+/* Live rate readout, in the status bar with the rest of the session's state. It spent a
+   while as a capsule floating at the top of the window — centred on it, and ducking out
+   of sight whenever the pointer was over the app — and it is back on the bar, which is
+   the one strip of the window that is about the session rather than about the list, and
+   the floor is where a figure the reader glances at belongs. It sits against the
+   right-hand group rather than at a centre of its own: the connection count, the node
+   chip and the run lamp are the same kind of thing it is, and the search field keeps the
+   middle to itself.
+   Bare figures, with no capsule drawn round them: the bar's own surface is the frame, and
+   a second one inside it — a boxed pill holding two numbers between the search field and
+   the mode controls — read as a card somebody had dropped on the floor. The two directions
+   are told apart by weight and colour instead, which is all they ever needed. */
+.traffic {
+    /* A child of the bar's left slot now, and the first one in it: the rates sit
+       against the rail's own line, right of the divider, with the transient words
+       following. The slot centres its children, so the figure rides the bar's
+       middle without a slab of its own. */
+    display: flex;
+    align-items: center;
+    height: 22px;
+    font-size: 0.6875rem;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    /* No gap of its own: the two fields are already sitting in fixed frames with their
+       contents centred, and a gap on top of that made the space between the directions
+       wider than the space at either end by an amount that varied with the figures. With
+       it at zero the readout has one rhythm — half a field's slack outside each rate,
+       a whole one between them. */
+    gap: 0;
+}
+
+/* One field per direction. The frame is a compromise: wide enough that the
+   everyday range — "0 B/s" through "1023.9 KB/s" and "99.9 MB/s" — never
+   resizes the capsule, narrow enough that the idle readout is not mostly empty
+   space. fmtRate can still return something wider ("1023.9 MB/s"), and beyond
+   the frame the field simply grows; a width jump at rates that high is rarer
+   than a permanently oversized pill at rates people actually see.
+   The arrow is the anchor at the field's left and the number grows away from it,
+   so the two directions stay put inside a fixed frame. */
+.traffic .rate {
+    min-width: 10ch;
+    /* The field is fixed, so where the text sits inside it is a choice rather than a
+       consequence. Centred, the two directions balance either side of the capsule's
+       middle — a gap of half a field's slack on the outside of each, a whole one
+       between them. Left, which is what a fixed field gives you by doing nothing, the
+       two rates both hugged their own left edge and the readout had a hole through the
+       middle of it. */
+    text-align: center;
+}
+
+/* Running node indicator. The name itself can be long, so the bar shows a
+   glyph instead and the full name is available on hover. */
+/* Icon-only run-state indicator. Replaces the old text pill, so the bar keeps a
+   compact width no matter how long the node name is. The glyph itself carries
+   the state (play = running, stop = stopped) and the colour reinforces it. */
+/* A bare dot rather than a disc with a glyph inside: at this size a play/stop
+   triangle turns into a blob, and the colour already says on vs off. */
+.state-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    cursor: default;
+    transition: color .15s;
+}
+
+/* Font Awesome glyphs are text: they carry a baseline, so inside a flex box the
+   dot gets pushed below the centre line. display:block on the glyph plus an
+   explicit line-height makes the box the only thing that positions it. */
+.state-chip .ic, .state-chip i {
+    display: block;
+    font-size: 0.5rem;
+    line-height: 1;
+}
+
+.state-chip.on {
+    color: var(--green);
+}
+
+.state-chip.on .ic, .state-chip.on i {
+    filter: drop-shadow(0 0 4px var(--green-bg));
+}
+
+/* Engaged: the system proxy or TUN is on, and the lamp turns. It is the state the rail's
+   two switches carry — the same fact said in the one place that stays on screen whatever
+   else is open.
+   A bar turning about its own centre: two dimensions, no shading, nothing that has to be
+   read as a solid. Linear and fast, because a spinner is a clock rather than a breath —
+   the ease of the blink it replaces was what made that one read as a pulse, and the whole
+   point here is that the shape is in motion while the light stays on. The bar is what
+   makes the motion visible at all: a circle has no orientation, so turning one shows
+   nothing.
+   The glow is the dot's (see .state-chip.on i) and it comes along with the colour. */
+.state-chip.spinning .state-spinner {
+    animation: stateSpin .9s linear infinite;
+}
+
+/* The bar itself: a hairline as tall as the dot was wide, rounded at both ends so the
+   tips do not flicker as they pass. Drawn in CSS rather than glyphed — Font Awesome has
+   no bare slash, and a "/" character would carry a baseline and a font's proportions into
+   a thing whose only property is its angle. currentColor so it takes the chip's green
+   when engaged and the dim grey when not, without a second rule for each. */
+.state-chip .state-spinner {
+    display: block;
+    width: 2px;
+    height: 10px;
+    border-radius: 1px;
+    background: currentColor;
+    transform-origin: center;
+}
+
+@keyframes stateSpin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* the colour still says engaged; the movement is what the setting is asking to be
+       spared, and the steady glow of .state-chip.on i above is what is left */
+    .state-chip.spinning .state-spinner {
+        animation: none;
+    }
+}
+
+.state-chip.off {
+    color: var(--text-dim);
+    opacity: .7;
+}
+
+/* The wrapper only hosts the lamp now: every transient word lives in the bar's
+   own text slot at its left edge (.status-note). */
+.state-wrap {
+    display: inline-flex;
+}
+
+/* The status bar's one text slot, hung off the rail's vertical line rather than
+   off the bar's own left edge. That line is .statusbar::after, drawn at
+   (rail-w - 1) from the bar's padding box, and this reads the same number — so
+   the word starts at the line's right side whatever the bar's own left edge
+   happens to be (.bottom-dock pulls it out to the window edge, which is not a
+   distance this rule should have to know).
+   Positioned rather than a flex child with margin-right:auto for exactly that
+   reason, and the rail's line is the pop's origin: every transient word — the
+   run state on hover, "node connected" when a start lands, notify results —
+   grows out of it, holds for three seconds (the timers in App.tsx) and fades
+   where it stands. Green is the lamp's colour; errors wear the red. */
+/* The bar's left slot: one place for everything that speaks while something is
+   happening — a notify toast, and the test in progress. Positioned rather than laid out
+   with the bar's own flex, which ends at the right edge: an in-flow child of the bar
+   would be carried there, half a window away from the rail's line that both of these
+   grow out of. Its width is its contents', so an empty slot takes no clicks.
+   A step off the rail's vertical line, which is drawn at rail-w - 1: flush against it
+   the first glyph looked bolted to the rule, and type that touches a line is harder to
+   read than type a few pixels away from it. */
+.status-left {
+    position: absolute;
+    left: calc(var(--rail-w, 40px) + 5px);
+    top: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    /* what stands between the two when both are out: the toast's own trailing space
+       used to do this job, and it went with the position */
+    gap: 10px;
+    /* the pill is a run's own words — a mode and a count — and the bar is 30px tall: a
+       wrap here would be a second line with nowhere to go */
+    white-space: nowrap;
+}
+
+/* The words the purity score is read by, in the theme's own signal colours: the band
+   above is fixed, but the verdict beside it follows the theme like every other state. */
+.purity-val[data-level="vclean"],
+.purity-val[data-level="clean"] {
+    color: var(--green);
+}
+
+.purity-val[data-level="mid"] {
+    color: var(--amber);
+}
+
+.purity-val[data-level="risky"] {
+    color: var(--red);
+}
+
+/* The pause control in the log's head. It stands at the left, before the title, because
+   it is about the reading rather than about the panel: a stream that keeps scrolling
+   cannot be read. On, it wears the amber the app uses for "something is being held" —
+   the panel is still live, it is the view that has stopped. */
+.log-pause.on {
+    color: var(--amber);
+}
+
+/* The clear, on the same strip and beside the way out of the panel. Danger on hover
+   rather than at rest: a red glyph sitting in the head all the time reads as a fault,
+   and this is a control that is only dangerous at the moment it is used — which is
+   exactly what the pointer arriving on it says. It stands before the collapse, since
+   the far right is the collapse's place. */
+.console-head .log-clear:hover {
+    color: var(--red);
+}
+
+.status-note {
+    /* In the slot rather than positioned in it: the slot owns the place on the bar, and
+       the note owns its own growth — see notePop, which is unchanged and still scales
+       about the left edge, so the word still comes out of the rail's line. */
+    display: flex;
+    align-items: center;
+    font-size: .6875rem;
+    font-family: var(--font-mono);
+    color: var(--green);
+    white-space: nowrap;
+    transform-origin: left center;
+    animation: notePop .42s cubic-bezier(.2, 1.6, .4, 1) both;
+}
+
+.status-note.leaving {
+    animation: noteFade .4s ease forwards;
+}
+
+/* Errors say the same words in the alarm colour — the hue is the whole
+   difference, the way the log's error lines work. */
+.status-note.err {
+    color: var(--red);
+}
+
+/* The message window: the status bar's transient toasts no longer stand in the
+   bar — they arrive in their own little window, centred on the main window on
+   both axes (left/top 50% with a half-own-size translate back, so any width the
+   text needs still lands exactly on centre). The chrome is deliberately
+   window-like — a title strip with a state dot and a close — because the point
+   of the move is that the message reads as its own surface, not as a word
+   growing out of the bar. It stands above the dialogs (130) but under the
+   context menus (200+), the same seat a toast has always held. */
+.note-window {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 150;
+    min-width: 220px;
+    max-width: min(460px, 78vw);
+    background: var(--bg-2);
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
+    overflow: hidden;
+    animation: noteWinPop .34s cubic-bezier(.2, 1.4, .4, 1) both;
+}
+
+.note-window.leaving {
+    animation: noteWinFade .4s ease forwards;
+}
+
+.note-window-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 8px 6px 12px;
+    background: var(--bg-3);
+    border-bottom: 1px solid var(--line);
+    font-size: .6875rem;
+    font-family: var(--font-mono);
+    color: var(--text-dim);
+    user-select: none;
+}
+
+.note-window-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    flex: none;
+}
+
+.note-window-dot.err {
+    background: var(--red);
+}
+
+.note-window-title {
+    flex: 1;
+    letter-spacing: .04em;
+}
+
+.note-window-close {
+    border: 0;
+    background: none;
+    color: var(--text-dim);
+    font-size: .75rem;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.note-window-close:hover {
+    color: var(--text);
+    background: var(--line);
+}
+
+.note-window-body {
+    padding: 14px 16px 15px;
+    font-size: .8125rem;
+    font-family: var(--font-mono);
+    color: var(--green);
+    line-height: 1.55;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+.note-window.err .note-window-body {
+    color: var(--red);
+}
+
+/* The window arrives from slightly smaller and a touch low — the same settle
+   the dialog mask's children use — and leaves by thinning out in place, the
+   way the bar's own note always left. */
+@keyframes noteWinPop {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(.92);
+    }
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+@keyframes noteWinFade {
+    to {
+        opacity: 0;
+    }
+}
+
+/* It grows out of the rail's line rather than dropping into the bar: the word
+   starts narrow against that vertical line and widens to its own width, so the
+   line reads as where the text comes from. Only the horizontal axis is touched,
+   and only by scaling about the left edge — no translate, so the first frame is
+   already on the line instead of a few pixels to one side of it. The note is as
+   tall as the bar at every frame, which is what keeps it from ever poking past
+   the bar's top or bottom. */
+@keyframes notePop {
+    0% {
+        opacity: 0;
+        transform: scaleX(.72);
+    }
+    55% {
+        opacity: 1;
+        transform: scaleX(1.02);
+    }
+    100% {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* Three seconds after it lands (the timers in App.tsx) it stops being there:
+   opacity alone, no movement and no shrinking, so a word the reader was still
+   looking at thins out instead of being taken away. */
+@keyframes noteFade {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .status-note,
+    .status-note.leaving,
+    .note-window,
+    .note-window.leaving {
+        animation: none;
+    }
+}
+
+/* Keyboard focus is visible everywhere by default: a control that says where
+   the typing or the Enter will land is not a decoration, it is the difference
+   between a keyboard reader and a lost one. The rules that already style their
+   own focus (the search field, the rail buttons) simply override this one. */
+:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.node-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--green-bg);
+    color: var(--green);
+    font-size: 0.6875rem;
+    cursor: default;
+}
+.conn-open {
+    pointer-events: auto;
+}
+
+/* The download rate is the number people actually watch, so it carries the weight and
+   the live colour; upload stays dimmed for context. Both are the bar's own type size —
+   the download figure used to be set a step larger than everything around it, which made
+   a pair of readings read as a heading and its footnote. */
+.traffic .rate {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.traffic .rate.down {
+    color: var(--lat-1);
+}
+
+.traffic .rate.up {
+    color: var(--text-dim);
+    font-weight: 500;
+}
+
+.traffic .sep {
+    opacity: 0.5;
+}
+
+/* Font Awesome glyphs are text and sit on a baseline; inside these fixed-size
+   chips that nudges them off the optical centre. Pinning the glyph to its own
+   line-height keeps all three indicators aligned. */
+.conn-open .ic,
+.node-chip .ic {
+    display: block;
+    line-height: 1;
+}
+
+/* The connection counter in the status bar is the only entry point to the
+   connections window, so it has to look clickable without shouting: icon + a
+   tabular number, no text label and no underline. */
+.conn-open {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* a fixed square keeps the glyph on the same optical centre as the two
+       chips beside it, whatever the bar's row height ends up being */
+    width: 22px;
+    height: 22px;
+    gap: 4px;
+    font: inherit;
+    font-size: 0.6875rem;
+    color: var(--text-dim);
+    background: none;
+    border: none;
+    padding: 0 2px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: color .15s, background .15s;
+}
+
+.conn-open:hover {
+    color: var(--accent);
+    background: rgba(255, 255, 255, .06);
+}
+
+.conn-open:focus-visible {
+    outline: none;
+    color: var(--accent);
+    background: rgba(255, 255, 255, .06);
+}
+
+/* the log panel is open: the toggle keeps the accent tint while it stays put,
+   so the state reads without a label */
+.conn-open.on,
+.conn-open.on:hover {
+    color: var(--accent);
+    background: var(--accent-soft);
+}
+
+/* a proxy mode is engaged: the plug lights green, the live colour the run-state
+   lamp and the rail's switches already wear — one fact, one colour, wherever it
+   is said. Hover keeps the green so the state does not flicker away under the
+   pointer; only the background answers, as it does at rest. */
+/* The rail's connections button, which is where that entry lives
+   now. It is the one panel switch that also reports something: while a proxy mode is
+   engaged the icon goes green, saying the thing it opens is live — the same word the
+   run-state lamp gives the chip. Being open is a different fact, and it keeps the
+   accent every other panel switch lights in (see .appnav-btn.active); the green is
+   about traffic, not about the window. Declared after that rule so it wins when both
+   are true. */
+.appnav-btn.engaged .ic,
+.appnav-btn.engaged:hover .ic,
+.appnav-btn.engaged:focus-visible .ic {
+    color: var(--green);
+}
+
+/* The status bar's outbound mode: a route glyph, the mode in force beside it, and the
+   three modes on a list. The list opens upwards — the bar is the window's floor, so a
+   list that dropped down would open past the edge of the window — and the trigger
+   carries an upward triangle for that reason rather than a chevron: it says which way
+   the list will go. */
+.egress {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-dim);
+}
+
+/* The trigger is dressed as a bar value rather than as a field: no border at rest, the
+   bar's own type size, and a background only while the pointer is on it. */
+.egress-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: inherit;
+    font: inherit;
+    font-size: 0.6875rem;
+    padding: 1px 5px;
+    cursor: pointer;
+    outline: none;
+}
+
+.egress-trigger::after {
+    content: "";
+    width: 0;
+    height: 0;
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    border-bottom: 4px solid currentColor;
+}
+
+.egress-trigger:hover {
+    background: var(--bg-3);
+}
+
+.egress-trigger:focus-visible {
+    border-color: var(--accent);
+}
+
+/* The list, above the trigger and flush with its right edge, so it opens towards the
+   empty half of the bar rather than over the controls beside it. */
+.egress-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 6px);
+    z-index: 210;
+    /* No width and no floor: an absolutely positioned box shrink-wraps its content, so
+       the list comes out exactly as wide as its longest mode — three two-character
+       words in Chinese, Rules / Direct / Global in English — plus this padding. */
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+}
+
+.egress-menu button {
+    display: flex;
+    align-items: center;
+    padding: 5px 8px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.75rem;
+    text-align: left;
+    /* the width of the list is the width of its longest mode, so a mode must not wrap
+       to make itself fit */
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.egress-menu button:hover {
+    background: var(--bg-3);
+}
+
+/* The mode in force wears the accent wash — the same mark the rest of the app puts on
+   the chosen one, in whatever colour the theme gives it. */
+.egress-menu button.on {
+    color: var(--accent);
+    background: var(--accent-soft);
+}
+
+/* Where the mode is written. Plain while the routing profile decides — the default is
+   not news — amber for direct, the accent for global: the two departures from the
+   profile are the states worth noticing, one because it is how a leak stays
+   invisible, the other because it is every packet on the machine going one way. Set
+   on the wrapper so the glyph and the value are one colour. */
+.egress[data-mode="direct"] {
+    color: var(--amber);
+}
+
+.egress[data-mode="global"] {
+    color: var(--accent);
+}
+
+/* Blocked wears the alarm colour: it is the one mode in which nothing works, and the
+   reader who chose it by accident has to be able to see that from the bar without
+   opening the list. */
+.egress[data-mode="block"] {
+    color: var(--red);
+}
+
+/* The running-test pill. It is mostly a readout — a spinner, the word, the count —
+   with one control at its end: the stop. Laid out as a row so the three sit on one
+   line, and the stop is a button of its own so it reads as pressable before the
+   pointer is on it. */
+.pill-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pill-stop {
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-dim);
+    cursor: pointer;
+}
+
+.pill-stop .ic {
+    font-size: 0.625rem;
+}
+
+/* The alarm colour on hover rather than at rest: stopping is safe — the numbers
+   already measured stay — so it does not deserve to shout until it is chosen. */
+.pill-stop:hover,
+.pill-stop:focus-visible {
+    color: var(--red);
+    outline: none;
+}
+

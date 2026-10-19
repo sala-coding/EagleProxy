@@ -1,0 +1,2496 @@
+/* --- 11-compact.css ---
+   the compact form: the same window with less of everything, written as an override of the rules above rather than as a second set of them.
+   (Split out of App.css; the order of these files is the cascade.) */
+
+/* ===== compact ===== */
+.btn {
+    padding: 4px 10px;
+    font-size: 0.75rem;
+}
+
+.btn.tiny {
+    padding: 1px 8px;
+    font-size: 0.6875rem;
+}
+
+.btn.icon-only {
+    padding: 4px 8px;
+}
+
+.sidebar {
+    width: 190px;
+}
+
+.sidebar-title {
+    padding: 8px 10px 4px;
+    font-size: 0.6875rem;
+}
+
+/* Compact variant: same structure, smaller type and padding. The row keeps the
+   -8px side margin so backgrounds still reach the sidebar edges. */
+.sidebar li {
+    padding: 6px 18px;
+    margin: 0 -8px;
+    font-size: 0.75rem;
+}
+
+.statusbar {
+    padding: 0;
+    gap: 0;
+    /* matches the cell geometry above, and is the number the rail and the drawer stand
+       on — see --status-h */
+    min-height: var(--status-h, 30px);
+}
+
+.status-right {
+    padding: 0 12px;
+    /* the dividers ride on this: see --status-gap */
+    --status-gap: 9px;
+}
+
+.pill {
+    font-size: 0.6875rem;
+    padding: 1px 8px;
+}
+
+.running-name {
+    font-size: 0.6875rem;
+}
+
+/* The node search, centred on the window. A search is a way of looking at the list
+   rather than a property of it, and the bar is the one place in this window that is
+   about the whole list at once. Absolutely placed so that the bar's two ends — the note
+   on the left, the buttons on the right — keep the layout they have; this one answers to
+   the window's centre, and the translate is what puts the field's own centre there
+   rather than its left edge. */
+.status-search {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* A pill rather than a box: at this height the two round ends are what keeps it reading
+   as a field lying on the bar instead of a panel that was dropped on it.
+   Its edge is --line-strong rather than --line: the field is a control standing on the
+   bar, and at --line's weight it dissolved into it — a field that does not say where it
+   begins is one the reader has to hunt for. This is the same step the app's other
+   surfaces-that-stand-on-something wear (a card in the drawer, the rail's own edge), so
+   the search reads as one of them rather than as a hole in the bar. */
+.node-search {
+    width: 300px;
+    height: 24px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.75rem;
+    padding: 0 12px;
+    outline: none;
+}
+
+/* A pull in progress: the field answers while its request is still on the wire —
+   pressed in, its caret parked — so a second Enter sends nothing. */
+.node-search.busy {
+    opacity: .55;
+    cursor: progress;
+}
+
+/* The empty field reads as a headline: the example text sits in the middle of the
+   pill until the first letter arrives, and typists fall back to the left — the one
+   state where centring tells the truth is the one where there is nothing to say. */
+.node-search:placeholder-shown {
+    text-align: center;
+}
+
+.node-search::placeholder {
+    color: var(--text-dim);
+}
+
+/* The pointer says "this is a field" before the click does: the edge steps up to the
+   dim text weight, which is the brightest tone in the palette that is not itself a
+   state. */
+.node-search:hover:not(:focus) {
+    border-color: var(--text-dim);
+}
+
+/* And focus is the one state that has to be unmistakable at a glance — the bar is wide
+   and the field is a 240px pill in the middle of it, so "where will the typing go" is
+   the whole question: the accent on the edge, and a ring of its wash outside it. */
+.node-search:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* The count and the way out of the search, beside the field rather than inside it:
+   inside, they would eat the room the query is typed into, and a field whose width
+   changes as it is used is a field that moves under the pointer. Outside, the pair sits
+   symmetrically about the centre — which is where the bar's search is anchored — and the
+   field keeps the 240px it was given. */
+.status-search-count {
+    font-size: 0.625rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.status-search-x {
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-dim);
+    cursor: pointer;
+}
+
+.status-search-x:hover,
+.status-search-x:focus-visible {
+    color: var(--text);
+    outline: none;
+}
+
+.status-search-x .ic {
+    font-size: 0.75rem;
+}
+
+/* The address the running node is reached at, on the bar beside the outbound mode. Set
+   in the monospace face, like every other address in this app, and selectable: the one
+   reason to show an address at all is to paste it somewhere. */
+/* The address is a button now: pressing it opens the exit details beside it. The
+   address stops being selectable in the process — the panel carries a copy button,
+   which is a more reliable way to take the address away. */
+button.node-ip {
+    padding: 2px 6px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: none;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-dim);
+    cursor: pointer;
+    text-align: left;
+}
+
+button.node-ip:hover {
+    color: var(--text);
+    border-color: var(--line);
+}
+
+button.node-ip[aria-expanded="true"] {
+    color: var(--text);
+    background: var(--bg-3);
+}
+
+/* The exit details: what the tunnel's other end is registered as. It opens upwards off
+   the bar — the window's floor — and hangs off the right edge, near the address that
+   opens it.
+   The body is a two-column grid rather than a stack of rows: a label column that sizes
+   itself to the longest label, and a value column that takes the rest, so every value
+   begins where the one above it did. That alignment is the whole difference between
+   this and a list of pairs — it is what lets the eye run down either column instead of
+   reading each line from its own starting point. */
+.exit-panel {
+    position: absolute;
+    right: 8px;
+    bottom: calc(var(--status-h, 30px) + 6px);
+    z-index: 205;
+    width: 340px;
+    max-width: calc(100vw - var(--rail-w, 40px) - 16px);
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 12px;
+    row-gap: 4px;
+    padding: 10px 12px;
+    font-size: 0.6875rem;
+    background: var(--bg-2);
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, .4);
+}
+
+/* The row is a grouping in the markup and nothing on screen: its two children are laid
+   into the panel's own two columns, which is what lets a label in one row line up with
+   a label in the next. The rows' spacing is the grid's row-gap for the same reason. */
+.exit-row {
+    display: contents;
+}
+
+/* Right-aligned against the values it names, like the head of a table: the column gap is
+   then the only space between a label and its value, and it is the same in every row.
+   Never wrapped — a label broken over two lines would take its value with it. */
+.exit-k {
+    color: var(--text-dim);
+    white-space: nowrap;
+    text-align: right;
+}
+
+.exit-v {
+    min-width: 0;
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+
+/* In the panel the flag stands inside a line of text rather than alone in the node chip,
+   so it is inline here. That is the whole fix for the country's name having sat on a
+   line of its own: display: block is what the chip wants. */
+.exit-v .node-flag {
+    display: inline-block;
+    vertical-align: -2px;
+    margin-right: 5px;
+}
+
+/* One of the rows carries a control of its own: the copy that takes the address away. */
+.exit-copy {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 6px;
+    padding: 0 2px;
+    border: 0;
+    background: none;
+    color: var(--text-dim);
+    cursor: pointer;
+}
+
+.exit-copy:hover {
+    color: var(--accent);
+}
+
+.exit-copy .ic {
+    font-size: 0.6875rem;
+}
+
+/* The purity score as the site draws it: a band from clean (left) to dirty (right),
+   with a needle standing on this address's own score. The colours are the band's, not
+   the theme's — the point of a scale like this is that green and red mean the same
+   thing in every theme. */
+.purity-band {
+    position: relative;
+    height: 6px;
+    border-radius: 3px;
+    /* In the value column, under the score it belongs to: the full width of that column,
+       starting where every value above it starts, rather than indented to meet it. */
+    grid-column: 2;
+    margin: 0 0 4px;
+    background: linear-gradient(to right, #22c55e, #a3e635 25%, #eab308 45%, #f97316 70%, #ef4444);
+}
+
+.purity-band::after {
+    content: '';
+    position: absolute;
+    top: -3px;
+    left: var(--pos, 0%);
+    width: 2px;
+    height: 12px;
+    border-radius: 1px;
+    background: var(--text);
+    transform: translateX(-1px);
+}
+
+/* The country's flag, inside the running node's chip: one SVG per country under
+   fa/flag, taken from the flag-icons set (see LICENSE-flag-icons.txt beside them). It is
+   a file rather than a pair of letters because letters only compose into a flag in a
+   font that has rules for them, and this window's own stack does not.
+   Sized by height, so the 4:3 artwork keeps its proportions whatever the chip's row is;
+   the hairline edge is for the flags that are mostly white (Japan, Poland) and would
+   otherwise have no boundary against the chip's surface. */
+.node-flag {
+    height: 12px;
+    width: auto;
+    display: block;
+    border-radius: 1px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .25);
+}
+
+/* The presets under a rule list: the items that come up over and over, as chips. They
+   add to the box above them rather than replacing it, and they are set in the monospace
+   face because every one of them is the exact string the config will carry. */
+.rt-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 5px;
+}
+
+.rt-preset {
+    padding: 1px 7px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    cursor: pointer;
+    transition: color .15s, border-color .15s, background .15s;
+}
+
+/* The flag presets: a country's flag on a chip of the same shape, nothing worded —
+   the flag is the name and the tooltip carries the rule the press would add. The
+   flag sits a step larger than the one in a node's name, alone on the chip. */
+.rt-flag {
+    padding: 1px 6px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.rt-flag .flag {
+    width: 20px;
+    height: 14px;
+    margin-inline-end: 0;
+}
+
+/* The test card's preset sources as a dropdown beside the field: the same geometry
+   the settings card's other selects take, mono-faced like the address it writes. */
+.rt-urlselect {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 4px 7px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    outline: none;
+    max-width: 190px;
+}
+
+.rt-urlselect:focus {
+    border-color: var(--accent);
+}
+
+.rt-preset:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+/* The batch list, on the bar and shaped like the outbound-mode one beside it: a word
+   with the choices above it. Same classes as that one (see .egress-trigger and
+   .egress-menu) because it is the same kind of control — one of a few things, chosen
+   from a list that opens upwards off the window's floor. */
+.batch-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-dim);
+}
+
+.table-wrap {
+    /* the compact pass adds nothing: the frame above is already flush */
+    padding: 0;
+}
+
+table.profiles {
+    font-size: 0.75rem;
+}
+
+table.profiles th,
+table.profiles td {
+    padding: 8px 10px;
+}
+
+/* The caption row's height is declared rather than left to fall out of its padding,
+   so it can be held to --table-head-h and matched with the drawer's caption. Its
+   padding goes horizontal for the same reason: the label is centred in the row, and
+   vertical padding on top of a fixed height would only push against it. */
+table.profiles th {
+    height: var(--table-head-h, 26px);
+    padding: 0 8px;
+}
+
+.type-tag {
+    font-size: 0.625rem;
+    padding: 1px 6px;
+}
+
+/* the badge shrinks with the tag it sits in, count and divider included */
+.subdrop-table .type-tag {
+    padding: 1px 7px;
+}
+
+.subdrop-table .type-tag .tag-count {
+    font-size: 0.5625rem;
+    padding-left: 4px;
+}
+
+.addr {
+    font-size: 0.6875rem;
+}
+
+.console {
+    height: clamp(100px, 22vh, 200px);
+}
+
+.console-body {
+    padding: 5px 8px 6px 3px;
+}
+
+.logline {
+    font-size: 0.75rem;
+    line-height: 1.6;
+}
+
+/* compact title bar: the caption is redundant when space is tight */
+.console-title {
+    display: none;
+}
+
+.console-head {
+    padding: 5px 8px;
+    gap: 6px;
+}
+
+.modal {
+    padding: 14px;
+}
+
+.modal h2 {
+    font-size: 0.875rem;
+    margin-bottom: 10px;
+}
+
+.modal-head {
+    margin-bottom: 8px;
+}
+
+.modal label,
+.jf-field > label {
+    font-size: 0.6875rem;
+    margin-bottom: 3px;
+}
+
+.modal input,
+.jf-field input,
+.jf-field textarea {
+    padding: 4px 6px;
+    font-size: 0.75rem;
+}
+
+.jf-field {
+    margin-bottom: 6px;
+}
+
+.jsonform .jf-field {
+    margin-bottom: 6px;
+}
+
+/* A group of short values, laid out in columns rather than one field per row. The
+   settings sheet is as wide as the window, and a row each stretched every control
+   across the whole of it to hold two digits — the eye had to travel the width of the
+   dialog to read "30". Each field becomes a cell of the grid instead, and its label
+   moves above its control: a 150px label column inside a single cell would leave the
+   value less room than the label takes. Only the groups that ask for it set data-cols;
+   every other form is untouched. */
+.jsonform[data-cols] {
+    display: grid;
+    column-gap: 14px;
+}
+
+.jsonform[data-cols="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.jsonform[data-cols="3"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.jsonform[data-cols="4"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.jsonform[data-cols] > .jf-field {
+    grid-template-columns: 1fr;
+    gap: 4px;
+}
+
+.jsonform[data-cols] > .jf-field > label {
+    text-align: left;
+}
+
+/* The one tall control in a card of short ones keeps the whole row: a column is only as
+   wide as the number beside it, and a list of user agents folded into that width is a
+   column of wrapped half-lines. Nothing is dropped for it — it goes below the cells. */
+.jsonform[data-cols] > .jf-field.jf-full {
+    grid-column: 1 / -1;
+}
+
+/* A switch in a cell sits level with the inputs beside it. The card's own switch margins
+   are for a card that stacks one row each; carried into a grid cell they drop the switch
+   below the number on the same line. */
+.jsonform[data-cols] > .jf-field > .jf-check {
+    margin: 0;
+}
+
+/* A value that is a list of lines, drawn as a table of rows: a rule between them, the
+   position each line is tried in as the first column, and a row at the foot that adds
+   one. The alternative was a textarea, where the only thing between two entries was a
+   newline and the order — which is the part that decides which identifier a panel
+   accepts — had to be counted.
+
+   Every selector reaches through .jf-field, because the shared .jf-field input rules are
+   the same specificity and come earlier in this file. */
+.jf-field .ltable {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    overflow: hidden;
+}
+
+.jf-field .ltable-row {
+    display: grid;
+    grid-template-columns: 24px 1fr 24px;
+    align-items: center;
+    border-top: 1px solid var(--line);
+}
+
+.jf-field .ltable-row:first-child {
+    border-top: none;
+}
+
+/* The row number, which is the order, dimmed and out of the way of the value. */
+.jf-field .ltable-n {
+    text-align: right;
+    padding-right: 7px;
+    font-size: 0.6875rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+    user-select: none;
+}
+
+/* The cell is the row: no box of its own, so the table's own rules are the only lines on
+   screen and a row reads as a line of the list rather than as an input inside one. */
+.jf-field .ltable-row input,
+.jf-field .ltable-row input:hover:not(:focus) {
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 5px 7px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+}
+
+/* Focus is a wash behind the row rather than a ring on the box, which would put a second
+   edge inside the table's. */
+.jf-field .ltable-row input:focus {
+    background: var(--bg-3);
+    outline: none;
+}
+
+/* The row's own remove, shown when the pointer is on the row it belongs to. Kept out of
+   the layout rather than hidden, so the rows are the same width whether it is there or
+   not; :focus-visible brings it back for the keyboard. */
+.jf-field .ltable-del {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity .12s, color .12s, background .12s;
+}
+
+.jf-field .ltable-row:hover .ltable-del,
+.jf-field .ltable-del:focus-visible {
+    opacity: 1;
+}
+
+.jf-field .ltable-del:hover {
+    color: var(--red);
+    background: var(--bg-3);
+}
+
+.jf-field .ltable-del:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* The row that is not written yet. A button in the table's own foot rather than a blank
+   last row, so the number of rows on screen is the number in the file. */
+.jf-field .ltable-add {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 5px 7px;
+    background: transparent;
+    border: none;
+    border-top: 1px dashed var(--line);
+    color: var(--text-dim);
+    font-size: 0.6875rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.jf-field .ltable-add:hover {
+    color: var(--accent);
+    background: var(--accent-soft);
+}
+
+/* Narrower than this and the widest of these grids is asking each cell for more than it
+   has: a combination like "Ctrl+Alt+Shift+F12" wants about 150px and the label above it
+   about the same. They halve rather than squeeze — a pair of readable columns beats four
+   clipped ones. */
+@media (max-width: 900px) {
+    .jsonform[data-cols="3"],
+    .jsonform[data-cols="4"] {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* The rows of that card the builder writes only for a tun front-end, while TUN is not
+   the mode in place: dimmed, because until TUN is switched on they are settings for
+   something that is not running. Dimmed and not disabled, so the pointer says as much —
+   filling them in before switching TUN on is the usual order of use, and a control that
+   refuses the first edit is the wrong way to say "not in force yet".
+   Worn by rows rather than by a block of the card: the card's rows are the two kind
+   frames now (see .kind-box), the MTU with the two lists in one and the switches in the
+   other, so it is the rows the builder writes for a tun front-end that dim, one at a
+   time — the switches' frame as a whole except for 隐藏核心控制台, which is not one of
+   them (nothing in the builder reads it for the tun). */
+.tun-idle {
+    opacity: .55;
+    transition: opacity .15s;
+}
+
+.tun-idle:hover,
+.tun-idle:focus-within {
+    opacity: 1;
+}
+
+.section-title {
+    font-size: 0.6875rem;
+    margin: 8px 0 3px;
+    padding-top: 5px;
+}
+
+.hint,
+.errline {
+    font-size: 0.6875rem;
+}
+
+/* update-check result panel (inside the settings dialog) */
+.upd-box {
+    margin-top: 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+}
+
+.upd-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8125rem;
+    color: var(--text);
+}
+
+.upd-head .ic {
+    color: var(--accent);
+}
+
+.upd-notes {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    max-height: 150px;
+    overflow: auto;
+    border-radius: 6px;
+    background: var(--bg-3);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.upd-box .modal-foot {
+    margin-top: 10px;
+}
+
+.code,
+.rawjson {
+    font-size: 0.6875rem;
+    padding: 8px;
+}
+
+.modal-foot {
+    margin-top: 14px;
+}
+
+.ctxmenu {
+    min-width: 170px;
+}
+
+.ctx-item {
+    padding: 3px 8px 3px 12px;
+    font-size: 0.75rem;
+}
+
+.picklist li {
+    padding: 6px 8px;
+    font-size: 0.75rem;
+}
+
+/* The connection window is the same kind of object as the subscriptions drawer: a
+   panel docked at the navigation rail, the same width, the same line at the top and
+   the same floor at the bottom, turning on the same axis in the same direction. It
+   used to be a wide centred card — 860px, which is what its six-column table needed —
+   so the two windows that list the two halves of the app had nothing in common but
+   their contents. Its width now comes from --panel-w, which is the drawer's own: drag
+   the drawer wider and this follows, because they are one measurement of the same
+   idea. Its seat, the four numbers that place it, is declared with the drawer. */
+.modal.conn-modal {
+    position: fixed;
+    /* the window it is docked beside is the limit, and --panel-w already accounts
+       for it; the dialog's own max-width was a second, unrelated clamp that could
+       only fight the width above */
+    max-width: none;
+    max-height: none;
+    /* the drawer's radius, not the dialog's 12px: they are the same shape now */
+    border-radius: 10px;
+}
+
+/* One entry per connection: the destination above, the figures under it. A flex
+   column with a gap, so a narrow panel reads as a stack of small cards rather than a
+   table whose columns no longer fit — which is the whole reason this stopped being
+   a table. */
+.conn-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    /* The list is the whole panel's content, so a wheel gesture that reaches its end
+       should stop there rather than hand the leftover to the panel behind it. Chromium
+       chains a scroll to the nearest scrollable ancestor by default, and with two of
+       them stacked — this list and the modal body — the two move together for the last
+       few notches and the gesture reads as two layers disagreeing. */
+    overscroll-behavior: contain;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.conn-row {
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg-3);
+}
+
+.conn-row-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* The address takes what is left after the button, and keeps its full value in the
+   tooltip. Ellipsis rather than a wrap: a destination is one unbreakable token, and
+   wrapping it would make some rows two lines tall and others one.
+   A step below the 12px .addr carries elsewhere: this one is the row's headline and
+   sets the height of every card in the list, and a window full of them reads heavier
+   than the table it is a detail of. */
+.conn-row-head .addr {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.6875rem;
+}
+
+.conn-row-figures {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    /* The figures wrap; they do not all give up a little width at once. A row that
+       cannot fit falls to a second line, where every figure is still readable — the
+       same last resort the subscription cards' figures take — instead of staying one
+       line and ellipsising four of them together, which is what "tcp/mixed/mixed…
+       ↑ 10.3 … ↓ 45.1 … pro…" is.
+       This row used to be nowrap on purpose, and the reason was sound: the list repolls
+       every 1.5s, and a counter growing past the remaining width re-wrapped the row, so
+       a card the reader had settled on changed height under the pointer. What made that
+       a problem was the counters changing width at all — which they no longer do, now
+       that each holds a fixed field (see .fig-bytes). The line they fall on is decided
+       by the drawer's width and nothing else, so wrapping is steady and the figures are
+       never clipped for want of a few pixels. The chain is the one field with no bound
+       on its length: it takes the second line rather than giving up its text. */
+    flex-wrap: wrap;
+    row-gap: 2px;
+    margin-top: 3px;
+    font-size: 0.65625rem;
+    color: var(--text-dim);
+    min-width: 0;
+}
+
+/* Wrapping is the first resort (see .conn-row-figures); this is the second, for the one
+   case wrapping cannot help with — a single figure wider than the line it is on. The
+   address above keeps its full value in the tooltip, and without min-width: 0 a narrower
+   figure refusing to shrink would push the last one under the card's right padding
+   rather than ellipsising. */
+.conn-row-figures > span {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The two byte counters are the figures that change under the reader, every poll,
+   for the whole time the panel is open. Tabular figures give each digit the same
+   advance width, so a counter going 3.9 KB → 12.4 KB shifts the digits that follow it
+   by a constant amount instead of by a varying one — the difference between numbers
+   that tick and numbers that slosh. */
+.conn-row-figures .fig-bytes {
+    font-variant-numeric: tabular-nums;
+    /* And a field of its own, wide enough for "↑ 999.9 KB" — ten columns, which covers
+       everything fmtBytes returns short of a unit change. Tabular digits stop the digits
+       *inside* a counter from sloshing; this is what stops the counter from changing the
+       row's width as it ticks, which is the thing the wrap above and the repoll would
+       otherwise fight over. */
+    min-width: 10ch;
+}
+
+.conn-empty {
+    padding: 28px 0;
+    text-align: center;
+    color: var(--text-dim);
+}
+
+.qr-wrap {
+    padding: 8px;
+}
+
+/* responsive (keep last) */
+@media (max-width: 1024px) {
+    .sidebar {
+        width: 172px;
+    }
+}
+
+@media (max-height: 680px) {
+    .console {
+        height: 120px;
+    }
+}
+
+.toggle {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+}
+
+.toggle input {
+    accent-color: var(--accent);
+}
+
+.section-title {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    margin: 18px 0 6px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line-strong, #46566e);
+}
+
+/* group manager table */
+.gt-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 6px;
+    min-height: 22px;
+}
+
+.gt-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.6875rem;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+}
+
+.gt-stat .ic {
+    font-size: 0.625rem;
+    color: var(--accent);
+}
+
+/* inline "new group" row; left aligned since the bar no longer holds stats */
+.gt-new {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.gt-new input {
+    width: 150px;
+    padding: 4px 8px;
+    font-size: 0.75rem;
+}
+
+.gt-wrap {
+    max-height: 52vh;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+}
+
+table.groups-table {
+    width: 100%;
+    min-width: 560px;
+    table-layout: fixed;
+    font-size: 0.75rem;
+}
+
+table.groups-table th {
+    padding: 5px 8px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: .02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    background: var(--bg-3);
+    border-bottom: 1px solid var(--line);
+}
+
+table.groups-table td {
+    padding: 5px 8px;
+    vertical-align: middle;
+    overflow: hidden;
+    border-bottom: 1px solid rgba(44, 54, 68, 0.45);
+}
+
+table.groups-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.gt-idx {
+    width: 32px;
+    text-align: center;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+}
+
+.gt-num {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.gt-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.gt-name > .ic, .gt-name > i {
+    flex: 0 0 auto;
+    font-size: 0.6875rem;
+    color: var(--text-dim);
+}
+
+.gt-name .name {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gt-url {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 18px;
+    color: var(--text-dim);
+}
+
+.gt-tag {
+    flex: 0 0 auto;
+    padding: 0 6px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--bg-3);
+    color: var(--text-dim);
+    font-size: 0.625rem;
+    line-height: 16px;
+}
+
+.gt-tag.accent {
+    color: var(--accent);
+    border-color: var(--accent-edge);
+    background: var(--accent-soft);
+}
+
+table.groups-table .row-actions {
+    justify-content: flex-end;
+}
+
+table.groups-table .btn.tiny {
+    padding: 1px 6px;
+}
+
+table.groups-table .btn.tiny .ic {
+    margin-right: 3px;
+}
+
+.btn.danger.solid {
+    background: var(--red);
+    border-color: var(--red);
+    color: var(--on-fill);
+}
+
+/* prominent modal title bar */
+.modal {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.modal-head {
+    flex: 0 0 auto;
+    margin-bottom: 0;
+    padding: 5px 12px;
+    gap: 10px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+}
+
+.modal-head h2 {
+    margin: 0;
+    font-size: 0.875rem;
+    /* 500 keeps the caption readable without the heavy 600 that made every
+       dialog title look like a heading block */
+    font-weight: 500;
+    letter-spacing: .01em;
+    color: var(--text);
+}
+
+/* The connections window sits beside the node table, and its caption is seen
+   level with the table's own caption row — so it wears the same height
+   (--table-head-h, see .app). Height rather than padding, for the same reason
+   the two table captions use it: the title and the close button carry their
+   own type sizes, and a shared height holds the line however either is tuned.
+   Vertical padding goes to zero or it would push against the height. */
+.conn-modal .modal-head {
+    height: var(--table-head-h, 26px);
+    padding: 0 12px;
+}
+
+.modal-head .btn.tiny.ghost {
+    border-color: transparent;
+    color: var(--text-dim);
+}
+
+.modal-head .btn.tiny.ghost:hover {
+    color: var(--text);
+    background: var(--bg-3);
+}
+
+.modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px;
+}
+
+/* For dialogs that own a scrollable list of their own. Leaving the body
+   scrollable would let the scroll escape to it whenever the list is short,
+   which is what breaks a sticky header inside.
+
+   The body has to be a flex column for that to work. It is a flex *item* of
+   .modal, but a block *container*, so a child list's flex: 1 and min-height: 0
+   were inert: the list grew to fit every row and this element's overflow: hidden
+   then cut the rest off. The rows were there and there was no way to reach them —
+   the one failure a scroll container cannot have. */
+.modal-body.no-scroll {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Fixed bottom strip, outside .modal-body so it never scrolls with the content.
+   The top border is the divider that separates it from the list above. */
+.modal-bar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    border-top: 1px solid var(--line);
+    padding: 8px 12px;
+    background: var(--bg-2);
+}
+
+/* A .modal-foot dropped into the bar inherits its in-flow top margin (20px),
+   which would make the fixed strip twice as tall as the row of buttons it
+   holds. The bar itself already provides the spacing. */
+.modal-bar .modal-foot {
+    margin-top: 0;
+    width: 100%;
+}
+
+/* group editor form (compact: inline left-aligned labels) */
+.gform {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Specificity has to beat `.modal label` (0,1,1), which sets display:block plus
+   a 12px top margin. A bare `.gf-row` (0,1,0) lost that comparison, so every
+   control was pushed onto its own line instead of sitting next to its label.
+   `.rt-form .gf-row` further down keeps the routing dialog's wider column. */
+.gform .gf-row {
+    display: grid;
+    /* wide enough for the longest label ("鏇存柊闂撮殧锛堝垎閽燂級") plus the help dot */
+    grid-template-columns: 118px 1fr;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+}
+
+.gf-row > span {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    text-align: left;
+}
+
+/* Help dot: the explanation lives in a hover bubble instead of a paragraph
+   under the field, which keeps the form short. data-tip carries the text so
+   the same markup works in both languages. */
+.hint-dot {
+    margin-left: 5px;
+    font-size: 0.6875rem;
+    color: var(--text-dim);
+    cursor: help;
+    position: relative;
+}
+
+.hint-dot:hover {
+    color: var(--accent);
+}
+
+.hint-dot::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: -10px;
+    bottom: 135%;
+    z-index: 20;
+    padding: 6px 9px;
+    background: var(--bg-3);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-size: 0.6875rem;
+    line-height: 1.4;
+    white-space: nowrap;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .15s ease, visibility .15s;
+}
+
+/* arrow, drawn as a rotated square on the bubble's lower edge */
+.hint-dot::before {
+    content: "";
+    position: absolute;
+    left: 4px;
+    bottom: calc(135% - 4px);
+    z-index: 21;
+    width: 8px;
+    height: 8px;
+    background: var(--bg-3);
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    transform: rotate(45deg);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .15s ease, visibility .15s;
+}
+
+.hint-dot:hover::after,
+.hint-dot:hover::before,
+.hint-dot:focus-visible::after,
+.hint-dot:focus-visible::before {
+    opacity: 1;
+    visibility: visible;
+}
+
+.hint-dot:focus-visible {
+    outline: none;
+    color: var(--accent);
+}
+
+.gf-row input,
+.gf-row select {
+    width: 100%;
+    min-width: 0;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    outline: none;
+}
+
+.gf-row input:focus,
+.gf-row select:focus {
+    border-color: var(--accent);
+}
+/* auto-assigned value: shown for reference, not something to type over */
+.gf-row input.readonly {
+    background: var(--bg-3);
+    color: var(--text-dim);
+    cursor: default;
+}
+
+.gf-checks {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding-left: 108px;
+}
+
+.gf-checks .jf-check {
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.gf-meta {
+    display: flex;
+    gap: 14px;
+    padding-left: 108px;
+    font-size: 0.6875rem;
+    color: var(--text-dim);
+}
+
+.gf-meta .ic {
+    margin-right: 4px;
+    font-size: 0.625rem;
+}
+
+.gf-info {
+    display: flex;
+    gap: 8px;
+    padding: 7px 9px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text-dim);
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.gf-info .ic {
+    margin-top: 3px;
+}
+
+/* input + trailing action button */
+.input-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* The rule-set card's own add, parked at the row's far right: the card-level actions
+   read from the left, and the one button that starts a new category is the card's last
+   word — reached the same way the bars' buttons are, but from the foot of the card. */
+.rs-addcat {
+    margin-left: auto;
+    color: var(--text-dim);
+}
+
+.rs-addcat:hover {
+    color: var(--accent);
+}
+
+.input-row > input {
+    flex: 1;
+    min-width: 0;
+}
+
+.input-row > .btn {
+    flex: 0 0 auto;
+}
+
+.input-row > .btn .ic {
+    margin-right: 0;
+}
+
+/* routing editor, and the interface-size control in the settings */
+/* One rule with two names rather than two rules with the same five numbers: the routing
+   editor's tabs and the settings' size control are the same segmented pill, and a second
+   copy is how the two drifted apart the last time. `.rt-` is what the routing editor
+   calls its own; `.seg-` is the name that says what the thing is. */
+.rt-tabs,
+.seg-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+/* The language row's pills: seven flags sharing one line between them, each column as
+   wide as the row's own — the space is divided rather than left over. A flex row would
+   gather them at their own widths and leave the remainder at one end, which reads as the
+   row having been cut short; a grid of seven equal columns puts the remainder nowhere
+   for it to show, and the spacing between two flags is then the same everywhere along
+   the line. It is one line rather than a wrapped one because a flag pill is small: seven
+   of them fit the control column at the narrowest this card is given, and a flag that
+   has wrapped onto a line of its own is a flag no longer level with its neighbours.
+   minmax(0, 1fr) rather than 1fr so a column can shrink below its content instead of
+   pushing the seventh out of the card. */
+.lang-pills {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+}
+
+/* A pill wearing a flag rather than a word: the flag centered in the column it was
+   given, and slimmer padding than a word's — the width is the grid's to hand out here,
+   so what is left to choose is how much of it stands either side of the artwork. */
+.lang-pills .seg-tab {
+    padding: 4px 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* The country's flag inside a language pill: one SVG per country under fa/icon, taken
+   from the flag-icons set (see fa/flag and LICENSE-flag-icons.txt beside them), the same
+   artwork the node chips wear. Sized by height, so the 4:3 artwork keeps its proportions
+   whatever the row is; the hairline edge is for the flags that are mostly white and would
+   otherwise have no boundary against the pill's surface. */
+.lang-flag {
+    height: 14px;
+    width: auto;
+    display: block;
+    border-radius: 2px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .25);
+}
+
+/* In a form row the group sits in a grid cell rather than above a panel, so the margin
+   that spaces it from the tabs' content is not wanted. */
+.jf-field > .seg-tabs {
+    margin-bottom: 0;
+}
+
+.rt-tab,
+.seg-tab {
+    padding: 3px 14px;
+    font-size: 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+}
+
+.rt-tab:hover,
+.seg-tab:hover {
+    color: var(--text);
+}
+
+.rt-tab.active,
+.seg-tab.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-fill);
+}
+
+.rt-form .gf-row {
+    grid-template-columns: 150px 1fr;
+}
+
+.rt-form .gf-checks {
+    padding-left: 160px;
+}
+
+.gf-block {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.gf-block-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.gf-block-head > span {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+}
+
+.gf-block .rawjson {
+    width: 100%;
+    resize: vertical;
+}
+
+.gf-block .rawjson:disabled {
+    opacity: .45;
+}
+
+.gf-inline {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.gf-inline > span {
+    color: var(--text-dim);
+}
+
+.gf-inline select {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 3px 6px;
+    font-size: 0.75rem;
+    outline: none;
+}
+
+/* The four cards of the routing section. Three of them are the egress mode itself, so
+   clicking one is a switch rather than a tab; the fourth is the block list, which has
+   settings and switches nothing. Two roles in one row is why the block card is drawn
+   apart: a dashed edge and a quieter face, so a glance down the row does not read it as
+   the fourth direction. */
+.rt-cards {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.rt-card {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 9px 11px;
+    text-align: left;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--text-dim);
+    font: inherit;
+    cursor: pointer;
+    transition: border-color .15s, background .15s, color .15s;
+}
+
+.rt-card:hover {
+    border-color: var(--line-strong);
+    color: var(--text);
+}
+
+/* Open for editing. */
+.rt-card.active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+/* The mode traffic is actually following, which is not the same thing as the card being
+   open: a reader can look at the block list without leaving the rule mode. */
+.rt-card.current .rt-card-name {
+    color: var(--accent);
+}
+
+.rt-card-name {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--text);
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+.rt-card-note {
+    font-size: 0.6875rem;
+    line-height: 1.45;
+}
+
+.rt-card.rt-block {
+    border-style: dashed;
+}
+
+.rt-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* The two cards whose content is a body of its own — the routing card and the DNS one.
+   A column, so the body can be handed the frame's height and pass on what is left of it to
+   the last thing in it (the resolver catalogue, whose own height is written below).
+
+   Growing without shrinking: when the body's content is taller than the frame, the body is
+   that tall and the card scrolls. A body allowed to shrink to fit would clip the fields
+   instead, and there would be nothing left to scroll to.
+
+   By :has rather than on every card: the other ten are a plain stack of fields, and making
+   them columns would quietly change where their margins meet. */
+.set-slide:has(> .rt-body) {
+    display: flex;
+    flex-direction: column;
+}
+
+.set-slide > .rt-body {
+    flex: 1 0 auto;
+}
+
+/* Each row of that body keeps the height it asked for. */
+.rt-body > * {
+    flex: 0 0 auto;
+}
+
+/* Except the fields' frame of the DNS card, which is what the height is being kept for:
+   the two catalogues stand in it, one per resolver, each under its own field. The body's
+   other rows — the switches' frame, the note under the card — keep the height they asked
+   for, and the catalogues take the rest. Its floor is the min-height .rt-body > .rt-dns
+   used to write; what grows here is the room above that.
+   The frame is a column so that the height handed to it reaches the grid of resolvers
+   inside it, which is the thing that actually grows. */
+.rt-body > .kind-box {
+    /* The body's own gap is the spacing between its blocks, and the frames' margins would
+       be a second one on top of it. */
+    margin: 0;
+}
+
+.rt-body > .kind-box.kind-text {
+    display: flex;
+    flex-direction: column;
+    /* The 150px the grid itself used to ask for, as the frame's flex basis: on a card with
+       room to spare the catalogues take the rest of it. Neither this nor the grid inside it
+       writes a min-height, and that is load-bearing — a flex item's automatic minimum is its
+       own content, and at dock width the two catalogues stand one under the other rather
+       than side by side, so a grid allowed to shrink past its content had the second one
+       clipped out of sight (see .rt-dns, whose overflow is there for the panel's slide and
+       not for this). The card scrolls instead, as every other card does. */
+    flex: 1 1 150px;
+}
+
+.rt-body > .kind-box.kind-text > .rt-dns {
+    flex: 1 1 auto;
+}
+
+/* The fields' frame's last pair of rows, sharing one line: 兜底解析's two capsules
+   and the interval beside it, when 智能优选 is on.
+
+   One grid rather than two rules for the two rows, so neither can be given a width of
+   its own and drift — the interval's input is a number the reader types into and 兜底解析's
+   is a pair of answers chosen by pressing, so the two want different widths and the
+   split below is where that is said. The name column is the one the rest of the frame
+   uses, which is what keeps these two labels in the same place as the labels above
+   them; each field keeps its own label above its control rather than beside it, because
+   the row it now shares is half as wide as the one it had.
+
+   The frame is a column and this is its last child, so the catalogues above still take
+   the slack (see .rt-body > .kind-box.kind-text) and this pair takes only what it asks. */
+.rt-tail {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 4px 16px;
+    align-items: start;
+}
+
+/* Each of the two fields turns its label over to the top rather than keeping it in the
+   frame's label column beside the control. Two reasons, both about the width: the row is
+   now half as wide as the ones above it, and a 150px label column inside a 150px cell
+   would leave the control nothing; and a label above a control is how every other cell
+   of this card reads (see .rt-dns), so the pair looks like the two catalogues they sit
+   under rather than like fields borrowed from elsewhere.
+
+   The label's own right-alignment and ellipsis belong to that column and are undone
+   here — a label that may wrap is better than one clipped mid-word. */
+.rt-tail .jf-field {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.rt-tail .jf-field > label {
+    margin: 0;
+    text-align: left;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+}
+
+.rt-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.rt-row > label {
+    font-size: 0.6875rem;
+    color: var(--text-dim);
+}
+
+.rt-row select {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 3px 6px;
+    font-size: 0.75rem;
+    outline: none;
+}
+
+/* The DNS card's two columns: a resolver with the list it is chosen from under it, and the
+   other resolver the same. They are even — a URL and a table each — and the tables take the
+   slack rather than it being split with a third column, which is where 兜底解析 wore its
+   switch and the switches stacked: 兜底解析 is a row of the fields' frame now and the
+   switches are rows of the switches' frame, one above this grid and one below it (see
+   .kind-box). Each cell stands its label above its control: a left-hand label column here
+   would leave half of each control's width to a word, and beneath the resolvers the tables
+   are full columns of their own.
+
+   The row is one auto row that stretches: the grid is what takes the height left over
+   inside the fields' frame (see .rt-body > .kind-box.kind-text), and the columns are what
+   it is handed to — so the tables are as tall as the frame allows. */
+.rt-dns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 4px 12px;
+    /* The frame the custom DNS panel is placed in, and the reason it is not clipped on its
+       way in: the panel starts out past the card's right edge, and a grid that clipped
+       nothing would let it be seen out there — and would make the card scroll sideways,
+       which is the one thing a card must not do. */
+    position: relative;
+    overflow: hidden;
+}
+
+/* The custom DNS section, over the two catalogues rather than under them. Its containing
+   block is that grid area rather than the grid itself, which is what puts its left edge
+   exactly on the first table's border — the two things it replaces, and nothing else:
+   兜底解析 and 间隔 stand at the foot of the fields' frame, under the grid, so they stay in
+   view while the object that replaces both answers is written (see the DNS card in the
+   JSX for how the frame's slack is split, .rt-body > .kind-box.kind-text > .rt-dns). */
+.dns-panel {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    overflow-y: auto;
+    /* Out to the right, and invisible as well so that a panel nobody can see is not a place
+       the caret can land. Both come back together when it is asked for. */
+    transform: translateX(calc(100% + 12px));
+    visibility: hidden;
+    transition: transform .28s cubic-bezier(.4, 0, .2, 1), visibility .28s;
+}
+
+.dns-panel.open {
+    transform: none;
+    visibility: visible;
+}
+
+/* A column of the tables is a page wide here, so the panel takes the whole block: what it
+   covers stops being "the two catalogues side by side" the moment they stop being side by
+   side. Neither line is named, which is what makes it the whole block: the rows are
+   implicit at this width, and an area asked for by line number measured out as the first
+   row alone — the panel then covered one resolver and left the other under it. With both
+   placements auto the containing block is the grid's own box (see .dns-panel). */
+@media (max-width: 720px) {
+    .dns-panel {
+        grid-column: auto;
+        grid-row: auto;
+    }
+}
+
+/* The line between the two tables. Drawn rather than a border on one of them: a border
+   would stand at that column's own edge, which is 12px of gap away from the table beside
+   it, and the two sides would not match. Half the gap on either side puts it between them.
+
+   A pseudo-element because the column is a flex container — an absolutely positioned child
+   is not a flex item, so it spans the column's height without joining its stack. That
+   height is the row's, and the row is what the card left over, so the line runs the whole
+   way down the two lists and stops with them. */
+.rt-dns > .dns-col:last-child {
+    position: relative;
+}
+
+.rt-dns > .dns-col:last-child::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -6px;
+    width: 1px;
+    background: var(--line);
+}
+
+/* The fields the whole profile carries, on one line above the focused mode's own: the row
+   fits as many as it has room for and wraps the rest. Each cell is sized to its own control
+   rather than to an equal share of the card — three capsules of five segments are not three
+   equal widths, and a cell given a third of the sheet would put its label a hand's width
+   from the thing it names. */
+.rt-wide {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 6px 24px;
+}
+
+/* One field where that row holds three: the connection fallback, which is what the
+   routing card has left of the row those cells used to share. Sized like the cell it was
+   rather than stretched across the sheet — a two-word answer does not need the width of
+   a window to say itself in. */
+.rt-solo {
+    display: grid;
+    grid-template-columns: minmax(0, 260px);
+    gap: 4px 12px;
+}
+
+.rt-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.rt-cell > label,
+.rt-cell-head > label {
+    font-size: 0.6875rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* The resolver's name and the one thing there is to do to its list, on a line of their own
+   above the field: 立即测速 is about the list rather than about any one row, and the caption
+   under the table is the ruler its rows are measured against — a button standing in there
+   sits over the column it names. The name gives way first, being a word, and the button
+   keeps its own width. */
+.rt-cell-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+}
+
+/* The interval 智能优选 runs on, as the control of its row in the fields' frame. The number
+   is a box of its own, sized for four digits — a day is 1440 — and the unit follows it in the
+   app's own small label type rather than the control face. The word that used to stand before
+   the number is the row's name now, in the label column beside it (see .set-group .jf-field),
+   which is what every row of a frame has. */
+.rt-every {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-dim);
+    font-size: 0.6875rem;
+    white-space: nowrap;
+}
+
+/* The number keeps the width it was given rather than the width of the cell: it holds four
+   digits at most — a day is 1440 — and the shared .jf-field input rule would stretch it to
+   the column now that the interval is a row's control. The selector reaches through
+   .rt-every for the reason the .ltable rules reach through .jf-field: the shared rule is
+   the same weight and comes earlier in this file. */
+.jf-field .rt-every input[type="number"],
+.rt-every input {
+    width: 48px;
+    padding: 2px 4px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.6875rem;
+    text-align: center;
+    outline: none;
+}
+
+.rt-every input:focus {
+    border-color: var(--accent);
+}
+
+/* The two-answer switches (see EitherSwitch): two capsules, one of them in force. The same
+   surface, line and hold as everything else the app offers as chosen — and the same capsule
+   the multi-answer switch wears (see .seg), so the two ways of asking "which of these" are
+   the same shape.
+
+   Two capsules rather than one cut in two: each is a thing that can be pressed, and neither
+   is half of the other. */
+.either {
+    display: flex;
+    gap: 6px;
+    /* Sized to its words rather than to the cell: a cell is a column with the default
+       align-items, which would stretch a pair of buttons across the card. */
+    align-self: flex-start;
+    flex: 0 0 auto;
+}
+
+/* A capsule each, and sized to its word rather than to the cell: a capsule is a shape for
+   something held, and the pairing reads as one choice the moment the two wear it. The
+   padding is wider than a rounded rectangle would need — a capsule wants its word to sit
+   inside the curve, or the ends look like they were cut off. */
+.either-btn {
+    padding: 3px 14px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 0.6875rem;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color .15s, background .15s, color .15s;
+}
+
+.either-btn:hover {
+    border-color: var(--line-strong);
+    color: var(--text);
+}
+
+/* The one in force. */
+.either-btn.on {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.either-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* A few named answers drawn as one capsule cut into segments (see SegmentedSwitch). Not the
+   sliding pill the two-answer switches wear: a knob has no middle to stand at, and the
+   middle is one of these answers. The chosen segment is filled with the accent — the same
+   "chosen" the pill wears when it is on — and the rest stay on the card's surface. */
+.seg {
+    display: inline-flex;
+    /* Sized to its segments rather than to the cell: the cell is a column with the default
+       align-items, which would stretch a capsule of three words across the whole card. */
+    align-self: flex-start;
+    max-width: 100%;
+    padding: 2px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--bg);
+}
+
+.seg-item {
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: var(--text-dim);
+    padding: 3px 10px;
+    font-size: 0.6875rem;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background .16s, color .16s;
+}
+
+.seg-item:hover {
+    color: var(--text);
+}
+
+.seg-item.on {
+    background: var(--accent);
+    color: var(--on-fill);
+}
+
+/* Keyboard only: the pointer already gets the hover above. */
+.seg-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.rt-cell > .rt-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 2px 6px;
+    font-size: 0.75rem;
+    outline: none;
+}
+
+.rt-cell > .rt-input:focus {
+    border-color: var(--accent);
+}
+
+/* The DNS cell's control row: the address takes the room, the caret is a plain
+   triangle drawn in borders rather than an icon font glyph — one glyph, one
+   direction, nothing to load. */
+/* The resolver catalogue, at the bottom of the DNS card and given the height that is left
+   of it: the two fields above are the answers, and this is where they are chosen from. It
+   was a menu hanging off each field, which showed one row of eight dozen at a time behind
+   a click; as a list to scroll it is the thing itself.
+
+   The address column is a fixed width, and it is what makes a column of buttons line up
+   the way a table's cells would. Wide enough for the longest of them — an https URL around
+   an IPv6 literal, "https://[2001:4860:4860::8888]/dns-query" — because the name beside it
+   can ellipsise and the address cannot: it is the value, and it is what tells apart the
+   entries whose names are the same across the sections. */
+.dns-table-wrap {
+    /* Fills what the column has left below its field (see .dns-col), down to a floor of a
+       handful of rows. Not a max-height: the column is as tall as the card, so growing here
+       is growing into space that exists.
+
+       A column of three: the caption, the turning box, and the pager — and it no longer
+       scrolls, because the box is what holds the list now. */
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 120px;
+    /* The box's own box, and the coordinate space the row menu is placed in. Not clipping:
+       the menu opens over the rows and has to be able to leave the frame — the turning box
+       clips itself, and the caption and the pager below are given the corners instead. */
+    position: relative;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    /* Wide enough for the longest address that is not also the name — an https URL around
+       an IPv6 literal is longer still, but those entries carry their address as their name
+       and leave this cell empty. The name beside it can ellipsise; the address cannot: it
+       is the value, and it is what tells apart the entries whose names are the same. */
+    /* Wide enough for the longest value in the list. That used to be an https URL around an
+       IPv6 literal; it is now CleanBrowsing's filtered path, fifty characters of URL that is
+       nearly all path. Those used to sit in the name column, being names as well as values;
+       now that they are named, the address is where the whole of it has to fit.
+       A card too narrow to give it this much truncates the address instead of spilling: every
+       address already ellipsises, and the name beside it gives up its room first. */
+    --dns-addr-w: 334px;
+}
+
+/* The box the list is written on. `perspective` rather than a nested wrapper: the box is
+   what the reader turns, and the depth is the whole effect — flat, the faces would slide
+   across one another instead of coming round.
+
+   Close enough to see it. At 1600px a face five hundred pixels wide was being viewed from
+   over three times its width away, which is very nearly an orthographic projection: the
+   sides receded by a tenth of their size and the turn read as a slide. At 550px, a little
+   over one width away, they lose a third of it apiece and the box has corners while it
+   moves. The face square on to the reader is at z = 0 either way, so what is being read
+   never carries the distortion — only what is on its way in or out does. */
+.dns-rotor {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    perspective: 550px;
+    overflow: hidden;
+    cursor: grab;
+    /* Horizontal drags belong to the box; vertical ones still scroll the page behind it. */
+    touch-action: pan-y;
+}
+
+.dns-rotor.dragging {
+    cursor: grabbing;
+}
+
+/* One page is not a box: there is nothing to turn, so nothing offers to. */
+.dns-rotor.static {
+    cursor: default;
+}
+
+/* Held at the axis' own distance so the front face lands on z = 0 and reads flat and
+   undistorted when a page is in place — the same arrangement as any cube: pull the box back
+   by its radius and push each face forward by it. */
+.dns-rotor-track {
+    position: relative;
+    height: 100%;
+    transform-style: preserve-3d;
+    /* Long enough to watch. A page is a quarter of a turn or more, and at .45s the eye
+       got the arrival without the movement — three quarters of a second is where a turn
+       this size reads as one, and it is still short enough to feel like a step rather than
+       a wait. */
+    transition: transform .7s cubic-bezier(.4, 0, .2, 1);
+}
+
+.dns-face {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    /* Opaque, and not only for looks: a page is shorter than the box whenever the next
+       heading would not fit, and what is behind that gap is the page next door. */
+    background: var(--bg);
+    /* A face turned away from the reader is not one to paint: without this the far sides of
+       the box show through the near one. */
+    backface-visibility: hidden;
+}
+
+/* Shade over a face, by how far round the box it is (--dns-shade, from the component). A
+   real box has sides: without this every face is lit the same and the nearer ones do not
+   stand out from the further ones, which is most of what says there is a box here at all.
+   A layer rather than a filter on the face — a filter would take the face out of the box's
+   3D rendering to paint it.
+
+   Opacity transitions with the track's transform, so a turning face darkens as it goes
+   rather than arriving already dark; the drag turns it off, having no transition of its
+   own. */
+.dns-face::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: #000;
+    opacity: var(--dns-shade, 0);
+    pointer-events: none;
+    /* The shade follows the turn, so the two are one movement: the duration and the curve
+       have to be the track's own (see .dns-rotor-track). */
+    transition: opacity .7s cubic-bezier(.4, 0, .2, 1);
+}
+
+.dns-rotor.dragging .dns-face::after {
+    transition: none;
+}
+
+/* The pager, under the box. Arrows because a page is a step and not a distance, and a count
+   because "3 / 5" is the one thing the box cannot say about itself. */
+.dns-pager {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 2px 0;
+    border-top: 1px solid var(--line);
+    background: var(--bg-2);
+    /* The bottom of the frame's radius — see .dns-table-head. */
+    border-radius: 0 0 8px 8px;
+}
+
+.dns-page-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--text-dim);
+    cursor: pointer;
+}
+
+.dns-page-btn:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--bg-3);
+}
+
+.dns-page-btn:disabled {
+    opacity: .3;
+    cursor: default;
+}
+
+.dns-page-count {
+    color: var(--text-dim);
+    font-size: 0.625rem;
+    font-variant-numeric: tabular-nums;
+}
+
+/* A resolver and the list it is chosen from, one under the other: the table belongs to the
+   field above it, and the column is what makes that visible — there is no heading saying
+   which list is which, because there is nothing to say it about. */
+.dns-col {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+/* The caption row. It no longer sticks to anything: the box below it is what moves now, and
+   the caption is the one part of the table that stays put. Shorter than the node table's
+   caption (see --table-head-h) — nothing here sorts, and there is no second row of controls
+   under it.
+
+   Laid out exactly as a row is, and reading its widths from the same two rules — a flexible
+   name cell and an address cell of --dns-addr-w, with the seam between them in the same
+   place. Without the first of those the name span was only as wide as the word 名称 and
+   地址 stood right behind it rather than over the column it names: the two lines did not
+   line up at all.
+
+   The row's own horizontal padding is on the cells here and in the rows below, because the
+   seam between the columns is a border on a cell and has to span the row's whole height. */
+.dns-table-head {
+    flex: 0 0 auto;
+    display: flex;
+    /* One line of caption, with the room of the rows under it: a caption shorter than the
+       lines it names reads as a different kind of line. */
+    min-height: 24px;
+    padding: 0 8px;
+    background: var(--bg-3);
+    /* The top of the frame's radius, now that the frame itself does not clip: this is the
+       strip whose background reaches the rounded corner. */
+    border-radius: 8px 8px 0 0;
+    border-bottom: 1px solid var(--line);
+    color: var(--text-dim);
+    font-size: 0.625rem;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.dns-table-head > span:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* The columns by position rather than by :last-child, which the action now is when there is
+   one — and the address column is the third cell whatever is standing after it. */
+.dns-table-head > span:nth-child(2),
+.dns-row-ms {
+    flex: 0 0 60px;
+    font-variant-numeric: tabular-nums;
+}
+
+.dns-table-head > span:nth-child(3) {
+    flex: 0 0 var(--dns-addr-w);
+}
+
+/* Every cell: its text against the left edge of its column, and its vertical room inside
+   itself rather than in the row — which is what lets the seam between the columns be a
+   border that spans the row. */
+.dns-table-head > span,
+.dns-row-name,
+.dns-row-ms,
+.dns-row-addr {
+    text-align: left;
+    padding: 3px 8px 3px 0;
+    /* A height the rows all agree on. Left to themselves the cells disagree: a
+       glyph with a taller line box (the CJK word 不可用 beside a bare number)
+       lifts a row a pixel or three, and the pagination, which counts rows against
+       the face they share, loses count — a face sized for the tallest cell still
+       reads blank where the shorter ones stop. The vertical rhythm of a table is
+       worth more than the rhythm inside one cell, so the line box is written down. */
+    line-height: 14px;
+}
+
+/* The caption's cells sit a little taller than a row's, being the line that names them. */
+.dns-table-head > span {
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
+/* The seam, and the same hairline in the caption as in the rows below it. */
+.dns-table-head > span:nth-child(3),
+.dns-row-addr {
+    padding-left: 8px;
+    padding-right: 0;
+    border-left: 1px solid var(--line);
+}
+
+/* A note under one of the resolver tables: a sentence about the column it stands in — why
+   the foreign half has no numbers yet — set apart from the box above it by a little more
+   than the column's own gap. (The note about a switch is a row's own hint now, in the
+   switches' frame: see .jf-hint.) */
+.dns-col > .rt-note {
+    margin-top: 2px;
+}
+
+/* What the resolver does to the answer: the choice behind the choice, and the same four
+   words the source list files its entries under. A band across both columns rather than two
+   cells — it names a run of rows, not a name and an address — and its lines are the face's
+   own grid (see .dns-face > * + *), so a heading is divided from the rows it heads exactly
+   as those rows are divided among themselves. */
+.dns-grp {
+    padding: 5px 8px 3px;
+    color: var(--text-dim);
+    font-size: 0.625rem;
+    letter-spacing: .05em;
+}
+
+/* One resolver. A button rather than a row of a table, because the address on the right is
+   part of what is being picked and has to be inside the target — and because a button
+   brings its own keyboard handling with it, which a clickable <tr> does not.
+
+   No vertical padding of its own: it is on the cells (see the caption above), so that the
+   seam between them reaches from one row rule to the next. */
+.dns-row {
+    display: flex;
+    width: 100%;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--text);
+    font-size: 0.6875rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+/* The grid: every entry but the first wears a rule above it, so a heading and the rows
+   under it are divided the way the rows among themselves are. Not `.dns-row + .dns-row`,
+   which left the two lines either side of a heading unaccounted for — the one place a
+   table most needs to be told apart from the text it heads. */
+.dns-face > * + * {
+    border-top: 1px solid var(--line);
+}
+
+.dns-row:hover {
+    background: var(--bg-3);
+}
+
+/* The one whose address is the value of the field it sits under. The accent wash the app
+   uses for a chosen thing (see --accent-soft), and the address rides along in that colour
+   rather than staying dim against it. */
+.dns-row.on {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.dns-row-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dns-row-addr {
+    flex: 0 0 var(--dns-addr-w);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    /* The column is sized for the longest address there is; a card too narrow to give it
+       that much truncates rather than spilling — the row is a button and cannot overflow
+       without dragging the box with it. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dns-row.on .dns-row-addr {
+    color: inherit;
+    opacity: .8;
+}
+
+/* The DNS address, in the same row geometry as the default-outbound select above it,
+   and in monospace because what goes into it is a URL or an address read character by
+   character rather than a sentence. It takes the room the label leaves rather than a
+   fixed width: a DoH URL is longer than the two words beside it that are not. */
+.rt-input {
+    flex: 1;
+    min-width: 0;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 2px 6px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    outline: none;
+}
+
+.rt-input:focus {
+    border-color: var(--accent);
+}
+
+.rt-actions {
+    display: flex;
+    justify-content: flex-end;
+    min-height: 24px;
+    /* The card is a frame of a fixed height now, so its own save button belongs at the
+       frame's bottom rather than wherever the fields happen to end — a button standing in
+       the middle of a bordered card reads as belonging to nothing. Pushed down by the free
+       space; left where it is when the fields overflow the frame and there is none. */
+    margin-top: auto;
+}
+
+.rt-adv {
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+}
+
+/* The routing card's own annotations. The note is information the reader asked
+   for by looking at the lists — match order, what a switch turned off; the warn
+   is a rule that will not do what it looks like it does, so it wears the alarm
+   colour wherever it appears, as a block of findings or one inline line beside
+   the DNS object's formatter. */
+.rt-note {
+    color: var(--text-dim);
+    font-size: 0.6875rem;
+    line-height: 1.6;
+}
+
+.rt-warn {
+    color: var(--red);
+    font-size: 0.6875rem;
+    line-height: 1.6;
+}
+
+.rt-adv > summary {
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 0.6875rem;
+    margin-bottom: 8px;
+}
+
+/* The lists themselves: as many columns as fit, because the rule card carries four and
+   the block card two. A fixed three would leave one of the four alone on a second row. */
+.rt-lists {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px;
+}
+
+.rt-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.rt-list > label {
+    font-size: 0.6875rem;
+    color: var(--text-dim);
+}
+
+.rt-list textarea {
+    width: 100%;
+    height: 150px;
+    resize: vertical;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 6px 8px;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1.6;
+    outline: none;
+}
+
+.rt-list textarea:focus {
+    border-color: var(--accent);
+}
+
+.rt-list textarea::placeholder {
+    color: var(--text-dim);
+    opacity: .55;
+}
+
+.rt-bar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 6px;
+    min-height: 24px;
+}
+
+.rt-new {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin-left: auto;
+}
+
+table.rt-table {
+    min-width: 460px;
+}
+
+/* The routing list is a card of the settings form now rather than a pane of its own,
+   so the new-route button sits at the far end of the card's bar — the inline row that
+   replaces it while a name is being typed fills that space instead (see .rt-new). */
+.rt-add {
+    margin-left: auto;
+}
+
+/* One card among others: the list keeps the well it was drawn as — a darker surface
+   behind the rows — but drops the border and the pane's own height cap. The card is
+   already a box, and the dialog already scrolls; a second frame inside the first, and
+   a second scroll area inside it, are things to fall into rather than to use. */
+.set-routing .gt-wrap {
+    max-height: 34vh;
+    border: 0;
+}
+
+.rt-new > input {
+    flex: 1;
+    min-width: 0;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    outline: none;
+}
+
+.rt-new > input:focus {
+    border-color: var(--accent);
+}
+
+/* scrollable panes keep scrolling but show no scrollbar */
+* {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge */
+}
+
+*::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+/* render error screen (see ErrorBoundary in main.tsx) */
+.crash {
+    padding: 24px;
+    color: var(--text);
+}
+
+.crash h2 {
+    margin: 0 0 12px;
+    font-size: 0.9375rem;
+    color: var(--red);
+}
+
+.crash pre {
+    margin: 0 0 16px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg-2);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow: auto;
+    max-height: 70vh;
+}
+

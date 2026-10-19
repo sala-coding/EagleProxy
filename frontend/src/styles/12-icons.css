@@ -1,0 +1,120 @@
+/* --- 12-icons.css ---
+   the mingcute icon glyphs as SVG, and the node editor's fields drawn as a ruled table.
+   (Split out of App.css; the order of these files is the cascade.) */
+
+/* ===== mingcute icon glyphs (svg) =====
+   The .ic class is what every @mingcute/react icon wears: 1em square so the
+   svg scales with the text around it exactly as the font glyph it replaced
+   did, and nudged down a quarter em — an svg sits on the baseline like a
+   letter, and icons read better centred on the x-height. */
+.ic {
+    width: 1em;
+    height: 1em;
+    display: inline-block;
+    vertical-align: -0.125em;
+    flex: none;
+}
+
+.ic.spin,
+.spin {
+    animation: icSpin 1s linear infinite;
+}
+
+@keyframes icSpin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ic.spin,
+    .spin {
+        animation: none;
+    }
+}
+
+/* the run-state dot on the routing list and the state chip: a plain painted
+   disc, the one glyph that never needed a library */
+.state-dot,
+.state-chip .state-dot {
+    display: block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+/* --- The node editor's fields as a ruled table ---
+   The add/edit node dialog stacked every field as a floating label-over-input pair,
+   nothing answering the question "where does one field end and the next begin". Drawn
+   as a table now: one label column and one value column, a hairline between the rows
+   and one between the two columns, the whole grid bounded by a single outer line.
+   Scoped to .editor-body — the settings cards keep their own geometry. */
+.editor-body .jsonform {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+/* One row = one label cell and one value cell. The value column is minmax(0, 1fr)
+   so a long address is cut by the row rather than stretching the table. */
+.editor-body .jsonform > .jf-field {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr);
+    column-gap: 10px;
+    align-items: center;
+    margin: 0;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--line);
+}
+
+.editor-body .jsonform > .jf-field:last-child {
+    border-bottom: none;
+}
+
+/* The label cell: the vertical rule hangs off it, so the two columns read as two
+   columns whatever the row's height is. The whole label lives in the tooltip (see
+   the row's own title), so a cut one is still readable. */
+.editor-body .jsonform > .jf-field:not(.jf-object):not(.jf-long) > label {
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    margin: 0;
+    padding: 0 10px 0 12px;
+    border-right: 1px solid var(--line);
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* A rule to state rides under the control, in the value column. */
+.editor-body .jsonform > .jf-field > .jf-hint {
+    grid-column: 2;
+    margin-top: 2px;
+}
+
+/* Boxed rows — nested objects, line lists, the long textareas — span the table's
+   whole width and keep their framed look; their own border carries their name
+   (see .jf-nested). The bottom rule continues the table through them. */
+.editor-body .jsonform > .jf-field.jf-object,
+.editor-body .jsonform > .jf-field.jf-long {
+    grid-template-columns: 1fr;
+    padding: 4px 10px 8px;
+}
+
+/* Inside a ruled table the grid's lines are the separators, so the value cell's
+   control stands down to a quiet surface and answers focus with a lift. */
+.editor-body .jsonform > .jf-field input[type="text"],
+.editor-body .jsonform > .jf-field input:not([type]),
+.editor-body .jsonform > .jf-field input[type="number"] {
+    background: transparent;
+    border-color: transparent;
+    border-radius: 5px;
+}
+
+.editor-body .jsonform > .jf-field input[type="text"]:focus,
+.editor-body .jsonform > .jf-field input:not([type]):focus,
+.editor-body .jsonform > .jf-field input[type="number"]:focus {
+    background: var(--bg-3);
+    border-color: var(--accent);
+}
+

@@ -1,0 +1,285 @@
+/* --- 04-subscription-cards.css ---
+   the subscription list's cards as flat surfaces: the two faces of a card, the seam between them, the badge, the tag, and the empty table's own sentence.
+   (Split out of App.css; the order of these files is the cascade.) */
+
+/* ===== the card as a flat surface =====
+   Two rows make one card: the name row, and the figures under it. They used to be a
+   slab — a lit top edge, walls turning away into shade, a face fading downward, an
+   underside, and a shadow dropped beneath its bottom lip — and none of that is here
+   now. A card is a surface and a hairline, which is the card the rest of the app
+   draws (.conn-row and its neighbours): flat, and not pretending to be an object.
+   The geometry stays, because it was never the effect: the two rows sit flush so
+   their edges read as one card's edges, the seam between their two cells is the
+   hairline that divides them, and the card still stands off the panel by --card-gap
+   so a column of cards reads as objects on a surface rather than as one sheet. */
+.subdrop-table tbody tr.sub-card td {
+    /* The card stands off the panel by --card-inset on both sides, so the panel's
+       own surface shows around it and a column of cards reads as objects on a
+       background rather than as one continuous sheet. It is painted as a border in
+       the panel's colour because a table row cannot be given a margin, and a
+       margin here would take the table out of its own layout. The rounded corners
+       round this border with it, which is what gives the card its outer edge. */
+    border-left: var(--card-inset) solid var(--card-gap);
+    border-right: var(--card-inset) solid var(--card-gap);
+    /* The card's own bottom edge belongs to its detail row, so the line between one
+       subscription and the next is drawn once, under the figures, and the name sits
+       directly on top of the address that belongs to it with nothing in between. */
+    border-bottom: 0;
+    /* The hover is a response, not a state flip: the whole face answers the pointer
+       on the same beat the actions arrive, on a filter rather than a wash — a wash
+       painted as background-image cannot fade in, and a hover that snaps while every
+       other transition in the card is a fade reads as a fault. Brightness is
+       theme-neutral by construction: it asks the face's own colour for the step,
+       whatever palette supplies it. */
+    transition: filter .15s ease, background-color .15s ease;
+    /* Only the outer top corners are rounded. Rounding both of them would notch the
+       seam between the two columns and the card would read as two plates. 10px to
+       the side of the table frame's own 10px — one radius the app's containers share. */
+    border-radius: 10px 0 0 0;
+    background: var(--card-face);
+}
+
+/* The seam is one pixel, and this is the rule that makes it one: the second cell's
+   border is the whole of it. The first cell's own 4px --card-gap border-right is
+   dropped here, because that trough is the card standing off the panel — a statement
+   about the card's outer edges, which has nothing to say about the division between
+   two of its columns. On the far side of a panel-coloured trough the seam read as a
+   band with a line in it rather than as a line. The four pixels go back into the
+   pocket the badge is centred in, which is the pocket that was widened for a
+   three-figure count in the first place. */
+.subdrop-table tbody tr.sub-card td:first-child {
+    border-right: 0;
+}
+
+/* the second column's half of the top corners, and the seam between the two faces */
+.subdrop-table tbody tr.sub-card td:nth-child(2) {
+    border-radius: 0 10px 0 0;
+    /* Written as a shorthand because the rule above gave this cell the same 4px side
+       border as the outer edge, and recolouring that would have turned the seam into a
+       4px trough. */
+    border-left: 1px solid var(--sep-fill);
+}
+
+/* the first card sits directly under the caption rather than floating in a gap of
+   its own, so it is the one card without a top border */
+.subdrop-table tbody tr.sub-card:first-child td {
+    border-top: 2px solid var(--card-gap);
+}
+
+.subdrop-table tbody tr.sub-detail td {
+    border-radius: 0 0 10px 10px;
+    border-left: var(--card-inset) solid var(--card-gap);
+    border-right: var(--card-inset) solid var(--card-gap);
+    /* The lower half carries the same hover response as the upper: a card is one
+       object, and a half that stays still while its other half answers reads as
+       two. Same beat, same filter. */
+    transition: filter .15s ease, background-color .15s ease;
+    /* The lower half of the same flat face, so the two rows read as one card with a
+       seam across it rather than as two panels. */
+    background: var(--card-face);
+    /* the gap below. A table row cannot be given a margin, and a margin here would
+       break the table's own layout, so the space is a border in the panel's own
+       colour: it is invisible, but it is real layout space, and it is what separates
+       one card from the next. */
+    border-bottom: 7px solid var(--card-gap);
+}
+
+/* The outline, in three sides per half of the card, so that the two halves draw one
+   unbroken edge: the name row carries the top and both sides, the figures row the
+   sides and the bottom. The seam between the two columns is not an edge and gets no
+   line — the first cell draws no right-hand one for the same reason its --card-gap
+   border was dropped above: an edge belongs on the outside of the card. */
+.subdrop-table tbody tr.sub-card td:first-child {
+    box-shadow: inset 1px 0 0 var(--card-line), inset 0 1px 0 var(--card-line);
+}
+
+.subdrop-table tbody tr.sub-card td:nth-child(2) {
+    box-shadow: inset -1px 0 0 var(--card-line), inset 0 1px 0 var(--card-line);
+}
+
+.subdrop-table tbody tr.sub-detail td {
+    box-shadow: inset 1px 0 0 var(--card-line), inset -1px 0 0 var(--card-line),
+    inset 0 -1px 0 var(--card-line);
+}
+
+/* Hovering does not lift the card any more; the surface just brightens. The wash is a
+   gradient with both ends the same colour because the face under it is a variable and
+   this has to compose with it rather than replace it — a flat overlay, written the one
+   way a flat overlay can be written here. */
+.subdrop-table tbody tr.sub-card:hover td,
+.subdrop-table tbody tr.sub-card:has(+ .sub-detail:hover) td,
+.subdrop-table tbody tr.sub-detail:hover td {
+    filter: brightness(1.08);
+}
+
+/* The selected card is marked by a bar of the subscription's own hue down its left
+   edge, and it runs the full height of the card because both of its rows are marked.
+   Its colour is the subscription's own rather than the app accent: the badge in the
+   row above wears that hue, and the bar is the same statement made down the whole
+   edge — "this card" in the subscription's colour, not "the selected one" in the
+   app's. Taking the hue from --tab-hue means the two can never disagree, and that hue
+   is set on the row by App.tsx (see hueFor), so both rows carry it.
+   Drawn as an inset shadow because a table cell cannot wear a second border on a side
+   that already has one; at the base of the badge's background at full strength,
+   because a 3px bar cannot be translucent the way a filled pill can.
+   Two rules rather than one since the outline arrived: the bar takes the place of the
+   card's own left-hand line, and each half of the card still brings its share of the
+   outline with it — the top from the name row, the bottom and the right from the
+   figures. Written out rather than left to the outline rules, because a box-shadow set
+   here would otherwise be replaced by them, not added to. */
+.subdrop-table tbody tr.sub-card.active td:first-child {
+    box-shadow: inset 3px 0 0 hsl(var(--tab-hue, 212) 45% 50%), inset 0 1px 0 var(--card-line);
+}
+
+.subdrop-table tbody tr.sub-detail.active td:first-child {
+    box-shadow: inset 3px 0 0 hsl(var(--tab-hue, 212) 45% 50%), inset -1px 0 0 var(--card-line),
+    inset 0 -1px 0 var(--card-line);
+}
+
+/* On the light theme the card is the white one and the panel behind it is the greyer
+   tone (see --card-gap below); the face colour is the only part of that the card has
+   to be told about. */
+[data-variant="light"] .subdrop-table tbody tr.sub-card td {
+    --card-face: #fff;
+}
+
+/* The space around a card is the panel's own surface, and on the light theme that
+   surface is white — the same white as the card. So the gap is swapped for the
+   greyer tone, which is what turns "no space" into "a card standing on a desk".
+   The hairline changes with it: a faint darkening, for the same reason the quota
+   track darkens here rather than lightens. */
+[data-variant="light"] .subdrop-table {
+    --card-gap: var(--bg);
+    --sep-fill: rgba(0, 0, 0, .09);
+    --act-rule: rgba(0, 0, 0, .12);
+    /* the same hues, taken down to where they hold against white */
+    --quota-sat: 70%;
+    --quota-lit: 40%;
+}
+
+/* The light theme's hover darkens the face a little rather than lighting it: on a white
+   card there is no brighter to go. The same filter the dark theme answers with. */
+[data-variant="light"] .subdrop-table tbody tr.sub-card:hover td,
+[data-variant="light"] .subdrop-table tbody tr.sub-card:has(+ .sub-detail:hover) td,
+[data-variant="light"] .subdrop-table tbody tr.sub-detail:hover td {
+    filter: brightness(.975);
+}
+
+/* the zebra has to darken on a light panel and lighten on a dark one */
+[data-variant="light"] .subdrop-table tbody tr.alt {
+    background: rgba(0, 0, 0, .018);
+}
+
+/* The light theme's badge sits at a different saturation — see .type-tag — so the
+   bar follows the badge of its own theme rather than picking one of the two and
+   being a shade off in the other. */
+[data-variant="light"] .subdrop-table tbody tr.active td:first-child {
+    box-shadow: inset 3px 0 0 hsl(var(--tab-hue, 212) 60% 50%);
+}
+
+/* The bar runs down both halves of the card: the figures under the name are part of the
+   same subscription, and the row above already says which one is open. */
+.subdrop-table tbody tr.sub-detail.active td {
+    box-shadow: inset 3px 0 0 hsl(var(--tab-hue, 212) 45% 50%);
+}
+
+[data-variant="light"] .subdrop-table tbody tr.sub-detail.active td {
+    box-shadow: inset 3px 0 0 hsl(var(--tab-hue, 212) 60% 50%);
+}
+
+/* The open subscription: the same accent wash the main table's selected row wears, so
+   "which one am I on" is answered identically in both places. The wash stays the app
+   accent while the bar down the edge wears the subscription's hue — the wash is the
+   same mark the node table makes for the row in use, and there is only one of those
+   per app, so it cannot be the colour of a subscription.
+   The bar is the card's own marking and sits on top of this wash (see .active above). */
+.subdrop-table tbody tr.active {
+    background: var(--accent-soft);
+}
+
+/* Rows are reachable by keyboard — the panel is a list of things to act on, not
+   a picture of them. The detail row is not focusable: everything it does, the card
+   above it does too. */
+.subdrop-table tbody tr:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
+}
+
+/* The type tag holds the subscription's hue (set inline from the group id) and
+   states what the row is: a feed, not a node. A pill rather than the main table's
+   rectangle, because here it is a badge worn inside a cell rather than a column
+   heading, and it has to hold a second piece of information next to the glyph. */
+.subdrop-table .type-tag .ic {
+    font-size: 0.625rem;
+    opacity: .9;
+}
+
+.subdrop-table .type-tag .tag-count {
+    /* a hairline between the glyph and the number, so the pill reads as two facts
+       rather than one smudge — the divider takes the tag's own colour, which is why
+       it is currentColor and not a border tone */
+    padding-left: 5px;
+    border-left: 1px solid currentColor;
+}
+
+/* the table's own emptiness: centred under the header, on the same rhythm as a
+   row, so a list with nothing in it still reads as a table with no rows */
+.subdrop-empty {
+    padding: 26px 12px;
+    color: var(--text-dim);
+    font-size: 0.78125rem;
+    text-align: center;
+}
+
+/* buttons */
+.btn {
+    background: var(--bg-3);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 0.8125rem;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background .15s, border-color .15s, opacity .15s;
+}
+
+.btn:hover:not(:disabled) {
+    background: #2b3644;
+    border-color: #3a4757;
+}
+
+.btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-fill);
+}
+
+.btn.primary:hover:not(:disabled) {
+    background: #3d8be6;
+}
+
+.btn.danger {
+    background: transparent;
+    border-color: var(--red);
+    color: var(--red);
+}
+
+.btn.danger:hover:not(:disabled) {
+    background: rgba(248, 81, 73, 0.12);
+}
+
+.btn.ghost {
+    background: transparent;
+}
+
+.btn.tiny {
+    padding: 2px 10px;
+    font-size: 0.75rem;
+}
+

@@ -1,0 +1,240 @@
+/* --- 02-rail.css ---
+   the left navigation rail: the app's sections as a column of icon buttons, the mark at its foot, and the country flags that ride in node names.
+   (Split out of App.css; the order of these files is the cascade.) */
+
+/* ===== left navigation rail ===== */
+/* The app's sections as one column of icon buttons down the window's left edge:
+   what opens a panel sits at the top, preferences at the bottom. Fixed rather
+   than laid out with the rows, so the strip is the one band
+   of the window that never scrolls or moves. Its width is the --rail-w declared
+   on .app, which is also what the rest of the layout is offset by — the two can
+   never drift apart. Under the modal mask (100) on purpose: while a dialog is
+   open it covers the rail along with everything else. */
+.appnav {
+    position: fixed;
+    left: 0;
+    top: 0;
+    /* It stands on the status bar, not through it, and its own bottom edge is the line
+       that says so: that edge lands exactly on the bar's top edge, so the two are one
+       line rather than two lines a few pixels apart. With the rail's right border and
+       the window's own left and bottom edges, that closes a block in the corner — four
+       drawn edges, which is the point of the arrangement: the rail reads as a strip
+       beside the floor rather than as a strip lying across it.
+       The bar's own top edge is drawn from the rail's right edge onwards (see
+       .statusbar::before); the stretch under the rail is this border-bottom, so the
+       line is continuous across the corner and drawn once rather than twice. */
+    bottom: var(--status-h, 30px);
+    z-index: 90;
+    width: var(--rail-w, 40px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 6px 0;
+    gap: 2px;
+    /* the stack is a column of bare buttons, so it carries the strip's own
+       background and the rule that separates it from the content */
+    background: var(--bg-2);
+    /* Two edges, and they are the same line as the window's: the right one separates the
+       strip from the content, the bottom one is the top of the status bar (see bottom
+       above). Both at --line-strong, so the corner block is drawn in one weight. */
+    border-right: 1px solid var(--line-strong, #46566e);
+    border-bottom: 1px solid var(--line-strong, #46566e);
+}
+
+/* Eats the middle of the column: sections above the gap, preferences below it. */
+.appnav-gap {
+    flex: 1;
+}
+
+/* The app's own mark, in the box the rail's foot and the status bar's left end make
+   together: the strip's width by the bar's height. It is the one square in the window
+   that neither of them owns alone — the rail's border-bottom and border-right draw two
+   of its sides, the window two — which is exactly why the mark belongs there: it is the
+   app's own corner.
+   A button now, and the settings panel's own opener (see the mount in App.tsx), so the
+   browser's idea of what a button looks like — the border, the face, the inline base —
+   is stripped right back here: the mark keeps its own corner, not a button's.
+   Fitted rather than sized: the artwork is taller than it is wide, so object-fit keeps
+   its proportions inside the square instead of stretching it, and the padding is what
+   stops it touching the lines that frame it. */
+.status-logo {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: var(--rail-w, 40px);
+    height: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 4px;
+    border: none;
+    background: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: .8;
+    cursor: pointer;
+    z-index: 1;
+    pointer-events: auto;
+    user-select: none;
+    /* Grows out of its own middle — but only the artwork grows: the button is the
+       corner's own box and never leaves it, so the swell cannot spill past the edge
+       the rail draws under it. */
+    transform-origin: 50% 50%;
+    transition: filter .22s ease, opacity .2s ease;
+}
+
+/* The artwork inside the button: fitted to the button's own content box — which is
+   where the mark's old sizing rules used to land when the mark itself was the img —
+   and inert to the pointer, so hover reads off the button rather than layering a
+   second state onto the file. The grow lives here: the drawing can lift to the
+   button's outer edges without the button itself crossing them. */
+.status-logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    pointer-events: none;
+    transform-origin: 50% 50%;
+    transition: transform .2s cubic-bezier(.22, .61, .36, 1);
+}
+
+/* The eagle mark: a portrait file whose logo square sits centred inside black
+   margins. cover crops straight to that square — the margins are the part that
+   gets cut, and what is left fills the 22px box edge to edge instead of
+   letterboxing inside it. */
+.status-logo img.logo-eagle {
+    object-fit: cover;
+    border-radius: 5px;
+}
+
+/* The mark comes forward: out to the edges of its box, brighter, and carrying a light of
+   its own.
+   1.35 is the number that puts its top and bottom exactly on the bar's edges. Fitted, the
+   artwork draws 22px tall (the bar's 30 less the 4px padding at each end) and 22px wide (a
+   square file in a 32px content box, which already leaves 5px empty on either side), and
+   30 / 22 = 1.364. At that scale the height lands on the edges and those 5px are still
+   there. Filling the width as well would take 40 / 22 = 1.82, which puts the mark 5px past
+   the top and bottom: a square mark cannot reach all four sides of a box that is not
+   square, and this is the side of that trade the eye prefers — nothing spills, and the two
+   horizontal gaps are the ones the artwork was already resting inside.
+   The halo is drop-shadows rather than a box-shadow: the artwork is a shape on a
+   transparent field, and a box-shadow would light up the field's rectangle instead of the
+   mark's own outline.
+   Three of them, and a lift. The white one is the outline — what makes the mark's shape
+   read against whatever is behind it — and it is white rather than the theme's colour
+   because the artwork is a fixed country flag while --accent moves with the theme
+   (nord's teal, dracula's violet, gruvbox's green): a coloured edge would be a different
+   colour under each, and against a red field not always a legible one. The two coloured
+   ones are the halo proper, near and far, and those do follow the theme. */
+.status-logo:hover {
+    opacity: 1;
+    filter:
+        brightness(1.12)
+        drop-shadow(0 0 3px rgba(255, 255, 255, .85))
+        drop-shadow(0 0 9px var(--accent))
+        drop-shadow(0 0 20px var(--accent));
+}
+
+.status-logo:hover img {
+    /* A breath rather than a swell: the figure answers the pointer by lifting a
+       step off its seat, and the mark stays a mark. */
+    transform: scale(1.12);
+}
+
+/* A hairline between the rail's groups. A step lighter than the strip's own outer
+   border (--line rather than --line-strong): that border says where the rail ends,
+   while these only say where one group of switches ends — drawn in the same weight they
+   would read as more edges of the strip, which is exactly the ladder they are not.
+   Width is a little over half the button so the rule reads as a separator rather than as
+   another edge, and flex: 0 0 auto keeps it from being stretched by the column. */
+.appnav-divider {
+    width: 20px;
+    height: 1px;
+    flex: 0 0 auto;
+    background: var(--line);
+    margin: 3px 0;
+}
+
+.appnav-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 9px;
+    color: var(--text-dim);
+    font-size: 0.9375rem;
+    cursor: pointer;
+    transition: background .15s ease, color .15s ease;
+}
+
+.appnav-btn:hover {
+    background: var(--bg-3);
+    color: var(--text);
+}
+
+.appnav-btn:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: -2px;
+}
+
+/* The current section: the same accent tint the status bar uses to mark the log
+   panel open, so "where am I" reads the same way on both. */
+.appnav-btn.active,
+.appnav-btn.active:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+/* The rail's two switches — the system proxy and TUN — which used to be the floating
+   bar against the window's right edge. They light in the green-for-live those buttons
+   used rather than in the accent above, because "this panel is showing" and "this
+   switch is on" are two different facts and they now sit five pixels apart in one
+   column. The glyph breathes for the reason it did over there: with two adjacent
+   switches whose rest states are identical, the lit one has to be obvious.
+   The halo those buttons carried is not repeated: the capsule's own outline is what
+   marks the pair now, and a glow reaching five pixels past a button inside a pill would
+   spill straight over its edge. */
+.appnav-btn.switch.active,
+.appnav-btn.switch.active:hover {
+    background: var(--green-bg);
+    color: var(--green);
+}
+
+.appnav-btn.switch.active .ic {
+    animation: toggleIconGlow 1.4s ease-in-out infinite;
+}
+
+/* The stack the two of them live in. The modes are mutually exclusive (switching
+   one on clears the other, see SetVPNMode on the Go side), and the rail's
+   dividers put them in a group of their own already — the box that used to draw
+   that group's edge is gone; the pair reads as a group from the divider alone. */
+.sp-capsule {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* the same two pixels the rail puts between its children */
+    gap: 2px;
+}
+
+/* ===== country flags in names =====
+   Flag emoji have no glyphs on Windows — WebView2 draws a boxed letter pair or
+   an empty box — so names that open with one get a real flag instead (see
+   NodeName in App.tsx): the flag-icons package's SVG artwork, bundled locally
+   by Vite, one entry per ISO 3166-1 code. This rule only sizes the package's
+   .fi element to the app's glyph geometry; the inset hairline lifts any white
+   field off the dark surface behind it. */
+.flag {
+    width: 18px;
+    height: 13px;
+    border-radius: 2px;
+    vertical-align: -2px;
+    margin-inline-end: 5px;
+    flex: none;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18);
+}
+

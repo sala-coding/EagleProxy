@@ -1,0 +1,448 @@
+/* --- 10-panels.css ---
+   the cards that are read rather than filled: the About card, the rule sets, and the context menus with their submenus.
+   (Split out of App.css; the order of these files is the cascade.) */
+
+/* --- about ---
+   The name, then the facts, as label/value rows. Everything after the name is set in
+   the monospace face: a revision, a version of Go and two paths are read character by
+   character, and they are the parts a bug report copies out. */
+/* The mark beside the name: the same artwork the exe and the tray wear, read out of the
+   icon directory rather than inlined, so the tree keeps one copy of it. Drawn at 32px
+   from the 64px file, which stays sharp on a 2x display. */
+.about-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.about-logo {
+    width: 32px;
+    height: 32px;
+    border-radius: 7px;
+}
+
+.about-name {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.about-rows {
+    display: grid;
+    grid-template-columns: 92px 1fr;
+    gap: 5px 10px;
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+}
+
+.about-rows dt {
+    color: var(--text-dim);
+    text-align: right;
+    font-family: inherit;
+}
+
+/* Paths are long and the panel is narrow: they wrap rather than pushing the rows
+   wider than the dialog, and they are not truncated — the whole point of showing them
+   here is that they can be read out. */
+.about-rows dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+/* A release the check found, and the two things that can be done about it. It sits
+   between the facts and the card's own buttons: the install is the answer to
+   what was just asked, so it is nearer the reader than the card's other rows
+   are, and the release page is the way out for a reader who would rather look
+   before letting the program replace itself. */
+.about-update {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(122, 176, 255, .06);
+}
+
+.about-update-text {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.71875rem;
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+
+/* --- rule sets ---
+   The list is short and the card is narrow: each row is a tag, its state, and the one
+   action that state implies. Three states, three colours — on disk (green: this is the
+   thing that makes the rule work), not downloaded (amber: the one that fails silently),
+   and unused (dim: a leftover, not a fault). */
+.rs-empty {
+    color: var(--text-dim);
+    font-size: 0.6875rem;
+    padding: 2px 0 6px;
+}
+
+/* The rule-set card's small nav bar: the fold's name standing at its left — the one
+   click that opens and closes the list — and the card's one always-reachable action at
+   the right end, so a reader who arrived to add rules does not have to open the list
+   first. One strip instead of a summary line and a stray button beneath it. */
+.rs-nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.rs-nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 4px;
+    margin: -3px -4px;
+    background: none;
+    border: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.6875rem;
+    text-align: left;
+    cursor: pointer;
+    user-select: none;
+}
+
+.rs-nav-toggle:hover {
+    color: var(--accent);
+}
+
+.rs-nav .btn {
+    margin-left: auto;
+}
+
+/* The caret the browser's own marker stood in for: a chevron that turns with the fold,
+   so the state is readable from the shape rather than from remembering which way the
+   triangle faced. */
+.rs-caret {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-left: 8px;
+    border-right: 1.5px solid var(--text-dim);
+    border-bottom: 1.5px solid var(--text-dim);
+    transform: rotate(-45deg);
+    transition: transform .2s ease;
+}
+
+.rs-caret.open {
+    transform: rotate(45deg);
+}
+
+.rs-nav-toggle:hover .rs-caret {
+    border-color: currentColor;
+}
+
+/* The files an import has picked, listed in the small window before anything is
+   written: the reader chose them together and should see the batch they are naming with
+   one country. Names rather than paths because the path is already known to them and the
+   name is what becomes the tag; the full path waits in each row's tooltip. */
+.rs-picked {
+    list-style: none;
+    margin: 0 0 8px;
+    padding: 4px 8px;
+    max-height: 120px;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    color: var(--text-dim);
+    overflow-wrap: anywhere;
+}
+
+.rs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 170px;
+    overflow-y: auto;
+    margin-bottom: 6px;
+}
+
+.rs-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: 8px;
+    padding: 1px 0;
+    font-size: 0.6875rem;
+}
+
+.rs-tag {
+    font-family: var(--font-mono);
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+
+.rs-state {
+    font-size: 0.625rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.rs-state.local {
+    color: var(--green);
+}
+
+.rs-state.missing {
+    color: var(--amber);
+}
+
+.rs-state.orphan {
+    color: var(--text-dim);
+}
+
+/* The port, beside the address it belongs to: a number four digits long does not need
+   the rest of the row, and the kind of value it is should be visible at a glance from
+   its width.
+   Scoped through .input-row because that rule hands flex: 1 to every input it holds and
+   outranks a bare .port-num — without this the box stretched to half the row, and the
+   address it belongs to got no more room than the number did. */
+.input-row > input.port-num {
+    flex: 0 0 96px;
+}
+
+/* The inbound pair, framed. It is a block of rows — the address and the port, the two
+   probes, and whatever the last probe said — and a block is what the card's label column
+   is not for: the name sat beside the rows rather than over them, the note under them
+   began at the card's edge instead of under the input it was about, and the address gave
+   up 90px of the row to a name that was not describing it. Inside the frame the address
+   takes the room left over, the port keeps its own width, and the two probes read as
+   the row's actions at its right end.
+   The frame is the looks box (see .look-box above) — the same question, asked of a
+   module rather than of the window — so only what differs from it is set here. */
+.port-box {
+    margin-top: 9px;
+    /* The row is the frame's last line only while no probe has spoken; once one has, the
+       note is. The frame's own bottom edge covers both, where the looks box's 2px does
+       not — and it is the top edge's 10px, because the legend's half hangs over the
+       frame's top line and a shallower foot would set the row low in the box. */
+    padding-bottom: 10px;
+}
+
+/* The frame's two fields. This row sits in the frame rather than in a .jf-field, so the
+   shared input rule never reached it (see .jf-field input[type="text"] above): what an
+   address and a port were typed into was the browser's own dark-mode field — a #3b3b3b
+   surface with an #858585 edge, two steps brighter than the card behind it, and the only
+   two controls in the whole panel that were. The same surface, edge, ink and rhythm the
+   rest of the app's fields wear, said again here because this row is a frame rather than
+   a field. The width is deliberately not among them: the row's own rules set it (see
+   .port-stack's input-row). */
+.port-box input[type="text"],
+.port-box input:not([type]),
+.port-box input[type="number"] {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 4px 7px;
+    font-size: 0.8125rem;
+    outline: none;
+}
+
+.port-box input:focus {
+    border-color: var(--accent);
+}
+
+.port-box input:hover:not(:focus) {
+    border-color: var(--line-strong);
+}
+
+/* What the port probe last said. Two of its three answers are good news — the port is
+   free, or it is held by this app's own core because a node is running — so only a
+   stranger on the port gets the alarm colour. */
+.port-note {
+    margin-top: 5px;
+    font-size: 0.625rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.port-note.ok {
+    color: var(--green);
+}
+
+.port-note.bad {
+    color: var(--amber);
+}
+
+/* The armed state of the restore button: the first press turns it red and changes its
+   word, the second one does the thing. The alarm colour is the point — it is the only way
+   the button differs from the one beside it. */
+.btn.danger {
+    color: var(--red);
+    border-color: var(--red);
+}
+
+/* Summary and refresh share one bottom row, so the dialog reads as a single
+   block: totals on the left, the action on the right. */
+/* Sits in .modal-bar, which supplies the divider and the spacing, so this only
+   needs to lay the summary and the refresh button out across the full width. */
+.conn-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+}
+
+.conn-total {
+    /* the same step down as the rows above it: the summary belongs to the list and
+       reads as its last line, not as a heading over it */
+    font-size: 0.6875rem;
+}
+
+/* context menu */
+.ctxmenu {
+    position: fixed;
+    z-index: 200;
+    min-width: 190px;
+    /* The node menu lists every action a row has and is taller than a short
+       window, so the clamp in App.tsx moves it up to fit and stops it at the status
+       bar, which it must not reach over. That clamp writes its own max-height in the
+       same pass, measured against the bar's real height, and this one is only where
+       that value starts from — the 30px here is the bar's min-height rather than its
+       height, so on its own it would let a menu sit a few pixels over the bar. */
+    max-height: calc(100vh - var(--status-h, 30px) - 12px);
+    overflow-y: auto;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 4px;
+    /* centred on the window's left edge, so cast the shadow evenly instead of
+       favouring the direction it used to open from */
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
+}
+
+/* The log menu holds two short words (复制 / 清空); the shared 190px min-width
+   left it looking like a wide empty bar. */
+.ctxmenu.narrow {
+    min-width: 112px;
+}
+
+/* The resolver row's menu. Placed in the table's own frame instead of at the window's
+   cursor: the settings card is a slide with a transform of its own, and a fixed menu inside
+   one is measured from that slide rather than from the window — the two coordinates would
+   differ by wherever the card happens to be. Sized to its two short items, the shared width
+   having been set for the node menu's phrases. */
+.ctxmenu.dns-ctx {
+    position: absolute;
+    min-width: 150px;
+}
+
+.ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 0.8125rem;
+    text-align: left;
+    /* The node menu carries ten-plus items, and this menu opens over the table it
+       acts on: the tighter the rows, the more of the list stays visible at once, and
+       the pointer travels less between two entries. 4px keeps a press target past
+       20px while cutting roughly a quarter of the menu's height.
+       The left padding is wider than the right on purpose: the icon column starts
+       there, and a glyph that sat flush against the menu's border would look like it
+       was escaping rather than leading the row. */
+    padding: 4px 10px 4px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.ctx-item:hover:not(:disabled) {
+    background: var(--bg-3);
+}
+
+/* An item that owns a submenu says so with a caret, not with a highlight: the
+   pointer is already on the item by the time anyone looks for the cue, and the
+   caret holds the item's right edge while the label stays in the column the
+   other items use. */
+.ctx-sub-caret {
+    margin-left: auto;
+    font-size: 0.625rem;
+    opacity: .55;
+}
+
+/* The submenu: the same panel as the menu it hangs off, docked beside the item
+   (the layout effect in App.tsx writes the offset, so it can open leftwards when
+   the window has no room on the right). Doubled class because a later bare
+   .ctxmenu re-declares min-width and at equal specificity the later one wins,
+   which (0,2,0) does not. Its labels are short, so it sizes to them instead of
+   inheriting the shared floor. */
+.ctxmenu.ctxmenu-sub {
+    min-width: 0;
+    /* above the menu it hangs off, and nothing else is competing while a node
+       menu is open */
+    z-index: 205;
+}
+
+.ctx-item:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.ctx-item .ic {
+    width: 16px;
+    text-align: center;
+    color: var(--text-dim);
+}
+
+/* A faint rule between a menu item's icon and its words: gives the glyph a
+   column of its own so the eye lands on it first, without the weight of a
+   second border. Only drawn where the markup places one (the log menu). */
+.ctx-item .ctx-vsep {
+    width: 1px;
+    height: 12px;
+    background: var(--line-strong);
+    opacity: .55;
+    flex: none;
+}
+
+.ctx-item.danger,
+.ctx-item.danger .ic {
+    color: var(--red);
+}
+
+/* second click of a two-step delete */
+.ctx-item.danger.solid {
+    background: var(--red);
+    color: var(--on-fill);
+}
+
+.ctx-item.danger.solid .ic {
+    color: var(--on-fill);
+}
+
+.ctx-sep {
+    height: 1px;
+    background: var(--line);
+    margin: 3px 6px;
+}
+
+.qr-wrap {
+    display: flex;
+    justify-content: center;
+    padding: 12px;
+    background: #fff;
+    border-radius: 8px;
+}
+
+.qr-wrap img {
+    display: block;
+}
+
