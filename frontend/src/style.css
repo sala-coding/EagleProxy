@@ -1,0 +1,37 @@
+:root {
+    color-scheme: dark;
+}
+
+html, body, #root {
+    height: 100%;
+    margin: 0;
+}
+
+/* The app's type is measured in rem, so this one number is the size of all of it: every
+   font-size in App.css is a fraction of it — a label that was written as 12px is 0.75rem
+   — while the geometry around the text (paddings, column widths, row heights) stays in
+   pixels. That is the point of the split: the text follows the window and the layout does
+   not, so a narrower window gets smaller type rather than a squeezed table, and every
+   measurement in the design keeps meaning what it meant.
+   The curve is a line rather than a breakpoint, so it moves on each resize: floor 11px,
+   0.3vw of viewport, capped at 15.5px. That is 14px at a 1280-wide window — about an
+   eighth below the 16px those numbers were originally written against, which is the
+   "the default is a little small" half of the ask — 12.6px at 800, and 15px at 1600. */
+html {
+    font-size: calc(clamp(11px, 10.2px + 0.3vw, 15.5px) * var(--ui-scale, 1));
+}
+
+/* --ui-scale is the reader's own offset on that curve, set from the settings dialog and
+   remembered in localStorage (see uiScale in App.tsx). It multiplies rather than
+   replaces, so the two halves of the earlier request hold at once: the type follows the
+   window, and it follows the reader's eyes as well. */
+
+
+body {
+    background: var(--bg, #161b22);
+    color: var(--text, #d7dee8);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+}

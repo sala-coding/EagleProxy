@@ -1,0 +1,18 @@
+# build outputs
+build/bin
+frontend/dist
+node_modules
+
+# runtime data — per-user: profiles/groups carry server addresses, credentials
+# and subscription URLs; they must never be published
+/config
+/configp
+/text-logs
+*.log
+
+# third-party runtime binaries (sing-box core, wintun), downloaded separately
+/sing-box
+
+# IDE / tooling state
+.codebuddy
+.DS_Store
