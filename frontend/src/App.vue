@@ -1696,9 +1696,6 @@ onBeforeUnmount(() => {
                 }">
                     {{ t('about.repo') }}
                 </button>
-                <button class="btn primary" @click="aboutOpen = false">
-                    {{ t('btn.close') }}
-                </button>
             </div>
         </Modal>
 
