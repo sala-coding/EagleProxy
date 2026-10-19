@@ -849,6 +849,28 @@ const onAbout = async () => {
 // and one toast, not two requests), and the outcome is a toast either way: "no
 // update" stays quiet in the card, a newer release is named and its page opens
 // so the reader can fetch it.
+// The About card's bug report. Opens the repository's new-issue page with an
+// environment template already filled in — the version, the Go it runs on and
+// the build time are the three things a bug report is useless without, and
+// they are the three the reporter always forgets to copy. The repo comes from
+// the same about answer the card shows, so a fork's build reports to the fork.
+const reportBug = () => {
+    const a = about.value ?? {};
+    const repo = a.repo || 'sala-coding/EagleProxy';
+    const body = [
+        '### 环境',
+        `- 版本：${a.version || '未知'}`,
+        `- Go 版本：${a.goVersion || '未知'}`,
+        `- 构建时间：${a.built || '未知'}`,
+        '',
+        '### 问题描述',
+        '',
+        '### 复现步骤',
+        '',
+    ].join('\n');
+    API.OpenURL(`https://github.com/${repo}/issues/new?body=${encodeURIComponent(body)}`);
+};
+
 const updateBusy = ref(false);
 const checkUpdate = async () => {
     if (updateBusy.value) return;
@@ -1664,6 +1686,9 @@ onBeforeUnmount(() => {
                 </button>
                 <button class="btn ghost" :disabled="updateBusy" @click="checkUpdate">
                     {{ t('about.checkUpdate') }}
+                </button>
+                <button class="btn ghost" @click="reportBug">
+                    {{ t('about.bug') }}
                 </button>
                 <button class="btn ghost" @click="() => {
                     const repo = about?.repo;

@@ -107,6 +107,7 @@ export const ru: Record<string, string> = {
     'about.openDataDir': 'Открыть каталог данных',
     'about.repo': 'Страница проекта',
     'about.checkUpdate': 'Проверить обновления',
+    'about.bug': 'Сообщить об ошибке',
     'about.unknown': 'неизвестно',
     'batch.title': 'Пакетно',
     'batch.dedupe': 'Убрать повторы',
