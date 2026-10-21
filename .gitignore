@@ -8,11 +8,13 @@ node_modules
 /config
 /configp
 /text-logs
-*.log
-
-# third-party runtime binaries (sing-box core, wintun), downloaded separately
+/log
+/*.log
 /sing-box
-
-# IDE / tooling state
-.codebuddy
-.DS_Store
+/.vscode
+/.codebuddy
+/.DS_Store
+/BUGS.md
+/tests/browser/.chrome-profile
+/tests/browser/out
+/tests/browser/*.png
