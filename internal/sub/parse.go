@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 
@@ -12,6 +14,21 @@ import (
 	"eagle/internal/setting"
 	"eagle/internal/util"
 )
+
+// readableBody is name.go's readable for content that may span lines: the
+// line breaks a subscription list carries are text, every other control
+// character and any invalid UTF-8 rune is not.
+func readableBody(b []byte) bool {
+	if len(b) == 0 {
+		return false
+	}
+	for _, r := range string(b) {
+		if r == utf8.RuneError || (unicode.IsControl(r) && r != '\t' && r != '\n' && r != '\r') {
+			return false
+		}
+	}
+	return true
+}
 
 // rawUpdater parses subscription content (links / Clash YAML / base64),
 // mirroring nekoray's RawUpdater. The parsed entities are collected in
@@ -53,6 +70,18 @@ func (r *rawUpdater) updateDepth(str string, depth int) {
 
 	// base64 encoded subscription
 	if decoded, ok := util.DecodeB64(str); ok && len(decoded) > 0 && string(decoded) != str {
+		// Decode success is not decoded TEXT: any 4k-multiple of base64
+		// alphabet characters decodes cleanly, so one ordinary short word in a
+		// list ("internet", "direct12") came out as binary garbage, recursion
+		// failed on it, and the report told the reader that N of their nodes
+		// were unsupported — with the garbage itself printed as the node's
+		// name. A decode that is not text gets neither the recursion nor a
+		// skip entry: there was no node there to report (the same verdict
+		// name.go's readable gives a name; the body variant below allows the
+		// line breaks a subscription list carries).
+		if !readableBody(decoded) {
+			return
+		}
 		r.updateDepth(string(decoded), depth+1)
 		return
 	}
@@ -104,7 +133,22 @@ func linkLabel(link string) string {
 	return label
 }
 
+// isCommentLine reports whether a line of a link list is a comment rather than
+// a link. The markers are the ones panels use, and no supported share-link
+// scheme begins with any of them.
+func isCommentLine(s string) bool {
+	t := strings.TrimSpace(s)
+	return strings.HasPrefix(t, "#") || strings.HasPrefix(t, ";") || strings.HasPrefix(t, "//")
+}
+
 func (r *rawUpdater) updateLink(str string) {
+	// A comment line is not a node. Panels put them at the top of a link list
+	// ("# my subscription") and they are not links by any scheme — reporting one
+	// as an unsupported node tells the reader that a node of theirs was skipped,
+	// when nothing was skipped at all.
+	if isCommentLine(str) {
+		return
+	}
 	typ, b, ok := format.ParseLink(str, r.s)
 	if !ok {
 		// A link this build cannot turn into a profile: a scheme it does not know, or
@@ -420,8 +464,11 @@ func (r *rawUpdater) updateClash(str string) {
 			ent.Bean.Set("uuid", yStr(proxy, "uuid"))
 			ent.Bean.Set("password", yStr(proxy, "password"))
 			if hi := yStr(proxy, "heartbeat-interval"); hi != "" {
+				// Clash writes the keepalive in SECONDS and the bean holds a
+				// duration. Turning 30 into "30ms" fired the keepalive three
+				// hundred times faster than the panel asked for.
 				if n, err := strconv.Atoi(strings.TrimSpace(hi)); err == nil {
-					hi = strconv.Itoa(n) + "ms"
+					hi = strconv.Itoa(n) + "s"
 				}
 				ent.Bean.Set("heartbeat", hi)
 			}

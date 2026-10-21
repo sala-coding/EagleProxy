@@ -32,8 +32,15 @@ const (
 	modControl = 0x0002
 	modShift   = 0x0004
 	modWin     = 0x0008
-	wmHotkey   = 0x0312
-	pmRemove   = 0x0001
+	// modNoRepeat: held keys stop auto-repeating into WM_HOTKEY. Without it
+	// every press arrives at the keyboard's repeat rate — tens a second — and
+	// each one spawns its own handler goroutine (see loop), so holding the
+	// TUN or start/stop key was a queue of concurrent mode switches. The
+	// binding layer serialises what reaches it, but it can only serialise
+	// presses that were asked for; a repeat was never a second press.
+	modNoRepeat = 0x4000
+	wmHotkey    = 0x0312
+	pmRemove    = 0x0001
 )
 
 type point struct{ X, Y int32 }
@@ -122,10 +129,14 @@ func Apply(bindings map[string]func()) []string {
 				continue
 			}
 			id := allocID()
-			r, _, _ := procRegisterHotKey.Call(0, uintptr(id), uintptr(mods), uintptr(vk))
+			// modNoRepeat on every registration: see the constant. Parse never
+			// produces it (it is not a reader-facing modifier), so it is added
+			// here, where the binding is actually taken from the system.
+			r, _, _ := procRegisterHotKey.Call(0, uintptr(id), uintptr(mods|modNoRepeat), uintptr(vk))
 			if r == 0 {
-				// may already be registered by a previous run; retry once
-				_, _, _ = procUnregisterHotKey.Call(0, uintptr(id))
+				// Windows itself may not know the bit (pre-Vista, or a
+				// compatibility shim that filters it): without it the key still
+				// works, just with the repeat behaviour this replaced.
 				r, _, _ = procRegisterHotKey.Call(0, uintptr(id), uintptr(mods), uintptr(vk))
 				if r == 0 {
 					refused = append(refused, hk)
@@ -213,6 +224,12 @@ func Parse(s string) (mods uint32, vk uint32, err error) {
 				mods |= modAlt
 			case "meta", "win", "super", "cmd":
 				mods |= modWin
+			default:
+				// An unrecognised modifier used to be dropped without a word,
+				// and the key was registered on its own: the app then owned a
+				// bare letter as a system-wide hotkey and took it away from
+				// every other program on the machine.
+				return 0, 0, fmt.Errorf("unknown hotkey modifier: %s", p)
 			}
 			continue
 		}
@@ -220,6 +237,14 @@ func Parse(s string) (mods uint32, vk uint32, err error) {
 	}
 	if vk == 0 {
 		return 0, 0, fmt.Errorf("unknown hotkey: %s", s)
+	}
+	// A key on its own is registered on its own, and that takes it away from
+	// every other program on the machine. The capture field does not offer one
+	// (the F-keys are the exception it allows), so this is only reached by a
+	// hand-edited settings file or one imported from another program — and
+	// refusing it there is much better than owning the bare "A" key.
+	if mods == 0 && !(vk >= 0x70 && vk <= 0x87) {
+		return 0, 0, fmt.Errorf("hotkey needs a modifier: %s", s)
 	}
 	return mods, vk, nil
 }

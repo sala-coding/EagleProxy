@@ -6,6 +6,7 @@ package winframe
 
 import (
 	"os"
+	"runtime"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -56,6 +57,14 @@ func blankTitleIcon() uintptr {
 		hinst, _, _ := procGetModuleHandleW.Call(0)
 		h, _, _ := procCreateIcon.Call(hinst, 16, 16, 1, 1,
 			uintptr(unsafe.Pointer(&and[0])), uintptr(unsafe.Pointer(&xor[0])))
+		// The masks reach the call as uintptrs, which the GC cannot see through:
+		// without this the arrays are unreachable the moment the conversion
+		// happens and are collectible while the (ordinary, non-syscall) call is
+		// still executing — the same bargain sysproxy pays with KeepAlive for
+		// its option buffers. CreateIcon copies both, so holding them to the
+		// return is the whole requirement.
+		runtime.KeepAlive(and)
+		runtime.KeepAlive(xor)
 		blankIcon = h
 	})
 	return blankIcon

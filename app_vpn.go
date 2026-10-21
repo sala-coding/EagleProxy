@@ -1,10 +1,14 @@
 package main
 
 import (
+	"eagle/internal/configbuilder"
 	"eagle/internal/core"
+	"eagle/internal/crashlog"
 	"eagle/internal/netx"
 	"eagle/internal/sysproxy"
 	"fmt"
+	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -14,9 +18,12 @@ import (
 // both hijack the machine's network path: with both on, traffic is captured
 // twice and which one actually takes effect is undefined.
 //
-// The inbound type (mixed port vs tun) is baked into the config the running
-// core was started with, so a live switch is applied by restarting the same
-// profile under the new mode — no manual stop required.
+// The node keeps running across the switch whenever the config it is running is
+// the config the new mode needs — which is the usual case, because the mode
+// enters the config in one place only (see coreServesCurrentMode). Then the
+// switch is the capture coming up or going down, and nothing else: no stop, no
+// start, and no gap in the traffic. When the config does differ, the core is
+// rebuilt on the new one, as it always was.
 func (a *App) SetVPNMode(on bool) error {
 	// One switch at a time, and taken before anything else this function defers:
 	// the lock releases last of all (it was registered first), so the flags, the
@@ -110,15 +117,87 @@ func (a *App) SetVPNMode(on bool) error {
 	// that window was the machine's own DHCP one, and the first probes of the
 	// new adapter went out against it and lost. (See app_dns_takeover.go for
 	// what the state drives.)
-	a.reconcileSystemDNS(false)
+	//
+	// On a goroutine of its own: the flag is already flipped when it is spawned,
+	// so the state it writes is the settled one — but this call can reach
+	// ensureTunServer (a UAC install and up to a ten-second readiness wait)
+	// through its due throttle, and parking that inside startStopMu + modeMu
+	// would queue every other switch, hotkey and tray press behind a dialog
+	// (the same hazard takeTunRoutes was moved async for, see app_tunfront.go).
+	go crashlog.Guard("reconcileSystemDNS", func() { a.reconcileSystemDNS(false) })
 	if running == core.StoppedID {
 		// The switch is off and nothing has ever run (the on case was refused
-		// at the guard above). A warm-up may still have left routes behind from
-		// a switch that never reached a node: the adapter stays — it costs
+		// at the guard above). An earlier switch may still have left routes
+		// behind from one that never reached a node: the adapter stays — it costs
 		// nothing idle and keeps the next switch-on instant — but its routes
 		// must not, and with nothing behind it the countdown takes it apart.
 		a.releaseTunRoutes()
 		a.armTunIdleReclaim()
+		return nil
+	}
+	if !on {
+		// TUN off. The routes go back to the physical adapter first: the machine
+		// is direct from here on, and the config the new mode would run is
+		// written against that routing.
+		a.releaseTunRoutes()
+		// The node keeps running when the core that is running is already the
+		// core this mode would start. Then the switch is the capture coming
+		// down and nothing else: the local inbound keeps listening, the
+		// system-proxy switch finds a node that is already up, and the reader's
+		// traffic does not go through a stop and a start to get there.
+		//
+		// The front-end stays as it is. It holds the adapter and nothing else:
+		// the capture is gone, the device sits idle, and the next switch back
+		// to TUN is a matter of taking the routes again rather than of a fresh
+		// authorisation and a fresh device.
+		if a.coreServesCurrentMode(running) {
+			a.notifyMessage("TUN 模式已关闭，节点继续运行")
+			return nil
+		}
+		// The config moved, so the core is rebuilt on the plain port. The
+		// front-end goes with it: a capture with nothing behind it is a
+		// machine whose traffic enters a tunnel that leads nowhere.
+		if err := a.stopProfileLocked(); err != nil {
+			// The core is still running, so the node is still serving — and the
+			// capture is already down, which is what the flag says. Nothing to
+			// undo here: the off path never took the system proxy away.
+			return err
+		}
+		if err2 := a.stopTunFront(); err2 != nil {
+			a.logf("TUN 网卡随手拆除未完成: " + err2.Error())
+		}
+		if err := a.startProfileLocked(running); err != nil {
+			// The TUN core is gone and the restart did not land: say so rather
+			// than let the lamp lie. The reader re-picks a node as usual.
+			a.notifyMessage("TUN 模式已关闭，但节点重启到本地端口失败: "+err.Error(), true)
+			return err
+		}
+		a.notifyMessage("TUN 模式已关闭，节点已切回本地端口继续运行")
+		return nil
+	}
+	// TUN on. The core keeps running when the config it is running is already
+	// the config this mode needs: then the switch is the capture coming up —
+	// the front-end that holds the adapter and the routes that point the
+	// machine at it — and the node behind it is never interrupted.
+	if a.coreServesCurrentMode(running) {
+		a.notifyMessage("正在启动 TUN 节点…")
+		if err := a.startCapture(); err != nil {
+			// The capture did not come up (a declined prompt, a missing
+			// wintun.dll, a broken adapter). The flag goes back off, and the
+			// system proxy it took away goes back on: the core never stopped,
+			// so putting the machine back is a matter of the proxy pointer
+			// alone.
+			a.curSetting().SetVPNMode(false)
+			if hadSystemProxy {
+				a.curSetting().SetSPModeSystemProxy(true)
+				if err2 := a.applySystemProxy(true); err2 != nil {
+					a.logf("[system proxy] TUN 开启失败后的回退也未完成: " + err2.Error())
+				}
+			}
+			a.notifyMessage("TUN 开启失败: "+err.Error(), true)
+			return fmt.Errorf("TUN 开启失败: %w", err)
+		}
+		a.notifyMessage("TUN 模式已开启")
 		return nil
 	}
 	if err := a.stopProfileLocked(); err != nil {
@@ -139,32 +218,6 @@ func (a *App) SetVPNMode(on bool) error {
 			_ = a.applySystemProxy(true)
 		}
 		return err
-	}
-	if !on {
-		// Turning TUN off ends the system-wide capture, but it does not have to
-		// take the node with it: the same profile is restarted on the plain
-		// mixed port, so the running lamp stays lit and whatever points at the
-		// local inbound keeps working — and the system-proxy switch, if pressed
-		// later, lands on a node that is already up instead of a stopped one.
-		// Windows itself is not pointed anywhere: the proxy flag is off and is
-		// left off, this is a direct machine with a live core behind the port.
-		//
-		// The front-end and its adapter come down at once rather than waiting
-		// for the idle reclaim: with a node running, the countdown's
-		// precondition (runningID == StoppedID) can never fire, and an adapter
-		// that stays would be rights held for a capture nothing claims.
-		a.releaseTunRoutes()
-		if err2 := a.stopTunFront(); err2 != nil {
-			a.logf("TUN 网卡随手拆除未完成: " + err2.Error())
-		}
-		if err := a.startProfileLocked(running); err != nil {
-			// The TUN core is gone and the restart did not land: say so rather
-			// than let the lamp lie. The reader re-picks a node as usual.
-			a.notifyMessage("TUN 模式已关闭，但节点重启到本地端口失败: "+err.Error(), true)
-			return err
-		}
-		a.notifyMessage("TUN 模式已关闭，节点已切回本地端口继续运行")
-		return nil
 	}
 	// VPN start goes through RunElevated: if the user declines the UAC prompt
 	// the error surfaces here and the node stays stopped, which is honest.
@@ -208,11 +261,12 @@ func (a *App) SetVPNMode(on bool) error {
 // SetSystemProxyMode toggles system proxy mode. Turning it on clears TUN mode
 // for the same reason as the reverse case in SetVPNMode.
 //
-// A TUN core has no local inbound at all — the config it was started with only
-// carries the tun inbound (see configbuilder) — so merely flipping the flag
-// left Windows pointing at a port nobody listens on while the TUN core kept
-// running. The switch is therefore applied the same way as the reverse one:
-// stop, flip, restart the same profile, so it takes effect at once.
+// The node keeps running across the switch whenever the config it is running is
+// the config the new mode needs (see coreServesCurrentMode): the local inbound
+// is there in both modes — the tun inbound lives in the front-end, not in the
+// main core — so the switch is the capture coming down and the Windows proxy
+// going up, and the node is never interrupted. When the config does differ, the
+// core is rebuilt on the new one, as it always was.
 func (a *App) SetSystemProxyMode(on bool) error {
 	// The same lock as the other switch, for the same reason: these two are the
 	// one pair a reader can press at once — the rail, the tray, a hotkey or the
@@ -246,7 +300,20 @@ func (a *App) SetSystemProxyMode(on bool) error {
 		a.notifyMessage(msg, true)
 		return fmt.Errorf("%s", msg)
 	}
+	// keepCore answers whether the node survives the switch untouched. It is
+	// asked only when the switch really is a switch between two modes — from TUN
+	// to the system proxy — and the flag it is written for is read further down.
+	keepCore := false
 	if fromTun {
+		// TUN gives way to the system proxy. The routes go back to the physical
+		// adapter first: the machine is direct from here on, and the config the
+		// new mode would run is written against that routing.
+		a.releaseTunRoutes()
+		// The node keeps running when the core that is running is already the
+		// core this mode would start: the local inbound is listening either way
+		// (the tun inbound lives in the front-end, not in the main core), so
+		// the switch is the capture coming down and the Windows proxy going up.
+		keepCore = a.coreServesCurrentMode(running)
 		// Flag first, for the same reason as in SetVPNMode: a kill that fails
 		// must not leave TUN switched on. Stopping an elevated TUN core needs
 		// elevation; if that fails the error surfaces — and the flags stay put,
@@ -254,9 +321,11 @@ func (a *App) SetSystemProxyMode(on bool) error {
 		// the TUN core is most likely still capturing, so a VPN flag already
 		// written off would say "off" while the machine is still taken over.
 		a.curSetting().SetVPNMode(false)
-		if err := a.stopProfileLocked(); err != nil {
-			a.curSetting().SetVPNMode(true)
-			return err
+		if !keepCore {
+			if err := a.stopProfileLocked(); err != nil {
+				a.curSetting().SetVPNMode(true)
+				return err
+			}
 		}
 	}
 	a.curSetting().SetSPModeSystemProxy(on)
@@ -269,9 +338,21 @@ func (a *App) SetSystemProxyMode(on bool) error {
 		// answer with "nothing to do".
 		return a.applySystemProxy(false)
 	}
+	if fromTun && keepCore {
+		// The core never stopped, so the Windows proxy goes up on top of the
+		// node that is already serving. The front-end stays as well: the
+		// adapter is idle now, and the next switch back to TUN is a matter of
+		// taking the routes again rather than of a fresh authorisation.
+		if err := a.applySystemProxy(true); err != nil {
+			a.curSetting().SetSPModeSystemProxy(false)
+			a.notifyMessage("系统代理开启失败: "+err.Error(), true)
+			return err
+		}
+		a.notifyMessage("系统代理已开启")
+		return nil
+	}
 	if fromTun {
-		// The core still holds the tun config it was started with, so the switch
-		// is completed by restarting the same node on the plain port; that call
+		// The config moved, so the core is rebuilt on the plain port; that call
 		// puts the Windows proxy in place as well.
 		err := a.startProfileLocked(running)
 		if err == nil {
@@ -333,6 +414,58 @@ func (a *App) SetSystemProxyMode(on bool) error {
 	return nil
 }
 
+// coreServesCurrentMode reports whether the core that is running is already the
+// core the current mode would start.
+//
+// A mode switch reaches the config in one place only: the mapping inbound a
+// first-profile naive / hysteria2 / tuic node is reached through, which exists
+// because a direct connection under TUN would fall back into the tunnel it is
+// serving (see configbuilder.needExternal). Everything else about the config is
+// the same in both modes — the local inbound is in it either way, because the
+// tun inbound lives in the front-end and not in the main core.
+//
+// So when the config the running core was started with and the config this mode
+// builds are the same, there is nothing to rebuild for, and the node keeps
+// running: the capture comes up or goes down around it, and the traffic does
+// not go through a stop and a start to get there.
+//
+// The comparison is against the config the core is really running, not against
+// one rebuilt for the mode it was started in: the reader may have changed a
+// setting since, and a core that does not carry the current settings is a core
+// that has to be rebuilt whatever the mode does.
+func (a *App) coreServesCurrentMode(id int) bool {
+	ctrl := a.curController()
+	if ctrl == nil {
+		return false
+	}
+	// A core that is running but not answering is a core to rebuild, not one to
+	// keep: a mode switch used to be the moment a hung core was replaced, and
+	// that is worth keeping.
+	if !ctrl.InboundReady() {
+		return false
+	}
+	running := ctrl.RunningConfig()
+	if running == nil {
+		return false
+	}
+	mgr, s := a.curMgr(), a.curSetting()
+	if mgr == nil || s == nil {
+		return false
+	}
+	ent := mgr.SnapshotProfile(id)
+	if ent == nil {
+		return false
+	}
+	res, err := configbuilder.BuildConfig(ent, mgr, s, false)
+	if err != nil {
+		// A config that cannot be built is a reason to rebuild the core the old
+		// way, not a reason to keep one that may not fit the new mode.
+		a.logf("[mode] 生成当前模式的配置失败: " + err.Error())
+		return false
+	}
+	return reflect.DeepEqual(running, res.Config)
+}
+
 // clearStaleSystemProxy removes a proxy entry this app wrote in a session that ended
 // without its exit path — a crash, a kill — and that no mode claims now.
 //
@@ -346,17 +479,42 @@ func (a *App) clearStaleSystemProxy() {
 	if a.curSetting() == nil || a.curSetting().SPModeSystemProxy() {
 		return
 	}
+	sysproxy.SetUndoFile(a.sysproxyUndoPath())
+	if sysproxy.HasUndo() {
+		// A takeover is on record and the normal Clear never ran — the crash
+		// this function exists for. The record holds the machine's own setting
+		// from before the takeover, and restoring it beats any guess: it is
+		// right for a fixed server, for the PAC form (which the old
+		// enabled+server test read as "no proxy" and left behind), and for a
+		// reader whose proxy was another program's entirely.
+		if err := sysproxy.Clear(); err != nil {
+			a.logf("[system proxy] 无法还原异常退出前的原始代理设置: " + err.Error())
+			return
+		}
+		a.logf("[system proxy] 已还原异常退出前的原始代理设置")
+		return
+	}
+	// No record (a build from before the undo file, or one whose record went
+	// missing): fall back to "did this app write what is there" — the fixed
+	// server naming this machine's inbound, or this very setting's PAC URL.
 	port := a.curSetting().InboundSocksPort
 	if port <= 0 {
 		return
 	}
-	enabled, server, err := sysproxy.Current()
-	if err != nil || !enabled || strings.TrimSpace(server) == "" {
+	enabled, server, pac, err := sysproxy.Current()
+	if err != nil {
 		return
 	}
 	lower := strings.ToLower(server)
-	if !strings.Contains(lower, fmt.Sprintf("127.0.0.1:%d", port)) &&
-		!strings.Contains(lower, fmt.Sprintf("localhost:%d", port)) {
+	ours := enabled && strings.TrimSpace(server) != "" &&
+		(strings.Contains(lower, fmt.Sprintf("127.0.0.1:%d", port)) ||
+			strings.Contains(lower, fmt.Sprintf("localhost:%d", port)))
+	if !ours {
+		if want := strings.TrimSpace(a.curSetting().SystemProxyPAC); want != "" && pac == want {
+			ours = true // the PAC we wrote, with ProxyEnable off: still ours
+		}
+	}
+	if !ours {
 		return
 	}
 	if err := sysproxy.Clear(); err != nil {
@@ -366,12 +524,27 @@ func (a *App) clearStaleSystemProxy() {
 	a.logf("[system proxy] 已清理上次异常退出残留的代理设置: " + server)
 }
 
+// sysproxyUndoPath is where the pre-takeover proxy snapshot lives: beside the
+// other machine-state files the resident server and the crash cleanup read,
+// under the live data directory (which can move, so it is read per call rather
+// than remembered).
+func (a *App) sysproxyUndoPath() string {
+	dir := a.curDataDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "temp", "sysproxy-undo.json")
+}
+
 // applySystemProxy points Windows at the local port, or clears it. The error is
 // handed back rather than swallowed so that the one caller that has to answer for
 // the switch — SetSystemProxyMode, which the user just pressed — can say so; the
 // rest (starting a node, stopping one, quitting) only log it, because those have
 // a message of their own and a failed proxy write is not what they are about.
 func (a *App) applySystemProxy(on bool) error {
+	// The undo record tracks the live data directory (see sysproxy.SetUndoFile);
+	// set per call so a directory switch takes effect without a restart.
+	sysproxy.SetUndoFile(a.sysproxyUndoPath())
 	if on {
 		// A PAC script decides per request, so when one is configured it takes the place
 		// of the fixed server: the format and the bypass list have nothing to say about
@@ -434,8 +607,8 @@ func (a *App) rememberSpmode() {
 	// their flags settled), so it is the moment to tell the window to re-read.
 	// The event carries no payload: GetSPMode is the answer, and re-reading it
 	// keeps this the announcement of a settled state rather than a claim about one.
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "spmode:changed")
+	if a.curCtx() != nil {
+		runtime.EventsEmit(a.curCtx(), "spmode:changed")
 	}
 }
 
@@ -475,7 +648,24 @@ func (a *App) applyRememberedSpmode() {
 				return
 			}
 			a.notifyMessage("正在恢复上次的节点…")
+			if wantVPN {
+				// The flag goes down BEFORE the node comes up, so the profile
+				// starts straight into its tun config — one core start, no live
+				// switch. The other order started the node twice: once in the
+				// plain mixed-inbound config, and then again under TUN, and the
+				// first (useless) start was on the reader's path. (app.go's
+				// applyPendingTun does it this way too: "the flag goes down
+				// before the node comes up ... one core start, no live switch".)
+				a.curSetting().SetVPNMode(true)
+				// The same call SetVPNMode makes once the flag is true: the
+				// elevated side has to be told that the takeover is wanted.
+				a.reconcileSystemDNS(false)
+			}
 			if err := a.StartProfile(id); err != nil {
+				if wantVPN {
+					// The flag stands down with the node that never came up.
+					a.curSetting().SetVPNMode(false)
+				}
 				a.notifyMessage("恢复上次模式失败: "+err.Error(), true)
 				return
 			}
@@ -484,9 +674,12 @@ func (a *App) applyRememberedSpmode() {
 			if a.curSetting().VPNMode() {
 				// The node above came up straight into its tun config (the flag
 				// was remembered on), so there is nothing left to switch.
+				a.refreshTrayStatus()
 				a.notifyMessage("TUN 模式已恢复")
 				return
 			}
+			// The node was already running when the restore ran: it came up in
+			// the plain config, and the switch is what puts it under TUN.
 			a.notifyMessage("正在恢复上次的 TUN 模式…")
 			if err := a.SetVPNMode(true); err != nil {
 				a.notifyMessage("恢复 TUN 模式失败: "+err.Error(), true)

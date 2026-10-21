@@ -1,6 +1,8 @@
-package dnsx
+package dnsx_test
 
 import (
+	. "eagle/internal/dnsx"
+
 	"context"
 	"encoding/binary"
 	"io"

@@ -135,11 +135,61 @@ func Compare(a, b string) (int, bool) {
 		return 1, true
 	case vb.pre == "":
 		return -1, true
-	case va.pre < vb.pre:
-		return -1, true
 	default:
-		return 1, true
+		return comparePre(va.pre, vb.pre), true
 	}
+}
+
+// comparePre orders two pre-release suffixes by the semver rules.
+//
+// The suffix is split on dots into identifiers and they are compared one by
+// one. An identifier made only of digits is compared as a NUMBER, so beta.10 is
+// newer than beta.9 — a plain string comparison gets that backwards, because
+// '1' sorts before '9'. A numeric identifier ranks below a non-numeric one,
+// and when one suffix runs out of identifiers the longer one is the newer one.
+func comparePre(a, b string) int {
+	as := strings.Split(a, ".")
+	bs := strings.Split(b, ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		if c := comparePreIdentifier(as[i], bs[i]); c != 0 {
+			return c
+		}
+	}
+	switch {
+	case len(as) < len(bs):
+		return -1
+	case len(as) > len(bs):
+		return 1
+	}
+	return 0
+}
+
+// comparePreIdentifier orders two pre-release identifiers.
+func comparePreIdentifier(a, b string) int {
+	an, aNum := strconv.Atoi(a)
+	bn, bNum := strconv.Atoi(b)
+	switch {
+	case aNum == nil && bNum == nil:
+		if an != bn {
+			if an < bn {
+				return -1
+			}
+			return 1
+		}
+		return 0
+	case aNum == nil:
+		// A numeric identifier always has lower precedence than a non-numeric one.
+		return -1
+	case bNum == nil:
+		return 1
+	}
+	if a != b {
+		if a < b {
+			return -1
+		}
+		return 1
+	}
+	return 0
 }
 
 // version is a version string read into its parts.
@@ -223,9 +273,20 @@ func otherPlatform(name string) bool {
 	return false
 }
 
-// Download writes url to path. The timeout is generous because these are whole
-// applications — tens of megabytes over whatever link the reader has.
-func Download(url, path string) error {
+// Download writes url to path, and refuses the result unless it is what the
+// release said it would be: wantSize bytes (0 skips the check) and a Windows
+// executable.
+//
+// The checks are not ceremony. This file is about to be moved over the running
+// build by the swap script, with no backup and no way back, and the one network
+// shape that answers a GitHub download is a captive portal: a hotel or office
+// proxy replies HTTP 200 with a login page, and the script renamed that page to
+// Eagle.exe. The reader's app then refused to start and the old build was gone.
+// app_rulesets.go has paid the same two checks for the same reason.
+//
+// The timeout is generous because these are whole applications — tens of
+// megabytes over whatever link the reader has.
+func Download(url, path string, wantSize int64) error {
 	if url == "" {
 		return fmt.Errorf("no download url")
 	}
@@ -242,12 +303,49 @@ func Download(url, path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	n, err := io.Copy(f, resp.Body)
+	if err != nil {
 		// A half-written file is worse than none: it would be moved over the running
 		// build by the installer script.
+		_ = f.Close()
 		_ = os.Remove(path)
 		return err
 	}
-	return f.Sync()
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	if wantSize > 0 && n != wantSize {
+		_ = os.Remove(path)
+		return fmt.Errorf("下载不完整：得到 %d 字节，应为 %d 字节", n, wantSize)
+	}
+	if err := checkExecutable(path); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
+}
+
+// checkExecutable refuses anything that does not begin with the DOS/PE magic
+// ("MZ"). A response body that is HTML, a JSON error or an empty file all fail
+// here, before the name of the running build is put on them.
+func checkExecutable(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var head [2]byte
+	if _, err := io.ReadFull(f, head[:]); err != nil {
+		return fmt.Errorf("下载的文件不是可执行文件（读取失败）")
+	}
+	if head[0] != 'M' || head[1] != 'Z' {
+		return fmt.Errorf("下载的文件不是 Windows 程序（可能被网络登录页或代理替换），已放弃安装")
+	}
+	return nil
 }

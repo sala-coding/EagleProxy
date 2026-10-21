@@ -86,10 +86,10 @@ func (a *App) syncDNSStub() {
 // here" that survives a crash, and it is what a DoH/DoT upstream named by host name needs
 // to be dialled at all.
 func (a *App) bootstrapResolvers() []string {
-	if a == nil || a.dataDir == "" {
+	if a == nil || a.curDataDir() == "" {
 		return nil
 	}
-	return tunserv.OriginalResolvers(a.dataDir)
+	return tunserv.OriginalResolvers(a.curDataDir())
 }
 
 // egressIndex is the interface the machine's own traffic leaves by, with the tunnel passed

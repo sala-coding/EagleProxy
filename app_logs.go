@@ -1,8 +1,6 @@
 package main
 
 import (
-	"eagle/internal/core"
-	"eagle/internal/crashlog"
 	"eagle/internal/logstore"
 	"eagle/internal/util"
 	"eagle/internal/winframe"
@@ -64,8 +62,8 @@ func (a *App) ClearCategoryLogs(category string) {
 // emitLog pushes a line to the UI log panel, tagged with its category so the
 // panel can colour each category differently.
 func (a *App) emitLog(category, line string) {
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "core:log", line, category)
+	if a.curCtx() != nil {
+		runtime.EventsEmit(a.curCtx(), "core:log", line, category)
 	}
 }
 
@@ -130,16 +128,11 @@ func (a *App) domReady() {
 	// the same reason and by a little more: switching a mode can restart a node or raise
 	// an administrator prompt, and neither belongs in the first frame of the window.
 	time.AfterFunc(time.Second, a.applyRememberedSpmode)
-	time.AfterFunc(1500*time.Millisecond, func() {
-		if a.curSetting() != nil && a.curSetting().VPNMode() && a.runningID() == core.StoppedID {
-			go crashlog.Guard("warmTunFront", a.warmTunFront)
-		}
-	})
 }
 
 func (a *App) emitNotice(n Notice) {
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "app:message", n.Text, n.IsErr)
+	if a.curCtx() != nil {
+		runtime.EventsEmit(a.curCtx(), "app:message", n.Text, n.IsErr)
 	}
 }
 

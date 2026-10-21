@@ -37,11 +37,36 @@ func (a *App) ExitIP() map[string]string {
 	if !ok {
 		return nil
 	}
-	ip := util.AskIP(client)
-	if ip == "" {
-		a.logf("[exitip] 没有服务回答，角落保持上一次的地址")
+	// The same backoff as the corner's poll (see exitProbeDue): this is the reading
+	// the panel asks for, and the panel is opened by a person who wants the truth
+	// now. What it must not do is be the reason the corner's own poll keeps asking
+	// a node that is down.
+	if !a.exitProbeDue() {
 		return nil
 	}
+	// One flight at a time, the same gate the corner's poll keeps (see
+	// ExitAddress): the panel's ask and a timer tick could otherwise run two
+	// probes at once, each writing its own answer — and the slower one, which
+	// started first, landed last and was then handed out as fresh.
+	a.exitProbeMu.Lock()
+	if a.exitProbeBusy {
+		a.exitProbeMu.Unlock()
+		return a.exitProbeCached()
+	}
+	a.exitProbeBusy = true
+	a.exitProbeMu.Unlock()
+	defer func() {
+		a.exitProbeMu.Lock()
+		a.exitProbeBusy = false
+		a.exitProbeMu.Unlock()
+	}()
+	ip := util.AskIP(client)
+	if ip == "" {
+		a.noteExitFailure()
+		a.noteExitFailLog()
+		return nil
+	}
+	a.noteExitSuccess()
 	// One line per read. The corner shows the answer and discards it, so without this
 	// there is no record of when it was asked or what came back — and that is exactly what
 	// tells a corner that is stale (the request never ran) apart from one that is wrong
@@ -95,6 +120,13 @@ func (a *App) ExitAddress() map[string]string {
 	if !ok {
 		return nil
 	}
+	// A node that is not carrying traffic is not asked again straight away: the
+	// answer cannot have changed, and the ask is a request to each of several echo
+	// services, each of which hangs until its own timeout, through a tunnel that is
+	// not moving (see exitProbeDue).
+	if !a.exitProbeDue() {
+		return nil
+	}
 	// A warm-up that has just answered is the answer this poll came for: it was asked
 	// after the tunnel was ready, and asking the same question again a second later is
 	// another round trip through the node for nothing.
@@ -120,8 +152,10 @@ func (a *App) ExitAddress() map[string]string {
 	}()
 	ip := util.AskIP(client)
 	if ip == "" {
+		a.noteExitFailure()
 		return nil
 	}
+	a.noteExitSuccess()
 	r := map[string]string{"ip": ip, "cc": a.ipCountry(client, ip)}
 	a.exitProbeStore(r)
 	return r
@@ -153,6 +187,94 @@ func (a *App) exitProbeStore(r map[string]string) {
 func (a *App) exitProbeClear() {
 	a.exitProbeMu.Lock()
 	a.exitProbeLast, a.exitProbeAt = nil, time.Time{}
+	// And the failure count: the next node is a different story, and this one's
+	// ending is not to be told twice.
+	a.exitFailStreak, a.exitFailTold = 0, false
+	a.exitFailAt, a.exitFailLoggedAt = time.Time{}, time.Time{}
+	a.exitProbeMu.Unlock()
+}
+
+// exitFailThreshold is how many probes in a row have to come back empty before the
+// reader is told the node is not carrying traffic.
+//
+// One is not enough: the echo services are other people's servers, and one of them
+// being unreachable is a fact about them. Two in a row, each asked through the node
+// and each against several services at once, is a fact about the node.
+const exitFailThreshold = 2
+
+// exitFailBackoff is how long the exit probe waits after one came back empty.
+//
+// A node that is not carrying traffic does not need to be asked every two seconds:
+// the answer will be the same, and the ask is not free — it is a request to each of
+// several echo services, each of which hangs until its own timeout, through a tunnel
+// that is not moving. A corner that refreshes itself twice a second has no use for
+// an answer that cannot change.
+const exitFailBackoff = 15 * time.Second
+
+// exitProbeDue says whether the exit probe may be asked now.
+//
+// The corner's own poll comes every two seconds, and that is the right cadence for
+// a node that is working. After a probe has come back empty the answer cannot be
+// different for a while, so the next one waits.
+func (a *App) exitProbeDue() bool {
+	a.exitProbeMu.Lock()
+	defer a.exitProbeMu.Unlock()
+	if a.exitFailStreak == 0 {
+		return true
+	}
+	return time.Since(a.exitFailAt) >= exitFailBackoff
+}
+
+// noteExitFailure counts a probe that came back empty, and says so once the node has
+// failed enough of them.
+//
+// The reader's own machine is where this cannot be seen. The corner keeps the last
+// address it had, the proxy answers on its port, and the only sign is that nothing
+// loads — which reads as "the app is broken" rather than "this node is dead". A
+// node that cannot carry traffic is worth a sentence, said once and not on every
+// poll.
+func (a *App) noteExitFailure() {
+	a.exitProbeMu.Lock()
+	a.exitFailStreak++
+	a.exitFailAt = time.Now()
+	streak := a.exitFailStreak
+	already := a.exitFailTold
+	if streak >= exitFailThreshold {
+		a.exitFailTold = true
+	}
+	a.exitProbeMu.Unlock()
+	if streak < exitFailThreshold || already {
+		return
+	}
+	a.notifyMessage("这个节点连不通：出口探测连续失败，请换一个节点", true)
+}
+
+// exitFailLogGap is how long the log stays quiet after a probe came back empty.
+//
+// The corner is asked every two seconds, and a node that is down answers nothing
+// every time. A line per attempt is a log that says the same thing fifty times
+// and buries the lines that are about something else.
+const exitFailLogGap = 30 * time.Second
+
+// noteExitFailLog writes the failure line, unless the last one is recent enough
+// to still be standing for this one. It says whether it wrote.
+func (a *App) noteExitFailLog() bool {
+	a.exitProbeMu.Lock()
+	last := a.exitFailLoggedAt
+	a.exitFailLoggedAt = time.Now()
+	a.exitProbeMu.Unlock()
+	if !last.IsZero() && time.Since(last) < exitFailLogGap {
+		return false
+	}
+	a.logf("[exitip] 没有服务回答，角落保持上一次的地址")
+	return true
+}
+
+// noteExitSuccess forgets the failures: the node is answering, and the streak that
+// led to telling the reader is over.
+func (a *App) noteExitSuccess() {
+	a.exitProbeMu.Lock()
+	a.exitFailStreak, a.exitFailTold = 0, false
 	a.exitProbeMu.Unlock()
 }
 

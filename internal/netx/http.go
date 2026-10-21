@@ -76,7 +76,17 @@ func UserAgent(s *setting.Setting) string {
 // request, and a function that resolved the list itself could only ever send the
 // first of them.
 func HttpGet(rawURL string, s *setting.Setting, startedID int, userAgent string) Response {
-	transport := &http.Transport{}
+	transport := &http.Transport{
+		// The idle timeout is what lets the connection the response body hands
+		// back to the pool be closed again. Without it the pool keeps the
+		// connection forever, and the two goroutines reading and writing it keep
+		// the transport itself reachable — so every subscription fetch leaked a
+		// socket and three goroutines, for good.
+		IdleConnTimeout: 30 * time.Second,
+	}
+	// Registered before the body's Close below, so it runs after it: the
+	// connection has to be back in the pool before the pool can be emptied.
+	defer transport.CloseIdleConnections()
 
 	if s != nil && s.SubUseProxy {
 		if startedID < 0 {

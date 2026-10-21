@@ -146,14 +146,26 @@ func parseTrojanVLESS(link string, s *setting.Setting, typ string) (string, bean
 	b := NewTrojanVLESS()
 	b.Set("name", u.Fragment)
 	b.Set("addr", u.Hostname())
-	port, _ := strconv.Atoi(u.Port())
-	if u.Port() == "" {
-		port = 443
+	port, ok := linkPort(u, 443)
+	if !ok {
+		return "", nil, false
 	}
 	b.Set("port", port)
-	password := u.User.Username()
-	// C++ uses url.userName() for password; url.password() when present
-	b.Set("pass", u.User.Username())
+	password := ""
+	if u.User != nil {
+		// The userinfo carries the credential, and it may carry it in either shape:
+		// a password alone ("trojan://secret@host"), or a name and a password
+		// ("trojan://user:secret@host"). The password is what the node dials with,
+		// so it is the password that is taken when there is one — the name beside it
+		// is a label the panel put there, not the secret. The same rule the two
+		// sibling parsers in this file follow (see parseAnyTLS, parseSnell).
+		if pw, ok := u.User.Password(); ok && pw != "" {
+			password = pw
+		} else {
+			password = u.User.Username()
+		}
+	}
+	b.Set("pass", password)
 
 	q := u.Query()
 	netw := q.Get("type")
@@ -478,7 +490,11 @@ func parseVMess(link string, s *setting.Setting) (string, bean.Bean, bool) {
 		if json.Unmarshal(decoded, &obj) == nil && len(obj) > 0 {
 			b.Set("id", toStr(obj["id"]))
 			b.Set("addr", toStr(obj["add"]))
-			b.Set("port", toInt(obj["port"]))
+			port, ok := validPort(toInt(obj["port"]), 443)
+			if !ok {
+				return "", nil, false
+			}
+			b.Set("port", port)
 			b.Set("name", toStr(obj["ps"]))
 			b.Set("aid", toInt(obj["aid"]))
 			st := b.Peek("stream")
@@ -510,9 +526,9 @@ func parseVMess(link string, s *setting.Setting) (string, bean.Bean, bool) {
 	}
 	b.Set("name", u.Fragment)
 	b.Set("addr", u.Hostname())
-	port, _ := strconv.Atoi(u.Port())
-	if u.Port() == "" {
-		port = 443
+	port, ok := linkPort(u, 443)
+	if !ok {
+		return "", nil, false
 	}
 	b.Set("port", port)
 	if u.User != nil {
@@ -624,7 +640,10 @@ func parseQUIC(link string, typ string) (string, bean.Bean, bool) {
 		b := NewTUIC()
 		b.Set("name", u.Fragment)
 		b.Set("addr", u.Hostname())
-		port, _ := strconv.Atoi(u.Port())
+		port, ok := linkPort(u, 443)
+		if !ok {
+			return "", nil, false
+		}
 		b.Set("port", port)
 		if u.User != nil {
 			b.Set("uuid", u.User.Username())
@@ -637,13 +656,22 @@ func parseQUIC(link string, typ string) (string, bean.Bean, bool) {
 		b.Set("udpRelayMode", q.Get("udp_relay_mode"))
 		b.Set("allowInsecure", q.Get("allow_insecure") == "1")
 		b.Set("disableSni", q.Get("disable_sni") == "1")
+		// The keepalive period. A link may carry it in seconds ("heartbeat=30") or
+		// as a duration ("heartbeat=30s"); the bean holds the duration, which is
+		// the shape the app itself writes.
+		if hb := strings.TrimSpace(q.Get("heartbeat")); hb != "" {
+			b.Set("heartbeat", heartbeatDuration(hb))
+		}
 		return "tuic", b, true
 	}
 
 	b := NewHysteria2()
 	b.Set("name", u.Fragment)
 	b.Set("addr", u.Hostname())
-	port, _ := strconv.Atoi(u.Port())
+	port, ok := linkPort(u, 443)
+	if !ok {
+		return "", nil, false
+	}
 	b.Set("port", port)
 	b.Set("hopPort", q.Get("mport"))
 	b.Set("obfsPassword", q.Get("obfs-password"))
@@ -657,6 +685,16 @@ func parseQUIC(link string, typ string) (string, bean.Bean, bool) {
 		}
 	}
 	b.Set("sni", q.Get("sni"))
+	// The ALPN and the two speed limits. The link carries them and the parser used
+	// to drop them, so a hysteria2 node exported from this app came back without
+	// the very settings that make it work over HTTP/3.
+	b.Set("alpn", q.Get("alpn"))
+	if v, err := strconv.Atoi(q.Get("upmbps")); err == nil {
+		b.Set("uploadMbps", v)
+	}
+	if v, err := strconv.Atoi(q.Get("downmbps")); err == nil {
+		b.Set("downloadMbps", v)
+	}
 	return "hysteria2", b, true
 }
 
@@ -757,6 +795,15 @@ type vmessV2N struct {
 
 func vmessToLink(b bean.Bean, s *setting.Setting) string {
 	st := b.Peek("stream")
+	// The v2rayN JSON object below has no field for the REALITY handshake
+	// (pbk/sid/spx/fp/alpn), so exporting one that way produced a plain-TLS
+	// node with the same address: it imports fine, looks identical, and cannot
+	// connect — the server is waiting for a REALITY client. The URL form
+	// carries those fields, and this package's own parser reads it back (see
+	// parseVmess's Xray-URL branch), so a REALITY node takes that shape.
+	if strings.TrimSpace(st.Str("pbk")) != "" && st.Str("sec") == "tls" {
+		return vmessRealityToLink(b, st)
+	}
 	tls := ""
 	if st.Str("sec") == "tls" {
 		tls = "tls"
@@ -778,6 +825,75 @@ func vmessToLink(b bean.Bean, s *setting.Setting) string {
 	}
 	data, _ := json.Marshal(obj)
 	return "vmess://" + base64.StdEncoding.EncodeToString(data)
+}
+
+// vmessRealityToLink is the URL-form export for a vmess node whose handshake
+// is REALITY. The shape mirrors trojanVLESSToLink, minus flow (vmess has none)
+// and with `encryption` carrying the cipher the JSON form calls scy — which is
+// what parseVmess reads it as.
+func vmessRealityToLink(b bean.Bean, st bean.Bean) string {
+	u := &url.URL{Scheme: "vmess"}
+	u.User = url.User(b.Str("id"))
+	u.Host = hostPort(b.Str("addr"), b.Int("port"))
+	u.Fragment = b.Str("name")
+
+	q := url.Values{}
+	q.Set("security", "reality")
+	cipher := b.Str("sec")
+	if cipher == "" {
+		cipher = "auto"
+	}
+	q.Set("encryption", cipher)
+	if sni := st.Str("sni"); sni != "" {
+		q.Set("sni", sni)
+	}
+	if alpn := st.Str("alpn"); alpn != "" {
+		q.Set("alpn", alpn)
+	}
+	if st.Bool("insecure") {
+		q.Set("allowInsecure", "1")
+	}
+	if fp := st.Str("utls"); fp != "" {
+		q.Set("fp", fp)
+	}
+	q.Set("pbk", st.Str("pbk"))
+	if sid := st.Str("sid"); sid != "" {
+		q.Set("sid", sid)
+	}
+	if spx := st.Str("spx"); spx != "" {
+		q.Set("spx", spx)
+	}
+	network := st.Str("net")
+	if network == "" {
+		network = "tcp"
+	}
+	if network == "http" {
+		network = "h2" // the spelling this parser maps back onto "http"
+	}
+	q.Set("type", network)
+	switch network {
+	case "ws", "h2", "httpupgrade":
+		if p := st.Str("path"); p != "" {
+			q.Set("path", p)
+		}
+		if h := st.Str("host"); h != "" {
+			q.Set("host", h)
+		}
+	case "grpc":
+		if p := st.Str("path"); p != "" {
+			q.Set("serviceName", p)
+		}
+	case "tcp":
+		if st.Str("h_type") == "http" {
+			if p := st.Str("path"); p != "" {
+				q.Set("path", p)
+			}
+			q.Set("headerType", "http")
+			q.Set("host", st.Str("host"))
+		}
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func trojanVLESSToLink(b bean.Bean, typ string) string {
@@ -939,6 +1055,9 @@ func quicToLink(b bean.Bean, typ string) string {
 		if v := b.Str("udpRelayMode"); v != "" {
 			q.Set("udp_relay_mode", v)
 		}
+		if v := b.Str("heartbeat"); v != "" {
+			q.Set("heartbeat", v)
+		}
 		if b.Bool("allowInsecure") {
 			q.Set("allow_insecure", "1")
 		}
@@ -968,6 +1087,15 @@ func quicToLink(b bean.Bean, typ string) string {
 	if v := strings.TrimSpace(b.Str("hopPort")); v != "" {
 		q.Set("mport", v)
 	}
+	if v := b.Int("uploadMbps"); v > 0 {
+		q.Set("upmbps", strconv.Itoa(v))
+	}
+	if v := b.Int("downloadMbps"); v > 0 {
+		q.Set("downmbps", strconv.Itoa(v))
+	}
+	if v := b.Str("alpn"); v != "" {
+		q.Set("alpn", v)
+	}
 	if b.Bool("allowInsecure") {
 		q.Set("insecure", "1")
 	}
@@ -982,6 +1110,48 @@ func quicToLink(b bean.Bean, typ string) string {
 }
 
 // --- helpers ---
+
+// linkPort reads the port out of a parsed URL.
+//
+// An absent port and a port of zero both mean "not given" — the reading the
+// hysteria1 and snell parsers have always given them — and fall back to the
+// protocol's default. A port outside the range a socket can hold is a
+// different matter: the link names a port nothing can listen on, so the link
+// is refused rather than quietly pointed somewhere else.
+func linkPort(u *url.URL, def int) (int, bool) {
+	raw := u.Port()
+	if raw == "" {
+		return def, true
+	}
+	p, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, false
+	}
+	return validPort(p, def)
+}
+
+// validPort puts a port a link named into range. A port of zero means the link
+// named none, and takes the default; anything outside the range a socket can
+// hold names a port nothing can listen on.
+func validPort(p, def int) (int, bool) {
+	if p == 0 {
+		return def, true
+	}
+	if p < 0 || p > 65535 {
+		return 0, false
+	}
+	return p, true
+}
+
+// heartbeatDuration reads a keepalive period out of a share link. The link may
+// carry it in seconds ("heartbeat=30") or as a duration ("heartbeat=30s"); the
+// bean holds the duration, which is the shape the app itself writes.
+func heartbeatDuration(v string) string {
+	if n, err := strconv.Atoi(v); err == nil {
+		return strconv.Itoa(n) + "s"
+	}
+	return v
+}
 
 func hostPort(host string, port int) string {
 	if strings.Contains(host, ":") {

@@ -49,7 +49,7 @@ func (a *App) PreviewConfig(id int) (string, error) {
 // another subscription would otherwise yank the table out from under whoever was
 // reading it.
 func (a *App) emitGroupsChanged(gid int) {
-	if a.ctx == nil {
+	if a.curCtx() == nil {
 		return
 	}
 	// gid < 0 means "keep the view where it is": the window re-reads the lists
@@ -57,11 +57,14 @@ func (a *App) emitGroupsChanged(gid int) {
 	// to CurrentGroup here used to yank the view back — the settings file lags
 	// a just-made switch, so a background walk could answer with the group the
 	// reader had already left.
-	runtime.EventsEmit(a.ctx, "groups:changed", gid)
+	runtime.EventsEmit(a.curCtx(), "groups:changed", gid)
 }
 
 // UpdateSubscription refreshes the subscription of a group.
 func (a *App) UpdateSubscription(gid int) (*sub.Result, error) {
+	if a.curMgr() == nil {
+		return nil, fmt.Errorf("backend not initialised")
+	}
 	g := a.curMgr().SnapshotGroup(gid)
 	if g == nil {
 		return nil, fmt.Errorf("group %d not found", gid)
@@ -147,10 +150,10 @@ func (a *App) ExportConfigFile(id int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if a.ctx == nil {
+	if a.curCtx() == nil {
 		return "", fmt.Errorf("backend not initialised")
 	}
-	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+	path, err := runtime.SaveFileDialog(a.curCtx(), runtime.SaveDialogOptions{
 		Title:           "导出 sing-box 配置",
 		DefaultFilename: fmt.Sprintf("config-%d.json", id),
 		Filters:         []runtime.FileFilter{{DisplayName: "JSON", Pattern: "*.json"}},

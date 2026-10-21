@@ -15,14 +15,21 @@ import (
 // whether by click or by hovering it — because from the user's point of view
 // "the one I was just looking at" is the one to reopen.
 func (a *App) SetCurrentGroup(id int) error {
-	if a.curSetting() == nil || a.curSetting().CurrentGroup == id {
+	s := a.curSetting()
+	if s == nil || s.CurrentGroup == id {
 		return nil
 	}
 	if !a.curMgr().HasGroup(id) {
 		return fmt.Errorf("group %d not found", id)
 	}
-	a.curSetting().CurrentGroup = id
-	return a.curSetting().Save()
+	// A copy and a swap, not a write into the live object. The setting is
+	// replaced by the other paths (the mode switches, the settings save), and a
+	// write into the object another goroutine has already replaced is an
+	// update nobody sees: the group the reader picked was lost, and the next
+	// launch came back on the old tab.
+	next := s.Clone()
+	next.CurrentGroup = id
+	return a.applySetting(next)
 }
 
 // recordHotSnapshot remembers what the running config was built from. Called after a
@@ -361,10 +368,10 @@ func (a *App) stopVPN() error {
 	// apart; a node started before that fires cancels it and reuses the device.
 	a.armTunIdleReclaim()
 	if hadCore {
-		// Said only when there was a core to stop. A warm-up leaves the front-end running
-		// with no core behind it, and the node start that follows passes through here —
-		// announcing "node stopped" to a reader who is in the middle of starting one is
-		// worse than saying nothing at all.
+		// Said only when there was a core to stop. A capture brought up by the mode
+		// switch leaves the front-end running with no core behind it, and the node
+		// start that follows passes through here — announcing "node stopped" to a
+		// reader who is in the middle of starting one is worse than saying nothing.
 		a.logf("<<< stopped main core (tun front-end kept)")
 		if a.curSetting() != nil && a.curSetting().VPNMode() {
 			a.notifyMessage("节点已停止（TUN 网卡保持）")

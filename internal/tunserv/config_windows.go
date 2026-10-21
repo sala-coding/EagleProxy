@@ -22,6 +22,11 @@ func resolveAppPath(p string) string { return util.ResolveAppPath(p) }
 type appPaths struct {
 	DataDir string `json:"data_dir"`
 	Core    string `json:"core_path"`
+	// Where the logs go. The server is this same executable, so the folder beside
+	// it is the obvious answer — but the app may have had to put the logs
+	// somewhere else when the program's own folder would not take them, and only
+	// the app knows that.
+	LogDir string `json:"log_dir"`
 }
 
 // appConfigPath is the same file the app reads both paths from, so a settings
@@ -44,6 +49,7 @@ func appPathsOf() appPaths {
 	var raw struct {
 		DataDir string `json:"data_dir"`
 		Core    string `json:"core_path"`
+		LogDir  string `json:"log_dir"`
 	}
 	if data, err := os.ReadFile(appConfigPath()); err == nil {
 		_ = json.Unmarshal(data, &raw)
@@ -57,5 +63,19 @@ func appPathsOf() appPaths {
 	return appPaths{
 		DataDir: resolveAppPath(raw.DataDir),
 		Core:    resolveAppPath(raw.Core),
+		LogDir:  resolveAppPath(raw.LogDir),
 	}
+}
+
+// logDir is where this process writes its own log: the folder the app decided on,
+// or — when the app has not said, or the folder it named is gone — a "log"
+// folder beside this executable.
+func (p appPaths) logDir() string {
+	if p.LogDir != "" {
+		return p.LogDir
+	}
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Join(filepath.Dir(exe), "log")
+	}
+	return ""
 }

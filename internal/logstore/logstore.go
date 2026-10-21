@@ -92,6 +92,16 @@ type Store struct {
 	stopped chan struct{}
 	once    sync.Once
 	dropped atomic.Int64
+
+	// wmu hands the queue over to the direct writer when the store is closed.
+	// A write takes the read side and a close the write side: a line written
+	// before the close goes through the queue and the writer drains it, and a
+	// line written after the close is written to the file itself. Without the
+	// handover the line written after the close sat in a queue nobody read any
+	// more — it was dropped silently, and the last breadcrumb of a shutdown
+	// never reached the file.
+	wmu    sync.RWMutex
+	closed bool
 }
 
 // New creates a store rooted at dir and starts its writer goroutine.
@@ -103,7 +113,50 @@ func New(dir string) *Store {
 		stopped: make(chan struct{}),
 	}
 	go s.loop()
+	go s.pruneOld()
 	return s
+}
+
+// keepDays is how long a dated log file is kept. The dated categories get a
+// fresh file every day (see Path), and nothing anywhere deleted the older ones:
+// a machine that runs the app for years grew a log folder with no ceiling —
+// one file per category per day, forever. Two weeks is well past "yesterday's
+// problem" and short enough that the folder stays a thing a reader can look
+// through. Files without a trailing -YYYY-MM-DD (tunserve.log and its kin) are
+// not dated logs and are never touched here.
+const keepDays = 14
+
+// pruneOld deletes dated log files older than keepDays. Runs off the caller's
+// path — a startup that would otherwise stat a folder it is about to write to —
+// and takes the live directory when it runs, so a directory swapped in the
+// meantime prunes its own files (SetDir kicks one too).
+func (s *Store) pruneOld() {
+	dir := s.Dir()
+	if dir == "" {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().AddDate(0, 0, -keepDays)
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".log") {
+			continue
+		}
+		base := strings.TrimSuffix(name, ".log")
+		if len(base) < 11 { // <cat>-YYYY-MM-DD: at least one category char
+			continue
+		}
+		day, err := time.Parse("2006-01-02", base[len(base)-10:])
+		if err != nil {
+			continue // not a dated file
+		}
+		if day.Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
 }
 
 // SetDir changes the output directory. Files opened for the previous directory
@@ -112,6 +165,8 @@ func (s *Store) SetDir(dir string) {
 	s.dirMu.Lock()
 	s.dir = dir
 	s.dirMu.Unlock()
+	// The new folder may carry files from before the reader moved back to it.
+	go s.pruneOld()
 }
 
 // Dir returns the output directory.
@@ -142,11 +197,46 @@ func (s *Store) Write(category, line string) {
 		line = at.Format(tsLayout) + " " + line
 	}
 	e := entry{category: category, line: line, at: at}
+	s.wmu.RLock()
+	if s.closed {
+		// The writer is gone; this line goes to the file itself.
+		s.wmu.RUnlock()
+		s.writeDirect(e)
+		return
+	}
 	select {
 	case s.ch <- e:
 	default:
 		s.dropped.Add(1)
 	}
+	s.wmu.RUnlock()
+}
+
+// writeDirect puts one line in the file itself, for the lines that arrive after the
+// writer has stopped.
+//
+// The writer's own files are closed and flushed by the time it is gone, and the wait
+// is for exactly that: the line then lands after the ones before it, instead of in
+// the middle of them.
+func (s *Store) writeDirect(e entry) {
+	dir := s.Dir()
+	if dir == "" {
+		return
+	}
+	select {
+	case <-s.stopped:
+	case <-time.After(2 * time.Second):
+	}
+	if e.at.IsZero() {
+		e.at = time.Now()
+	}
+	path := filepath.Join(dir, e.category+"-"+e.at.Format("2006-01-02")+".log")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = fmt.Fprintln(f, e.line)
 }
 
 // Flush waits for everything queued to reach the disk. The writer would get
@@ -156,6 +246,24 @@ func (s *Store) Write(category, line string) {
 // hang the caller either: two seconds on the queue, two on the answer, then it
 // gives up and the read goes ahead with what is already there.
 func (s *Store) Flush() {
+	// A closed store has no writer to wait for: the queue is drained and the
+	// writer is gone, so the marker would never be answered and the wait would
+	// be two seconds of nothing.
+	s.wmu.RLock()
+	closed := s.closed
+	s.wmu.RUnlock()
+	if closed {
+		// A closed store has a writer still on its way down: it drains the
+		// queue and flushes the buffers before it stops, and answering at once
+		// — as this used to — let a reader os.ReadFile straight after a Flush
+		// that had flushed nothing yet. Waiting on stopped IS the flush: it
+		// closes after closeAll, the deferred final flush (see loop).
+		select {
+		case <-s.stopped:
+		case <-time.After(2 * time.Second):
+		}
+		return
+	}
 	done := make(chan struct{})
 	select {
 	case s.ch <- entry{flush: true, done: done}:
@@ -229,10 +337,38 @@ func (s *Store) Read(category string, maxLines int) []string {
 // opposed to the default append-only behaviour. The removal happens on the
 // writer goroutine, so it stays ordered with respect to queued lines.
 func (s *Store) Truncate(category string) {
+	s.wmu.RLock()
+	if s.closed {
+		s.wmu.RUnlock()
+		s.truncateDirect(category)
+		return
+	}
 	select {
 	case s.ch <- entry{category: category, truncate: true, at: time.Now()}:
 	default:
 		s.dropped.Add(1)
+	}
+	s.wmu.RUnlock()
+}
+
+// truncateDirect is Truncate after the writer is gone: the queue it used to be
+// posted to has no reader, so the removal happened nowhere and silently — the
+// speed-test log then grew across runs for the rest of the session. Same wait
+// as writeDirect: the writer finishes its drain first, so this lands on the
+// files it has closed rather than against an open handle.
+func (s *Store) truncateDirect(category string) {
+	select {
+	case <-s.stopped:
+	case <-time.After(2 * time.Second):
+	}
+	path := s.Path(category, time.Now())
+	if err := os.Remove(path); err == nil {
+		return
+	}
+	// Something holds the file (an editor the reader has it open in): emptying
+	// it is the same result the caller asked for.
+	if f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0o644); err == nil {
+		_ = f.Close()
 	}
 }
 
@@ -249,8 +385,18 @@ func (s *Store) Section(category, title string) {
 
 // Close flushes everything still queued and stops the writer. It gives up after
 // two seconds so a stalled disk can never hang the shutdown.
+//
+// A line written after the close is not lost: it is written to the file itself
+// (see writeDirect). The shutdown path writes its last breadcrumb after closing
+// the store, and that line is the one a reader looks for when a run stops
+// halfway.
 func (s *Store) Close() {
-	s.once.Do(func() { close(s.stop) })
+	s.once.Do(func() {
+		s.wmu.Lock()
+		s.closed = true
+		close(s.stop)
+		s.wmu.Unlock()
+	})
 	select {
 	case <-s.stopped:
 	case <-time.After(2 * time.Second):
@@ -301,7 +447,17 @@ func (s *Store) loop() {
 				_ = o.f.Close()
 				delete(files, key)
 			}
-			_ = os.Remove(path)
+			if err := os.Remove(path); err != nil {
+				// Windows refuses to remove a file another handle has open
+				// without FILE_SHARE_DELETE — and the store's own reader opens
+				// the same path, as does any editor the reader has it open in.
+				// The truncate was lost, the file was never emptied, and the
+				// speed-test log grew with every run for good. Emptying it is
+				// the same result the caller asked for.
+				if f, ferr := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0o644); ferr == nil {
+					_ = f.Close()
+				}
+			}
 			return
 		}
 
@@ -348,13 +504,18 @@ func (s *Store) loop() {
 			reportDropped("core")
 			flush()
 		case <-s.stop:
+			// Drain first, then flush once, and only then answer the markers:
+			// close(done) used to happen here while the lines were still in
+			// the bufio buffers — the actual flush is the deferred closeAll
+			// that runs after this return — so a Flush() racing the shutdown
+			// reported "on disk" over a file whose tail was not, and the
+			// shutdown breadcrumb the reader looks for was the piece missing.
+			var markers []chan struct{}
 			for {
 				select {
 				case e := <-s.ch:
 					if e.flush {
-						// closeAll is the flush this marker was waiting on; the
-						// reader only needs to hear that the wait is over.
-						close(e.done)
+						markers = append(markers, e.done)
 						continue
 					}
 					write(e)
@@ -364,6 +525,10 @@ func (s *Store) loop() {
 				break
 			}
 			reportDropped("core")
+			flush()
+			for _, done := range markers {
+				close(done)
+			}
 			return
 		}
 	}

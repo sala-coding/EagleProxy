@@ -5,6 +5,7 @@ package tunfast
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 )
 
 // ErrUnsupported reports the bring-up being attempted on a platform where
@@ -43,6 +44,18 @@ func EgressIndex(tunnelName string) (uint32, error) {
 func Find(name string) (*Link, error) {
 	return nil, fmt.Errorf("tunfast: adapter %q: %w", name, ErrNotFound)
 }
+
+// ClearSelfDNS reports ErrUnsupported: there is no adapter to clear on a
+// system without wintun, and pretending otherwise would be a lie a caller
+// could act on.
+func ClearSelfDNS(name string) error { return ErrUnsupported }
+
+// SelfDNS reports ErrUnsupported, for the same reason.
+func SelfDNS(name string) error { return ErrUnsupported }
+
+// ResolverAddrs reports ErrUnsupported: there is no adapter to ask on a system
+// without wintun, and pretending otherwise would be a lie a caller could act on.
+func ResolverAddrs(name string) ([]netip.Addr, error) { return nil, ErrUnsupported }
 
 // Take reports ErrUnsupported.
 func (l *Link) Take() error { return ErrUnsupported }

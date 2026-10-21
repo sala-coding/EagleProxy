@@ -169,6 +169,65 @@ func (a *App) startVPNExternal(id int) error {
 	return nil
 }
 
+// startCapture brings the capture up around a core that is already running: the
+// front-end that holds the adapter, and the routes that point the machine at it.
+//
+// It is the half of startVPNExternal that does not touch the main core, for the
+// case where the core is already serving the config this mode needs (see
+// coreServesCurrentMode). Then a switch into TUN is the capture, and the node
+// behind it is never interrupted.
+//
+// The front-end comes up alongside the routes rather than before them: the wait
+// for the adapter is inside takeTunRoutes, and the core behind it is already
+// serving, so there is nothing on this side to wait for.
+func (a *App) startCapture() error {
+	// The whole path below can wait for an administrator prompt, a warm-up and
+	// the adapter's own start-up, and the idle-reclaim timer that a previous
+	// stop armed fires inside that window otherwise — and takes apart the
+	// front-end this start is about to use.
+	a.tunWake.Store(true)
+	defer a.tunWake.Store(false)
+	a.cancelTunIdleReclaim()
+	frontCh := make(chan error, 1)
+	go func() {
+		// A panic here would take the process down with no reader-facing answer;
+		// the call below is on a goroutine of its own for the first time, so it
+		// gets the same courtesy every other long-lived goroutine in this app
+		// gets.
+		defer func() {
+			if r := recover(); r != nil {
+				frontCh <- fmt.Errorf("TUN 前端启动失败: %v", r)
+			}
+		}()
+		frontCh <- a.ensureTunFront()
+	}()
+	if err := a.takeTunRoutes(); err != nil {
+		// The front-end may still be behind a prompt; its answer is collected
+		// off this call so a declined prompt does not turn into an orphaned
+		// adapter — and the adapter itself stays, because it is the expensive
+		// half and the next start reuses it.
+		go func() {
+			if ferr := <-frontCh; ferr == nil {
+				a.releaseTunRoutes()
+				a.armTunIdleReclaim()
+			}
+		}()
+		return err
+	}
+	if ferr := <-frontCh; ferr != nil {
+		// The front-end did not come up — a declined prompt, a missing
+		// wintun.dll, a broken adapter that could not be rebuilt. The routes
+		// are up over an adapter nobody serves, so they come back down.
+		a.releaseTunRoutes()
+		a.armTunIdleReclaim()
+		return ferr
+	}
+	// The adapter has something behind it now, so the countdown that would have
+	// taken an idle one apart is no longer wanted.
+	a.cancelTunIdleReclaim()
+	return nil
+}
+
 // ensureTunFront starts the standalone tun front-end when it is not already running, and
 // does nothing when it is. That "does nothing" is the entire reason the process exists:
 // it holds the adapter, so leaving it alone is what lets nodes, routing profiles and
@@ -180,16 +239,16 @@ func (a *App) startVPNExternal(id int) error {
 // front-end that is not running cannot be reading the file, and one that is never
 // reaches this function.
 func (a *App) ensureTunFront() error {
-	// One at a time. The warm-up and a node start can arrive together, and the loser of
-	// that race would otherwise launch a second elevated core: it would find no pid
+	// One at a time. A mode switch and a node start can arrive together, and the loser
+	// of that race would otherwise launch a second elevated core: it would find no pid
 	// recorded yet — the winner is still sitting behind the UAC prompt — and conclude
 	// that no front-end exists.
 	a.tunFrontMu.Lock()
 	defer a.tunFrontMu.Unlock()
 
-	// The exit path does not wait for a warm-up, so a warm-up that has not started yet
-	// must not start: building an adapter for an app that is closing is how a front-end
-	// ends up with nobody left to stop it.
+	// The exit path does not wait for a front-end build, so a build that has not started
+	// yet must not start: building an adapter for an app that is closing is how a
+	// front-end ends up with nobody left to stop it.
 	if a.quitting.Load() {
 		return fmt.Errorf("程序正在退出")
 	}
@@ -227,16 +286,16 @@ func (a *App) ensureTunFront() error {
 		return fmt.Errorf("本地入站端口 %d 不可用：TUN 前端就是往它转发，请先在设置里改成有效端口（1-65535）",
 			a.curSetting().InboundSocksPort)
 	}
-	exe, err := core.ResolveCore(a.corePath, a.dataDir)
+	exe, err := core.ResolveCore(a.curCorePath(), a.curDataDir())
 	if err != nil {
 		return err
 	}
 	// the adapter is built by the wintun driver, and a missing DLL otherwise
 	// surfaces as a process that dies immediately with a message about an
 	// unnamed module
-	if !core.WintunReady(exe, a.dataDir) {
+	if !core.WintunReady(exe, a.curDataDir()) {
 		return fmt.Errorf("未找到 wintun.dll：TUN 模式需要它，请把 wintun.dll 放到 %s（或核心目录 %s）后重试",
-			a.dataDir, filepath.Dir(exe))
+			a.curDataDir(), filepath.Dir(exe))
 	}
 	// A record on disk means the last run never got to tidy up: it was killed, or it
 	// crashed on the way out. Only then is the sweep worth what it costs — two
@@ -267,7 +326,7 @@ func (a *App) ensureTunFront() error {
 	// the file on the next start erased the only evidence of that failure before
 	// anyone could read it. Renaming can fail while the old process still holds the
 	// file open — then it is simply kept where it is and appended to.
-	coreLog := filepath.Join(a.dataDir, "vpn-core.log")
+	coreLog := a.coreLogPath()
 	_ = os.Rename(coreLog, coreLog+".prev")
 	if pid, err := a.launchTunFront(exe, path); err != nil || pid > 0 {
 		return err
@@ -288,7 +347,7 @@ func (a *App) ensureTunFront() error {
 		return err
 	}
 	if pid <= 0 {
-		msg := fmt.Sprintf("TUN 前端启动后立即退出，请查看 %s", filepath.Join(a.dataDir, "vpn-core.log"))
+		msg := fmt.Sprintf("TUN 前端启动后立即退出，请查看 %s", filepath.Join(a.curDataDir(), "vpn-core.log"))
 		a.notifyMessage(msg, true)
 		return fmt.Errorf("%s", msg)
 	}
@@ -320,10 +379,10 @@ func (a *App) launchTunFront(exe, cfgPath string) (int, error) {
 			// queueing (SendCommand's form) would deliver the start we have given up
 			// on, raise a front-end, and then kill it — with this side's own
 			// front-end starting in the middle of that, on the same adapter.
-			_ = tunserv.ReplaceCommand(a.dataDir, tunserv.Command{Action: tunserv.ActionStop})
+			_ = tunserv.ReplaceCommand(a.curDataDir(), tunserv.Command{Action: tunserv.ActionStop})
 		}
 	}
-	pid, err := vpn.RunElevated(exe, []string{"run", "-c", cfgPath}, a.dataDir)
+	pid, err := vpn.RunElevated(exe, []string{"run", "-c", cfgPath}, a.curDataDir())
 	if err != nil {
 		// a declined UAC lands here: TUN is off, which is honest
 		a.notifyMessage("未启动 TUN 网卡（授权被拒绝或启动失败）", true)
@@ -389,6 +448,64 @@ func (a *App) launchTunFront(exe, cfgPath string) (int, error) {
 // follow-up paths self-deadlocked on the mutex (see the note at vpnState),
 // which silenced the traffic polling for the rest of the session with nothing
 // in the log to say so.
+// maxTunFrontRestarts / tunFrontRestartWindow bound the watcher's recoveries the way
+// maxCoreRestarts bounds the supervisor's: three inside a minute, then the mode stands
+// down. The window drains rather than resets, so a front-end that lives a while lets the
+// count fall away on its own — same arithmetic as onCoreExit's restarts.
+const (
+	maxTunFrontRestarts   = 3
+	tunFrontRestartWindow = time.Minute
+)
+
+// noteTunFrontRestart records a watcher recovery attempt and reports whether one more
+// is allowed. Pruning happens here (sliding window), so a quiet front-end never trips it.
+func (a *App) noteTunFrontRestart() bool {
+	a.tunFrontRestartMu.Lock()
+	defer a.tunFrontRestartMu.Unlock()
+	now := time.Now()
+	kept := a.tunFrontRestarts[:0]
+	for _, t := range a.tunFrontRestarts {
+		if now.Sub(t) < tunFrontRestartWindow {
+			kept = append(kept, t)
+		}
+	}
+	a.tunFrontRestarts = kept
+	if len(kept) >= maxTunFrontRestarts {
+		return false
+	}
+	a.tunFrontRestarts = append(kept, now)
+	return true
+}
+
+// standDownTUN closes TUN mode from a background path — the watcher's recovery and the
+// route retry's fallback — taking the switch's own seat first (startStopMu → modeMu,
+// see the lock order there). Those paths used to flip the flag and hand the machine's
+// routing around with no lock held while a switch could be mid-flight: the flag, the
+// Windows routing table and the tray could each end up describing a different machine.
+//
+// cleanup runs under the seat, before the flag goes down — the routes and the pid record
+// that belonged to the dead front-end. Nothing happens when the mode is already off:
+// whoever turned it off owns the machine now, and saying otherwise would put a
+// "已关闭 TUN" toast under a switch that is still in progress.
+func (a *App) standDownTUN(cleanup func(), msg string) {
+	a.startStopMu.Lock()
+	defer a.startStopMu.Unlock()
+	a.modeMu.Lock()
+	defer a.modeMu.Unlock()
+	st := a.curSetting()
+	if st == nil || !st.VPNMode() {
+		return
+	}
+	a.releaseTunRoutes()
+	if cleanup != nil {
+		cleanup()
+	}
+	st.SetVPNMode(false)
+	a.rememberSpmode()
+	a.refreshTrayStatus()
+	a.notifyMessage(msg, true)
+}
+
 func (a *App) watchTunFront(pid int) {
 	misses := 0
 	// The resolver tick, and it starts due: a front-end that has just come up has an
@@ -443,6 +560,17 @@ func (a *App) watchTunFront(pid int) {
 	// the same failure a second time. Clearing it first is what makes "restart
 	// once" mean a restart rather than a re-enactment.
 	a.clearTunAdapterAfterStop()
+	// The whole recovery is one recovery per session, not per watcher: every
+	// successful ensure below spawns a fresh watcher with its own counter, and a
+	// front-end that dies seconds after coming up turned "restart once" into a
+	// permanent ~2.5s cleanup → ensure → death loop (see noteTunFrontRestart).
+	if !a.noteTunFrontRestart() {
+		a.standDownTUN(func() {
+			a.setVPNState(0, 0)
+			a.clearTunFrontPID()
+		}, fmt.Sprintf("TUN 前端反复退出（%d 次），TUN 模式已关闭（当前直连），可重新开启", maxTunFrontRestarts))
+		return
+	}
 	if err := a.ensureTunFront(); err != nil {
 		// The flag still says TUN while nothing stands behind it: the switch reads
 		// green over a machine that is plain direct, and the reader's next press
@@ -454,13 +582,14 @@ func (a *App) watchTunFront(pid int) {
 		// is gone, and the routes it installed do not leave with it. Without this
 		// the message's "直接" was a description of the switch while every packet
 		// still went into an adapter nobody was reading.
-		a.releaseTunRoutes()
-		a.setVPNState(0, 0)
-		a.clearTunFrontPID()
-		a.curSetting().SetVPNMode(false)
-		a.rememberSpmode()
-		a.refreshTrayStatus()
-		a.notifyMessage("TUN 前端异常退出且自动重启未成功，TUN 模式已关闭（当前直连），可重新开启", true)
+		//
+		// Through standDownTUN: this runs on the watcher's goroutine with no lock
+		// held, and the flag flip used to race a mode switch in flight for the
+		// seat (see standDownTUN).
+		a.standDownTUN(func() {
+			a.setVPNState(0, 0)
+			a.clearTunFrontPID()
+		}, "TUN 前端异常退出且自动重启未成功，TUN 模式已关闭（当前直连），可重新开启")
 		return
 	}
 	// The adapter is a new one, and a new adapter captures nothing: the routes went
@@ -470,8 +599,11 @@ func (a *App) watchTunFront(pid int) {
 	if a.runningID() != core.StoppedID {
 		if err := a.takeTunRoutes(); err != nil {
 			// Recovered the process but not the capture: the same decision the switch-on
-			// path makes, made here as well (see handleTunCaptureFailure).
-			_ = a.handleTunCaptureFailure(err)
+			// path makes, made here as well (see handleTunCaptureFailure). The watcher
+			// holds no switch lock, so the stand-down half has to take the seat itself
+			// (see handleTunCaptureFailureFromWatcher) — the plain form would flip the
+			// flag beside a switch that is still running.
+			_ = a.handleTunCaptureFailureFromWatcher(err)
 			return
 		}
 	}
@@ -523,15 +655,24 @@ func (a *App) ensureTunResolvers() {
 	// core's hijack, and with no core there is nothing behind it: an adapter pointed at
 	// a peer that will not answer is a machine that cannot resolve a name at all —
 	// worse than the leakage this exists to prevent. The idle state (front-end up, no
-	// node) is the reader's own doing and the teardown's business.
-	if a.RunningProfile() == core.StoppedID {
-		return
-	}
+	// node) is the reader's own doing and the teardown's business, and the teardown
+	// hands the resolver back: with the node gone the machine's names have to come
+	// from somewhere, and the adapter is not it.
 	name := configbuilder.TunAdapterName()
-	err := tunfast.SelfDNS(name)
+	serving := a.nodeServing()
+	what := "写入"
 	note := ""
-	if err != nil {
-		note = err.Error()
+	if serving {
+		if err := tunfast.SelfDNS(name); err != nil {
+			note = err.Error()
+		}
+	} else {
+		what = "收回"
+		// The elevated side does the same (see tunserv); this is the app's own best
+		// effort, and it may not hold the rights to write an interface's resolver.
+		if err := tunfast.ClearSelfDNS(name); err != nil {
+			note = err.Error()
+		}
 	}
 	a.vpnMu.Lock()
 	changed := note != a.dnsNote
@@ -541,9 +682,9 @@ func (a *App) ensureTunResolvers() {
 		// Once per distinct failure, not once per pass: this runs forever, and this
 		// process may simply not hold the token that writing an interface's resolver
 		// needs — the server does.
-		a.logf("[vpn] 网卡 DNS 未能写入（交由常驻服务接管）: " + note)
+		a.logf("[vpn] 网卡 DNS 未能" + what + "（交由常驻服务接管）: " + note)
 	}
-	if tunserv.ServerAlive(a.dataDir) {
+	if tunserv.ServerAlive(a.curDataDir()) {
 		return
 	}
 	exe, err := os.Executable()
@@ -568,14 +709,14 @@ func (a *App) ensureTunResolvers() {
 // prompt lands here as false, and the caller falls back to the ShellExecute
 // path — which still works, slower and with its own prompt.
 func (a *App) ensureTunServer() bool {
-	if a.dataDir == "" {
+	if a.curDataDir() == "" {
 		return false
 	}
-	if tunserv.ServerAlive(a.dataDir) {
+	if tunserv.ServerAlive(a.curDataDir()) {
 		// A beating server answers every question below, including the one this process
 		// asked earlier in the session and answered "not coming".
 		a.tunServerGone.Store(false)
-		if tunserv.ServerRunsSameBuild(a.dataDir) {
+		if tunserv.ServerRunsSameBuild(a.curDataDir()) {
 			return true
 		}
 		// A server from an older build is still running its old code — no adapter
@@ -584,7 +725,7 @@ func (a *App) ensureTunServer() bool {
 		// halves of this feature on one version; the cost is one /Run, and the
 		// wait below is only as long as the server takes to notice.
 		a.logf("[tunserv] 常驻服务来自旧版本，正在重启")
-		_ = tunserv.SendCommand(a.dataDir, tunserv.Command{Action: tunserv.ActionExit})
+		_ = tunserv.SendCommand(a.curDataDir(), tunserv.Command{Action: tunserv.ActionExit})
 		// Waited out against the heartbeat's own budget rather than a feeling about
 		// how fast a process should be: the server reads its command slot between
 		// pieces of work, and a start it is in the middle of can hold it for the
@@ -597,7 +738,7 @@ func (a *App) ensureTunServer() bool {
 		stopped := false
 		exitDeadline := time.Now().Add(serverExitWait)
 		for time.Now().Before(exitDeadline) {
-			if !tunserv.ServerAlive(a.dataDir) {
+			if !tunserv.ServerAlive(a.curDataDir()) {
 				stopped = true
 				break
 			}
@@ -627,7 +768,7 @@ func (a *App) ensureTunServer() bool {
 	}
 	// The log's stamp before the task is asked to run: the wait below compares against it
 	// to tell a server that is starting from one that was never created.
-	logBefore := tunserv.ServerLogStamp(a.dataDir)
+	logBefore := tunserv.ServerLogStamp(a.logDir())
 	installed, terr := tunserv.TaskInstalled(exe)
 	switch {
 	case terr == nil && installed:
@@ -670,11 +811,11 @@ func (a *App) ensureTunServer() bool {
 	bornDeadline := startedAt.Add(serverBornWait)
 	readyDeadline := startedAt.Add(serverStartWait)
 	for time.Now().Before(readyDeadline) {
-		if tunserv.ServerAlive(a.dataDir) {
+		if tunserv.ServerAlive(a.curDataDir()) {
 			a.logf("[tunserv] 常驻服务已就绪")
 			return true
 		}
-		if time.Now().After(bornDeadline) && !tunserv.ServerLogStamp(a.dataDir).After(logBefore) {
+		if time.Now().After(bornDeadline) && !tunserv.ServerLogStamp(a.logDir()).After(logBefore) {
 			a.logf("[tunserv] 常驻服务进程未出现（任务可能指向已不存在的程序），本次使用直启")
 			a.tunServerGone.Store(true)
 			return false
@@ -706,7 +847,7 @@ func (a *App) ensureTunServer() bool {
 // are bounded by the same budgets that path uses, and every failure here is a
 // line in the log — the enable that follows retries the whole thing.
 func (a *App) prewarmTunServer() {
-	if a.dataDir == "" {
+	if a.curDataDir() == "" {
 		return
 	}
 	exe, err := os.Executable()
@@ -716,17 +857,17 @@ func (a *App) prewarmTunServer() {
 	if sits, terr := tunserv.TaskInstalled(exe); terr != nil || !sits {
 		return
 	}
-	if tunserv.ServerAlive(a.dataDir) {
+	if tunserv.ServerAlive(a.curDataDir()) {
 		a.tunServerGone.Store(false)
-		if tunserv.ServerRunsSameBuild(a.dataDir) {
+		if tunserv.ServerRunsSameBuild(a.curDataDir()) {
 			a.logf("[tunserv] 启动预热: 常驻服务已在运行")
 			return
 		}
 		a.logf("[tunserv] 启动预热: 常驻服务来自旧版本，正在重启")
-		_ = tunserv.SendCommand(a.dataDir, tunserv.Command{Action: tunserv.ActionExit})
+		_ = tunserv.SendCommand(a.curDataDir(), tunserv.Command{Action: tunserv.ActionExit})
 		exitDeadline := time.Now().Add(serverExitWait)
 		for time.Now().Before(exitDeadline) {
-			if !tunserv.ServerAlive(a.dataDir) {
+			if !tunserv.ServerAlive(a.curDataDir()) {
 				break
 			}
 			time.Sleep(200 * time.Millisecond)
@@ -735,7 +876,7 @@ func (a *App) prewarmTunServer() {
 	_ = tunserv.RunTask(exe)
 	readyDeadline := time.Now().Add(serverStartWait)
 	for time.Now().Before(readyDeadline) {
-		if tunserv.ServerAlive(a.dataDir) {
+		if tunserv.ServerAlive(a.curDataDir()) {
 			a.tunServerGone.Store(false)
 			a.logf("[tunserv] 启动预热: 常驻服务已就绪，后续 TUN 启动免冷等待")
 			return
@@ -756,7 +897,7 @@ func (a *App) spawnFrontViaServer(exe, cfgPath string) (int, error) {
 	// then kills, which reads as "died immediately" while the real child is
 	// still on its way.
 	sent := time.Now()
-	if err := tunserv.SendCommand(a.dataDir, tunserv.Command{
+	if err := tunserv.SendCommand(a.curDataDir(), tunserv.Command{
 		Action: tunserv.ActionStart,
 		Core:   exe,
 		Config: cfgPath,
@@ -768,7 +909,7 @@ func (a *App) spawnFrontViaServer(exe, cfgPath string) (int, error) {
 		if a.quitting.Load() {
 			return 0, fmt.Errorf("程序正在退出")
 		}
-		info := tunserv.FrontPIDOf(a.dataDir)
+		info := tunserv.FrontPIDOf(a.curDataDir())
 		if info.FreshFrom(sent) && vpn.IsRunning(info.PID) {
 			a.setVPNState(info.PID, core.StoppedID)
 			if !vpn.AliveAfter(info.PID, tunFrontStartGrace) {
@@ -784,7 +925,7 @@ func (a *App) spawnFrontViaServer(exe, cfgPath string) (int, error) {
 				a.setVPNState(0, 0)
 				return 0, fmt.Errorf("tunserv: 前端启动后立即退出")
 			}
-			tunserv.WriteFrontPID(a.dataDir, *info)
+			tunserv.WriteFrontPID(a.curDataDir(), *info)
 			if a.quitting.Load() && !a.keepTunFront() {
 				a.logf(fmt.Sprintf("[tunserv] 程序正在退出，收回刚启动的前端 (pid %d)", info.PID))
 				_ = a.stopTunFrontViaServer(info.PID)
@@ -834,7 +975,7 @@ func (a *App) startTunFrontTail() {
 		close(old)
 	}
 	a.vpnMu.Unlock()
-	go crashlog.Guard("tailVPNLog", func() { a.tailVPNLog(filepath.Join(a.dataDir, "vpn-core.log"), stopTail) })
+	go crashlog.Guard("tailVPNLog", func() { a.tailVPNLog(a.coreLogPath(), stopTail) })
 }
 
 // stopTunFrontViaServer posts stop and waits for the child to be reaped, with
@@ -842,12 +983,12 @@ func (a *App) startTunFrontTail() {
 // a prompt, and a server-owned front whose death is certain (the server holds
 // the token) — so on a timeout the caller has something to log, not a mystery.
 func (a *App) stopTunFrontViaServer(pid int) error {
-	if err := tunserv.SendCommand(a.dataDir, tunserv.Command{Action: tunserv.ActionStop}); err != nil {
+	if err := tunserv.SendCommand(a.curDataDir(), tunserv.Command{Action: tunserv.ActionStop}); err != nil {
 		return err
 	}
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
-		info := tunserv.FrontPIDOf(a.dataDir)
+		info := tunserv.FrontPIDOf(a.curDataDir())
 		if info == nil || info.PID != pid || !vpn.IsRunning(info.PID) {
 			a.setVPNState(0, 0)
 			return nil
@@ -855,72 +996,6 @@ func (a *App) stopTunFrontViaServer(pid int) error {
 		time.Sleep(200 * time.Millisecond)
 	}
 	return fmt.Errorf("tunserv: stop 未在时限内完成")
-}
-
-// warmTunFront brings the front-end up before a node needs it, and arranges for it to be
-// taken back down again if none turns up.
-//
-// Building the adapter is the slow half of starting TUN — measured at around three and a
-// half seconds, nearly all of it wintun creating the device and the stack installing its
-// routes — and it used to begin only once the reader had picked a node, so all of that
-// time sat in view. Choosing a node takes a reader longer than that, so the work is moved
-// to where it can happen underneath that choice instead of after it.
-//
-// Its own goroutine, because the administrator prompt it may raise must not hold up the
-// switch the reader just pressed.
-func (a *App) warmTunFront() {
-	// Same in-flight window as startVPNExternal, from the warm-up side: the
-	// whole run can wait behind an administrator prompt while a countdown
-	// armed by the preceding stop is still ticking. The arm below only takes
-	// place once the builder is legitimately idle; during the build itself the
-	// reclaim must stand down.
-	a.tunWake.Store(true)
-	defer a.tunWake.Store(false)
-	if err := a.ensureTunFront(); err != nil {
-		// A declined prompt lands here, and the node start asks again — nothing about
-		// the mode switch itself has failed, so this is a note and not an error.
-		a.logf("[vpn] 预热 TUN 网卡未完成: " + err.Error())
-		return
-	}
-	// The mode can be switched off while the administrator prompt is up, and nothing
-	// else would notice: that switch-off ran while no pid was recorded yet, so it had
-	// nothing to release. The adapter stays where it is (see SetVPNMode); what must
-	// not stay is a capture for a mode that is off.
-	if a.curSetting() == nil || !a.curSetting().VPNMode() {
-		a.logf("<<< TUN 模式已关闭，撤下预热网卡的路由")
-		a.releaseTunRoutes()
-		return
-	}
-	a.armTunIdleReclaim()
-	// The adapter is present and capturing nothing, and that has to be true for
-	// Windows as well as for this app: a wintun adapter reports a 100 Gbps link,
-	// its automatic interface metric comes out around 5, and Windows then prefers
-	// it over the physical adapter for everything it picks per interface — the
-	// connectivity probe above all, which is what draws "EagleTun: no internet"
-	// over the tray icon while the machine's own connection is fine. The
-	// front-end configures the interface during its own start-up, so it can be a
-	// moment behind this call, and waiting is what lets the idle metric land.
-	go crashlog.Guard("quiesceTunAdapter", a.quiesceTunAdapter)
-}
-
-// quiesceTunAdapter puts an adapter that is present but not capturing at the
-// back of Windows' queue, waiting for it to appear first — the same wait a
-// capture does, for the same reason.
-func (a *App) quiesceTunAdapter() {
-	deadline := time.Now().Add(tunRouteWait)
-	for {
-		link, err := a.tunLink()
-		if err == nil {
-			if err := link.Release(); err != nil {
-				a.logf("[vpn] TUN 网卡置底失败: " + err.Error())
-			}
-			return
-		}
-		if !time.Now().Before(deadline) {
-			return
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
 }
 
 // armTunIdleReclaim starts the countdown that takes an idle adapter apart.
@@ -985,10 +1060,10 @@ func (a *App) reclaimIdleTunFront() {
 // process is ours — see reapOrphanTunFronts. Empty when there is no data directory,
 // which callers read as "nothing to match on".
 func (a *App) tunFrontConfigPath() string {
-	if a.dataDir == "" {
+	if a.curDataDir() == "" {
 		return ""
 	}
-	return filepath.Join(a.dataDir, "temp", "tun-front.json")
+	return filepath.Join(a.curDataDir(), "temp", "tun-front.json")
 }
 
 // reapOrphanTunFronts ends every front-end still running on this app's front-end
@@ -1012,10 +1087,10 @@ func (a *App) reapOrphanTunFronts(keep int) (int, error) {
 // copy in memory it outlives the process, so a run that never got to tidy up can be
 // recognised by the next one.
 func (a *App) tunFrontPIDPath() string {
-	if a.dataDir == "" {
+	if a.curDataDir() == "" {
 		return ""
 	}
-	return filepath.Join(a.dataDir, "temp", "tun-front.pid")
+	return filepath.Join(a.curDataDir(), "temp", "tun-front.pid")
 }
 
 // writeTunFrontPID records a front-end that is now up. The record inks the
@@ -1035,7 +1110,7 @@ func (a *App) writeTunFrontPID(pid int, cfgPath string, server bool) {
 			hash = hex.EncodeToString(sum[:])
 		}
 	}
-	if err := tunserv.WriteFrontPID(a.dataDir, tunserv.FrontPID{
+	if err := tunserv.WriteFrontPID(a.curDataDir(), tunserv.FrontPID{
 		PID: pid, Server: server, Config: cfgPath, ConfigHash: hash,
 	}); err != nil && server {
 		// Server-owned children are cleared by the server itself; a missing
@@ -1047,7 +1122,7 @@ func (a *App) writeTunFrontPID(pid int, cfgPath string, server bool) {
 
 // readTunFrontPIDInfo reads what the file says, cross-format.
 func (a *App) readTunFrontPIDInfo() tunserv.FrontPID {
-	info := tunserv.FrontPIDOf(a.dataDir)
+	info := tunserv.FrontPIDOf(a.curDataDir())
 	if info == nil {
 		return tunserv.FrontPID{}
 	}
@@ -1140,7 +1215,7 @@ func (a *App) adoptTunFront(info tunserv.FrontPID) bool {
 		// case falls to the sweep, whose answer has always been a stop.
 		if info.Server {
 			a.logf(fmt.Sprintf("[tunserv] 复用前先停掉旧配置的前端 (pid %d)", info.PID))
-			_ = tunserv.SendCommand(a.dataDir, tunserv.Command{Action: tunserv.ActionStop})
+			_ = tunserv.SendCommand(a.curDataDir(), tunserv.Command{Action: tunserv.ActionStop})
 			time.Sleep(600 * time.Millisecond)
 		}
 		return false
@@ -1199,9 +1274,18 @@ func (a *App) tunFrontConfig() map[string]interface{} {
 	cfg["log"] = map[string]interface{}{
 		"level":     a.curSetting().LogLevel,
 		"timestamp": true,
-		"output":    filepath.Join(a.dataDir, "vpn-core.log"),
+		"output":    a.coreLogPath(),
 	}
 	return cfg
+}
+
+// coreLogPath is where the core writes its own log: the log folder, beside the
+// categorised logs and the crash record.
+//
+// One place, because three of them named it and a fourth that did not would be a
+// log in a folder of its own — which is the thing this arrangement is for.
+func (a *App) coreLogPath() string {
+	return filepath.Join(a.logDir(), "vpn-core.log")
 }
 
 // tunFrontConfigStale reports whether the front-end living right now was started
@@ -1215,7 +1299,7 @@ func (a *App) tunFrontConfig() map[string]interface{} {
 // indented and this side builds maps, and a byte comparison would call every config
 // stale and rebuild the adapter on every node start.
 func (a *App) tunFrontConfigStale() bool {
-	if a.curSetting() == nil || a.dataDir == "" {
+	if a.curSetting() == nil || a.curDataDir() == "" {
 		return false
 	}
 	raw, err := os.ReadFile(a.tunFrontConfigPath())
@@ -1241,11 +1325,16 @@ func (a *App) tunFrontConfigStale() bool {
 }
 
 // stopTunFront brings the tun front-end down, adapter and all — the expensive ending,
-// and now a rare one. It still runs on every path that leaves no capture behind and no
-// countdown to take the adapter apart: switching to system proxy with a node up (the
-// countdown's precondition can never fire there), the TUN-off path since the node keeps
-// running on the plain port for the same reason, the app going away with keep_tun_front
-// off, and the rollback of a failed start.
+// and now a rare one.
+//
+// It runs on the paths that leave no capture behind and nothing using the adapter: the
+// core giving up (the crash path), the app going away with keep_tun_front off, the
+// program being replaced, the front-end's own config going stale, and the two mode
+// switches when the config moved and the core had to be rebuilt with it.
+//
+// It does NOT run when a mode switch leaves the node alone: the front-end holds the
+// adapter and nothing else, so an idle one costs a device that is already there and
+// makes the next switch back to TUN a matter of taking the routes again.
 func (a *App) stopTunFront() error {
 	// Whatever brought this front-end up, no countdown should outlive it.
 	a.cancelTunIdleReclaim()
@@ -1276,7 +1365,7 @@ func (a *App) stopTunFront() error {
 	// is gone because the resident token takes it down without asking anyone.
 	// A timeout falls through to the legacy kill below, so a wedged server can
 	// never trap a front-end nobody can stop.
-	if tunserv.ServerAlive(a.dataDir) {
+	if tunserv.ServerAlive(a.curDataDir()) {
 		if err := a.stopTunFrontViaServer(pid); err == nil {
 			// Guarded: a concurrent ensureTunFront may have recorded a new
 			// front-end while the stop ran — its record is not ours to erase.
@@ -1289,7 +1378,7 @@ func (a *App) stopTunFront() error {
 			// answers from the task registry: one /Run, no prompt (ensureTunServer
 			// already re-runs the task after its own exit-and-restart for a stale
 			// build, so this is the same road, walked one time earlier).
-			_ = tunserv.SendCommand(a.dataDir, tunserv.Command{Action: tunserv.ActionExit})
+			_ = tunserv.SendCommand(a.curDataDir(), tunserv.Command{Action: tunserv.ActionExit})
 			a.logf("<<< stopped tun front-end (server)")
 			return nil
 		}
@@ -1414,6 +1503,20 @@ func (a *App) takeTunRoutes() error {
 	softDeadline := time.Now().Add(tunRouteSoftWait)
 	var lastErr error
 	for {
+		// The core has to be able to answer before the machine's packets are pointed
+		// at it: the front-end hands everything it receives to the core's own inbound,
+		// and a capture taken before that inbound answers is a machine whose traffic
+		// goes nowhere. The core is a second and a half from opening it after a
+		// switch, and the front-end is already up by then — so this waits, the same
+		// way the adapter's address is waited for.
+		if ctrl := a.curController(); ctrl == nil || !ctrl.InboundReady() {
+			lastErr = fmt.Errorf("核心尚未就绪：核心的入站端口还没有开始监听")
+			if !time.Now().Before(softDeadline) {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
 		err := a.tryTakeTunRoutes()
 		if err == nil {
 			a.logf(">>> TUN 网卡已接管默认路由")
@@ -1443,7 +1546,7 @@ func (a *App) takeTunRoutes() error {
 			// emitRunningState's own reconcile has always run.
 			go func() {
 				a.reconcileSystemDNS(true)
-				refreshSystemNetworkState()
+				a.wakeNCSI()
 			}()
 			return nil
 		}
@@ -1506,19 +1609,16 @@ func (a *App) retryTunRoutes() {
 					a.logf("[vpn] 适配器 DNS 未就位（后台补上）: " + err.Error())
 				}
 				a.reconcileSystemDNS(true)
-				refreshSystemNetworkState()
+				a.wakeNCSI()
 				a.notifyMessage("TUN 网卡已就绪")
 				return
 			}
 		}
-		if a.curSetting() == nil || !a.curSetting().VPNMode() {
-			return
-		}
-		a.releaseTunRoutes()
-		a.curSetting().SetVPNMode(false)
-		a.rememberSpmode()
-		a.refreshTrayStatus()
-		a.notifyMessage("TUN 路由接管失败，已关闭 TUN 模式（当前直连）", true)
+		// Through standDownTUN: this runs on the retry's own goroutine with no
+		// lock held, and the bare flag flip used to race a mode switch in flight
+		// for the seat — the flag could say off while the switch was putting it
+		// back on (see standDownTUN).
+		a.standDownTUN(nil, "TUN 路由接管失败，已关闭 TUN 模式（当前直连）")
 	})
 }
 
@@ -1527,6 +1627,11 @@ func (a *App) retryTunRoutes() {
 // finish; the front-end gone is the shape nothing is coming to fix, and the mode is stood
 // down with it — a switch that says on over a direct connection is the state this exists to
 // prevent (see the failure note on takeTunRoutes).
+// handleTunCaptureFailure is the form for a caller that ALREADY holds the switch seat
+// (startStopMu + modeMu): startVPNExternal and startCapture reach it from inside
+// startProfileLocked / SetVPNMode, where taking the seat again would self-deadlock —
+// sync.Mutex is not reentrant, which is why the locked and lock-free forms are two
+// functions rather than one with a flag.
 func (a *App) handleTunCaptureFailure(err error) error {
 	if pid, _ := a.vpnState(); pid > 0 && vpn.IsRunning(pid) {
 		a.logf("[vpn] " + err.Error() + "；前端仍在，后台继续接管路由")
@@ -1534,12 +1639,49 @@ func (a *App) handleTunCaptureFailure(err error) error {
 		a.retryTunRoutes()
 		return nil
 	}
+	a.captureFailureStandDown(err)
+	return err
+}
+
+// handleTunCaptureFailureFromWatcher is the lock-free-caller form: watchTunFront runs
+// on its own goroutine holding nothing, so the stand-down half takes the seat itself —
+// and re-checks the world under it. A front-end that came up while this waited belongs
+// to whoever started it (its own capture path owns the routes: the retry, not a
+// stand-down); a mode already off belongs to the switch that took it down, and this
+// then says nothing.
+func (a *App) handleTunCaptureFailureFromWatcher(err error) error {
+	if pid, _ := a.vpnState(); pid > 0 && vpn.IsRunning(pid) {
+		a.logf("[vpn] " + err.Error() + "；前端仍在，后台继续接管路由")
+		a.notifyMessage("TUN 网卡尚未就绪，正在后台接管路由…")
+		a.retryTunRoutes()
+		return nil
+	}
+	a.startStopMu.Lock()
+	a.modeMu.Lock()
+	defer a.startStopMu.Unlock()
+	defer a.modeMu.Unlock()
+	st := a.curSetting()
+	if st == nil || !st.VPNMode() {
+		return err
+	}
+	if pid, _ := a.vpnState(); pid > 0 && vpn.IsRunning(pid) {
+		a.logf("[vpn] " + err.Error() + "；前端仍在，后台继续接管路由")
+		a.notifyMessage("TUN 网卡尚未就绪，正在后台接管路由…")
+		a.retryTunRoutes()
+		return nil
+	}
+	a.captureFailureStandDown(err)
+	return err
+}
+
+// captureFailureStandDown is the shared body: release the capture, drop the flag and
+// leave the machine direct. Seat held by the caller in both forms above.
+func (a *App) captureFailureStandDown(err error) {
 	a.releaseTunRoutes()
 	a.curSetting().SetVPNMode(false)
 	a.rememberSpmode()
 	a.refreshTrayStatus()
 	a.notifyMessage(err.Error()+"，已关闭 TUN 模式（当前直连）", true)
-	return err
 }
 
 func (a *App) releaseTunRoutes() {

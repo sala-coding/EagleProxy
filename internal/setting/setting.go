@@ -9,8 +9,10 @@ package setting
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -315,15 +317,15 @@ type Setting struct {
 	// was a field nobody read. What remains is this fallback plus the group's own
 	// interval; a group is left out of the rotation by having neither (see
 	// subUpdateLoop in app.go).
-	SubAutoUpdate int      `json:"sub_auto_update"`
-	LogIgnore     []string `json:"log_ignore,omitempty"`
-	StartMinimal  bool     `json:"start_minimal"`
-	MaxLogLine    int      `json:"max_log_line"`
-	SplitterState         string `json:"splitter_state,omitempty"`
-	UtlsFingerprint       string `json:"utlsFingerprint,omitempty"`
-	CoreBoxClashAPI       int    `json:"core_box_clash_api"`
-	CoreBoxClashAPISecret string `json:"core_box_clash_api_secret,omitempty"`
-	CoreBoxUnderlyingDNS  string `json:"core_box_underlying_dns,omitempty"`
+	SubAutoUpdate         int      `json:"sub_auto_update"`
+	LogIgnore             []string `json:"log_ignore,omitempty"`
+	StartMinimal          bool     `json:"start_minimal"`
+	MaxLogLine            int      `json:"max_log_line"`
+	SplitterState         string   `json:"splitter_state,omitempty"`
+	UtlsFingerprint       string   `json:"utlsFingerprint,omitempty"`
+	CoreBoxClashAPI       int      `json:"core_box_clash_api"`
+	CoreBoxClashAPISecret string   `json:"core_box_clash_api_secret,omitempty"`
+	CoreBoxUnderlyingDNS  string   `json:"core_box_underlying_dns,omitempty"`
 	// CoreBoxCacheFile keeps the core's own cache in a file in the data directory. The
 	// part that matters here is store_fakeip: the domain ↔ fake address mapping then
 	// survives a restart of the core, which is the common case — every node switch and
@@ -542,12 +544,21 @@ func Load(baseDir string) *Setting {
 			// bytes beside it are the reader's only copy of what was lost.
 			// Leaving it in place unnamed is how a settings reset became a
 			// mystery instead of a sentence.
+			//
+			// The reset runs whether or not the naming succeeds: the rename
+			// fails for the same reasons any file operation does (the file
+			// held open, permissions), and gating the reset on it answered that
+			// failure with the exact state the comment above exists to avoid —
+			// a half-parsed struct served as the live setting, some fields the
+			// corrupt file's and some the defaults', with nothing said. A reset
+			// with the broken file still beside it is retried (and renamed) on
+			// the next Load; a half-read struct is read as truth forever.
 			corrupt := s.dataStorePath() + ".corrupt"
-			if err := os.Rename(s.dataStorePath(), corrupt); err == nil {
-				// Reset the struct after the rename: the failed Unmarshal left
-				// whatever fields it did read sitting in the defaults above.
-				*s = *defaultSetting(baseDir)
+			if err := os.Rename(s.dataStorePath(), corrupt); err != nil {
+				// Left where it is; the bytes are already quoted above as the
+				// reader's only copy — removing them was never the point.
 			}
+			*s = *defaultSetting(baseDir)
 		}
 	}
 	if s.InboundAuth == nil {
@@ -665,28 +676,104 @@ func (s *Setting) ListRoutings() []string {
 // Replace returns a copy of s with the exported values of in merged in. The
 // receiver is left untouched so goroutines reading the current settings never
 // observe a half updated struct.
+//
+// The merge is field-wise rather than a JSON round trip, and it has to be: a
+// round trip marshals with `omitempty`, which drops every empty value from the
+// JSON, and a key that is missing from the JSON leaves the old value standing.
+// So every setting the reader can empty — a hotkey binding, the PAC address,
+// the bypass list, the user-agent list, the ignored-log list — came back with
+// its old value, silently thrown away.
+//
+// The two pointer fields are given their own objects as well. The copy shares
+// them with the settings it came from, and decoding over them writes straight
+// into the live object — the previous snapshot, which is supposed to stay
+// frozen for the goroutines still reading it.
 func (s *Setting) Replace(in *Setting) (*Setting, error) {
 	if in == nil {
 		return nil, errors.New("no settings")
 	}
-	data, err := json.Marshal(in)
-	if err != nil {
-		return nil, err
-	}
-	next := *s // keeps baseDir, the loaded routing and the runtime spmode flags
-	if err := json.Unmarshal(data, &next); err != nil {
-		return nil, err
-	}
+	next := s.Clone() // keeps baseDir, the loaded routing and the runtime spmode flags
+	mergeExported(next, in)
 	next.routing = loadRouting(next.baseDir, next.ActiveRouting)
 	next.ensureRoutingFile()
-	return &next, nil
+	return next, nil
+}
+
+// mergeExported copies every exported field of src onto dst.
+//
+// Slices are copied by content and the two pointer fields by object, so that
+// nothing in dst shares memory with src: the settings that Replace hands back
+// are the live ones afterwards, and they must not be able to reach back into
+// the object they were merged from.
+func mergeExported(dst, src *Setting) {
+	dv := reflect.ValueOf(dst).Elem()
+	sv := reflect.ValueOf(src).Elem()
+	t := dv.Type()
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.PkgPath != "" {
+			continue // unexported: baseDir and the loaded routing stay as they are
+		}
+		switch f.Type {
+		case reflect.TypeOf((*InboundAuth)(nil)):
+			dv.Field(i).Set(reflect.ValueOf(cloneInboundAuth(src.InboundAuth)))
+			continue
+		case reflect.TypeOf((*ExtraCore)(nil)):
+			dv.Field(i).Set(reflect.ValueOf(cloneExtraCore(src.ExtraCore)))
+			continue
+		}
+		if f.Type.Kind() == reflect.Slice {
+			s := sv.Field(i)
+			if s.IsNil() {
+				dv.Field(i).Set(reflect.Zero(f.Type))
+				continue
+			}
+			c := reflect.MakeSlice(f.Type, s.Len(), s.Len())
+			reflect.Copy(c, s)
+			dv.Field(i).Set(c)
+			continue
+		}
+		dv.Field(i).Set(sv.Field(i))
+	}
+}
+
+// cloneInboundAuth returns a copy of a, or nil.
+func cloneInboundAuth(a *InboundAuth) *InboundAuth {
+	if a == nil {
+		return nil
+	}
+	c := *a
+	return &c
+}
+
+// cloneExtraCore returns a copy of e, or nil.
+func cloneExtraCore(e *ExtraCore) *ExtraCore {
+	if e == nil {
+		return nil
+	}
+	c := *e
+	return &c
+}
+
+// Clone returns a copy of s.
+//
+// The copy is taken under the runtime-mode lock, because the two runtime flags live
+// in the struct and are written from the tray, the hotkeys and the window while
+// other goroutines copy the whole thing. A plain `next := *s` read them without the
+// lock, which is a data race on two bytes — and the copies are what the settings
+// are replaced by, so the race was on the path every save went through.
+func (s *Setting) Clone() *Setting {
+	runtimeModeMu.Lock()
+	defer runtimeModeMu.Unlock()
+	next := *s
+	return &next
 }
 
 // WithRememberID returns a copy of s with the remembered profile id replaced.
 func (s *Setting) WithRememberID(id int) *Setting {
-	next := *s
+	next := s.Clone()
 	next.RememberID = id
-	return &next
+	return next
 }
 
 // WithEgressMode returns a copy of s with the outbound mode replaced.
@@ -695,16 +782,16 @@ func (s *Setting) WithRememberID(id int) *Setting {
 // edited from the tray, a hotkey and the window at once, and a write into a pointer another
 // goroutine has already replaced is an update nobody sees (see App.setEgress).
 func (s *Setting) WithEgressMode(mode string) *Setting {
-	next := *s
+	next := s.Clone()
 	next.EgressMode = mode
-	return &next
+	return next
 }
 
 // WithRememberSpmode returns a copy of s with the remembered mode list replaced.
 func (s *Setting) WithRememberSpmode(modes []string) *Setting {
-	next := *s
+	next := s.Clone()
 	next.RememberSpmode = modes
-	return &next
+	return next
 }
 
 // WithActiveRouting returns a copy of s with name as the active routing.
@@ -713,10 +800,10 @@ func (s *Setting) WithActiveRouting(name string) (*Setting, error) {
 	if err != nil {
 		return nil, err
 	}
-	next := *s
+	next := s.Clone()
 	next.routing = r
 	next.ActiveRouting = name
-	return &next, nil
+	return next, nil
 }
 
 // SetActiveRouting switches the active routing profile and persists the choice.
@@ -731,7 +818,28 @@ func (s *Setting) SetActiveRouting(name string) error {
 }
 
 // SaveRouting persists a routing profile by name.
+//
+// The profile the app runs on is the in-memory copy (Setting.Routing), not the
+// file: the forwarder (App.syncDNSStub) and the config builder both read it.
+// A save that left the in-memory copy alone would keep the app running the
+// previous rules while the file — and the settings card, which reads the file —
+// showed the new ones.
 func (s *Setting) SaveRouting(name string, r *Routing) error {
+	if err := validRoutingName(name); err != nil {
+		return err
+	}
+	// Refused here rather than left to the core: a resolver whose scheme the
+	// core does not know is a config it will not start on — and the one shape
+	// that reaches it is worse than an error, because the forwarder rejects the
+	// address first (dnsx.Parse) and the builder falls back to writing the
+	// reader's own string verbatim (splitDNSAddress). `h2` is the case in
+	// point: offered by this app's own type list, unknown to sing-box.
+	if err := validateDNSAddress("remote_dns", r.RemoteDNS); err != nil {
+		return err
+	}
+	if err := validateDNSAddress("direct_dns", r.DirectDNS); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(s.RoutingDir(), 0o755); err != nil {
 		return err
 	}
@@ -739,11 +847,69 @@ func (s *Setting) SaveRouting(name string, r *Routing) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(s.RoutingDir(), name+".json"), data, 0o644)
+	// Atomic like the settings store: a kill inside the write would leave a
+	// half-written profile, and loadRouting falls back to the default routing
+	// for one it cannot read — silently replacing the reader's own profile.
+	if err := writeFileAtomic(filepath.Join(s.RoutingDir(), name+".json"), data); err != nil {
+		return err
+	}
+	if s.isActiveRouting(name) {
+		s.routing = r
+	}
+	return nil
+}
+
+// dnsServerSchemes are the DNS server types sing-box itself reads in a server
+// object. `h2` is deliberately absent: it is xray's spelling, and a profile
+// carrying it is a core that refuses to start.
+var dnsServerSchemes = map[string]bool{
+	"https": true, "h3": true, "tls": true, "quic": true, "udp": true, "tcp": true,
+}
+
+// validateDNSAddress rejects a resolver the core cannot read. Empty, "local",
+// "fakeip" and a bare host/IP are all legitimate: the first three name no
+// transport, and a bare address is plain UDP by construction (splitDNSAddress).
+func validateDNSAddress(field, addr string) error {
+	s := strings.TrimSpace(addr)
+	if s == "" || strings.EqualFold(s, "local") || strings.EqualFold(s, "fakeip") {
+		return nil
+	}
+	i := strings.Index(s, "://")
+	if i <= 0 {
+		return nil // bare host or IP: plain UDP
+	}
+	scheme := strings.ToLower(s[:i])
+	if dnsServerSchemes[scheme] {
+		return nil
+	}
+	return fmt.Errorf("%s: 不支持的协议 %q（核心只认 https/h3/tls/quic/udp/tcp，或直接写地址当成 UDP）", field, scheme)
+}
+
+// isActiveRouting reports whether name is the profile the app is running.
+func (s *Setting) isActiveRouting(name string) bool {
+	active := s.ActiveRouting
+	if active == "" {
+		active = "Default"
+	}
+	return name == active
+}
+
+// validRoutingName rejects a profile name that would not stay inside the
+// routing directory. The name comes from the front end and is joined into a
+// path, so a name carrying a separator or a ".." would write the profile
+// somewhere else on disk.
+func validRoutingName(name string) error {
+	if name == "" || name != filepath.Base(name) || strings.ContainsAny(name, `/\`) {
+		return errors.New("bad routing name: " + name)
+	}
+	return nil
 }
 
 // DeleteRouting removes a routing profile.
 func (s *Setting) DeleteRouting(name string) error {
+	if err := validRoutingName(name); err != nil {
+		return err
+	}
 	return os.Remove(filepath.Join(s.RoutingDir(), name+".json"))
 }
 

@@ -35,6 +35,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"eagle/internal/vpn"
@@ -44,6 +45,14 @@ import (
 const (
 	heartName = "tunserve.alive"
 	cmdName   = "tunserve.cmd.json"
+)
+
+// cmdWriteMu serialises the senders in this process, and cmdWriteSeq numbers
+// their temp files; between them no two posts can share a temp name or slip
+// past each other's wait (see replaceCommandLocked).
+var (
+	cmdWriteMu  sync.Mutex
+	cmdWriteSeq atomic.Int64
 )
 
 // Action values for Command.
@@ -97,13 +106,35 @@ func FrontPIDOf(dataDir string) *FrontPID {
 
 // WriteFrontPID is the only writer of the pid record; both the app and the
 // server call it, because the file is a lease, not private memory.
+//
+// Tmp + rename, the same as WriteState: the record is written from one process
+// while the other reads it, and a bare WriteFile is a truncate-then-write — a
+// reader landing in the gap unmarshals nothing, answers "no front-end", and
+// skips the cleanup or adoption it was about to do (FrontPIDOf falls through
+// to nil).
 func WriteFrontPID(dataDir string, info FrontPID) error {
 	info.Written = nowStamp()
 	data, err := json.Marshal(info)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(pidPath(dataDir), data, 0o644)
+	return writeFileAtomicPID(dataDir, data)
+}
+
+// writeFileAtomicPID writes the pid record through a unique sibling and renames
+// it over the target. The temp name carries this process's pid so two writers
+// (app and server) never share one temp file.
+func writeFileAtomicPID(dataDir string, data []byte) error {
+	path := pidPath(dataDir)
+	tmp := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // ClearFrontPID removes the pid record. The server clears it when its child
@@ -185,7 +216,8 @@ func AppHeartStale(dataDir string) bool {
 }
 
 // ServerLogStamp is when the server last wrote a line of its own log, and the zero time
-// when it has no log at all.
+// when it has no log at all. The folder is the one the app decided on (see
+// appPaths.logDir).
 //
 // Why the app asks: a /Run that starts nothing answers exactly like one that starts a
 // slow server — success from schtasks, silence from the heartbeat — and a task can point
@@ -193,8 +225,8 @@ func AppHeartStale(dataDir string) bool {
 // without saying so. The server's first log line is written the moment its process exists,
 // before its first beat, so it is the earliest evidence a cold start produces and the one
 // that separates "still starting" from "never started" (see ensureTunServer).
-func ServerLogStamp(dataDir string) time.Time {
-	info, err := os.Stat(filepath.Join(dataDir, "temp", "tunserve.log"))
+func ServerLogStamp(logDir string) time.Time {
+	info, err := os.Stat(filepath.Join(logDir, "tunserve.log"))
 	if err != nil {
 		return time.Time{}
 	}
@@ -220,8 +252,14 @@ func ServerLogStamp(dataDir string) time.Time {
 // one call site has it (the fallback that gives up on the server and starts the
 // front-end itself).
 func SendCommand(dataDir string, cmd Command) error {
+	// The wait is inside the sender lock, not before it: two senders both
+	// passing waitSlotFree and then writing in turn still loses the first
+	// command — the second overwrites a slot the server has not read yet, which
+	// is the exact "a stop lost under a start" this wait exists to prevent.
+	cmdWriteMu.Lock()
+	defer cmdWriteMu.Unlock()
 	waitSlotFree(cmdPath(dataDir))
-	return ReplaceCommand(dataDir, cmd)
+	return replaceCommandLocked(dataDir, cmd)
 }
 
 // ReplaceCommand posts an instruction over whatever is in the slot, without
@@ -233,15 +271,30 @@ func SendCommand(dataDir string, cmd Command) error {
 // later would raise a second front-end behind the one about to be started by
 // hand.
 func ReplaceCommand(dataDir string, cmd Command) error {
+	cmdWriteMu.Lock()
+	defer cmdWriteMu.Unlock()
+	return replaceCommandLocked(dataDir, cmd)
+}
+
+// replaceCommandLocked is the write itself: marshal, write to a name no other
+// writer can be using, rename over the slot. The temp name is unique per write
+// (process pid + a sequence) rather than the fixed ".new" it replaced: two
+// senders — the shutdown path and the stop/watchdog path, in this same process
+// — both waiting for a free slot then writing the same fixed name truncated
+// each other's half-written JSON, and the server's ConsumeCommand reads a torn
+// payload as nothing and drops the command with no trace.
+func replaceCommandLocked(dataDir string, cmd Command) error {
 	data, err := json.Marshal(cmd)
 	if err != nil {
 		return err
 	}
-	tmp := cmdPath(dataDir) + ".new"
+	tmp := fmt.Sprintf("%s.new.%d.%d", cmdPath(dataDir), os.Getpid(), cmdWriteSeq.Add(1))
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		_ = os.Remove(tmp)
 		return fmt.Errorf("tunserv: write command: %w", err)
 	}
 	if err := os.Rename(tmp, cmdPath(dataDir)); err != nil {
+		_ = os.Remove(tmp)
 		return fmt.Errorf("tunserv: swap command: %w", err)
 	}
 	return nil
@@ -288,6 +341,11 @@ func ConsumeCommand(dataDir string) *Command {
 	}
 	var cmd Command
 	if json.Unmarshal(data, &cmd) != nil || cmd.Action == "" {
+		// A torn or foreign payload used to vanish here with nothing said: the
+		// sender's post was simply gone, and both sides blamed their own
+		// timeout. The length is the only thing worth quoting — the bytes may
+		// be anything — and the file is already unreadable, so it goes.
+		log("dropped an unreadable command from the slot (%d bytes)", len(data))
 		return nil
 	}
 	// Start is remembered across one crash-restart window inside the server;

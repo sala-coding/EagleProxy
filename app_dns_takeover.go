@@ -43,7 +43,24 @@ func (a *App) systemDNSWanted() bool {
 	// the server here means the retry is automatic — this decision is recomputed every
 	// second, and the bind is retried every thirty.
 	srv := dnsstub.Current()
-	return srv != nil && srv.SystemReady()
+	if srv == nil || !srv.SystemReady() {
+		return false
+	}
+	// And the core has to be able to answer, because the system side's queries are
+	// handed to it: the forwarder asks the core's own inbound, so that the core's rules
+	// answer them. A takeover whose core is not up answers SERVFAIL for every name —
+	// a machine with no names — and the case that bites is the ordinary one, a node
+	// switch: the core is a second and a half from opening its inbound, and the
+	// takeover was armed the moment the process existed.
+	//
+	// The core being *running* is not the same as the core answering, and this is the
+	// second half of that: the process is there while it is still booting, and the
+	// supervisor has not noticed the crash yet when the process is already gone.
+	ctrl := a.curController()
+	if ctrl == nil || !ctrl.InboundReady() {
+		return false
+	}
+	return true
 }
 
 // systemDNSEnabled answers the other half: whether the forwarder should be holding port 53
@@ -63,6 +80,21 @@ func (a *App) systemDNSEnabled() bool {
 	return dnsstub.Current() != nil
 }
 
+// nodeServing answers whether a node is up and able to answer.
+//
+// It is the fact the adapter's own resolver depends on: the address it names is answered
+// by the main core's hijack-dns, so with no core behind it every query the machine sends it
+// waits out a timeout. A node that is starting does not count — the core answers a
+// second and a half after the process exists — and a node that is stopping does not count
+// either, even before the process is gone.
+func (a *App) nodeServing() bool {
+	ctrl := a.curController()
+	if ctrl == nil {
+		return false
+	}
+	return ctrl.RunningID() != core.StoppedID && ctrl.InboundReady()
+}
+
 // reconcileSystemDNS brings both halves in line with that decision, and is safe to call
 // whenever anything about it may have changed: it is idempotent, and everything it does is
 // read from live state rather than remembered.
@@ -73,12 +105,13 @@ func (a *App) systemDNSEnabled() bool {
 //     time anything needs the elevated side — running the installed task costs no prompt
 //     (see ensureTunServer).
 func (a *App) reconcileSystemDNS(force bool) {
-	if a == nil || a.dataDir == "" {
+	if a == nil || a.curDataDir() == "" {
 		return
 	}
 	st := tunserv.State{
 		Adapter:   a.curSetting() != nil && a.curSetting().VPNMode(),
 		Resolvers: a.systemDNSWanted(),
+		Node:      a.nodeServing(),
 	}
 	// Written only when it says something new. This runs on a one-second tick, and a file
 	// rewritten every second is a file whose writes the server would sit and read for
@@ -92,17 +125,28 @@ func (a *App) reconcileSystemDNS(force bool) {
 		// already wrote this" would then keep the takeover off for the rest of the
 		// session with nothing in the log. Compared against the disk, the answer is about
 		// the file rather than about memory.
-		unchanged = tunserv.ReadState(a.dataDir) == st
+		unchanged = tunserv.ReadState(a.curDataDir()) == st
 	}
 	first := !a.sysDNSStateSet
 	a.sysDNSState, a.sysDNSStateSet = st, true
 	a.sysDNSMu.Unlock()
 	if !unchanged {
-		if err := tunserv.WriteState(a.dataDir, st); err != nil {
+		if err := tunserv.WriteState(a.curDataDir(), st); err != nil {
 			a.logf("[dns] 无法记录常驻服务状态: " + err.Error())
 			return
 		}
 	}
+	// The forwarder's half of the same decision, BEFORE the early return below
+	// rather than after it: the return is the "nothing is up" case, and that is
+	// exactly when Configure(System: false) has to reach dnsstub — it is the
+	// only call that closes port 53 (setSystem). Node stopped under the system
+	// proxy, st is all-false, the return fired here, and this call never ran:
+	// the forwarder held 53 for the rest of the session while the interfaces
+	// kept their own resolvers behind it — the reader's local resolver could
+	// never bind the port again, against the very contract this side keeps
+	// (dnsstub.go: "only while asked for"). Both halves stay in one call, as
+	// the note on the old placement below asked for; only the position moved.
+	a.syncDNSStub()
 	if !st.Adapter && !st.Resolvers {
 		return
 	}
@@ -123,10 +167,6 @@ func (a *App) reconcileSystemDNS(force bool) {
 		// be a state file nobody reads.
 		a.ensureTunServer()
 	}
-	// The forwarder's half of the same decision, in the same call so the two cannot be
-	// taken for each other: a port held with nothing pointed at it is harmless, and an
-	// interface pointed at a port nobody holds is a machine with no names.
-	a.syncDNSStub()
 }
 
 // releaseSystemDNS tells the elevated side to put the machine's resolvers back, for the exit
@@ -134,10 +174,10 @@ func (a *App) reconcileSystemDNS(force bool) {
 // courteous half: whichever of the two notices first, the reader's machine ends up as it
 // was found.
 func (a *App) releaseSystemDNS() {
-	if a == nil || a.dataDir == "" {
+	if a == nil || a.curDataDir() == "" {
 		return
 	}
-	if err := tunserv.WriteState(a.dataDir, tunserv.State{}); err != nil {
+	if err := tunserv.WriteState(a.curDataDir(), tunserv.State{}); err != nil {
 		a.logf("[dns] 退出时无法记录常驻服务状态: " + err.Error())
 	}
 }
@@ -158,14 +198,14 @@ const appHeartbeatPeriod = 2 * time.Second
 // a stale one).
 func (a *App) appHeartbeatLoop() {
 	for {
-		if a.dataDir != "" {
-			if err := tunserv.WriteAppHeartbeat(a.dataDir); err != nil {
+		if a.curDataDir() != "" {
+			if err := tunserv.WriteAppHeartbeat(a.curDataDir()); err != nil {
 				a.logf("[dns] 无法记录程序存活心跳: " + err.Error())
 			}
 		}
 		if a.quitting.Load() {
-			if a.dataDir != "" {
-				tunserv.ClearAppHeartbeat(a.dataDir)
+			if a.curDataDir() != "" {
+				tunserv.ClearAppHeartbeat(a.curDataDir())
 			}
 			return
 		}

@@ -173,6 +173,19 @@ func (a *App) DownloadMissingRuleSets() (int, error) {
 		return 0, err
 	}
 	written := 0
+	// One rebuild for the batch, not one per file: the reader pressed 全部下载, and the
+	// core only needs to have read the directory once it has stopped changing.
+	//
+	// Deferred rather than done at the end: a batch that fails on its third tag
+	// has still written two, and returning before the rebuild left the disk
+	// changed while the core went on reading the old directory — the reader saw
+	// "下载失败" over a list that had half of it. DownloadRuleSet (the single-file
+	// path) already rebuilds whatever happened to the file itself.
+	defer func() {
+		if written > 0 {
+			a.ruleSetsChanged()
+		}
+	}()
 	for _, rs := range list {
 		if !rs.Needed || rs.Local || rs.URL == "" {
 			continue
@@ -181,11 +194,6 @@ func (a *App) DownloadMissingRuleSets() (int, error) {
 			return written, err
 		}
 		written++
-	}
-	// One rebuild for the batch, not one per file: the reader pressed 全部下载, and the
-	// core only needs to have read the directory once it has stopped changing.
-	if written > 0 {
-		a.ruleSetsChanged()
 	}
 	return written, nil
 }
@@ -292,10 +300,10 @@ func (a *App) saveRuleSetCountries(m map[string]string) error {
 // making it once for each file the reader meant to add together.
 // An empty list means the reader cancelled.
 func (a *App) PickRuleSetFiles() ([]string, error) {
-	if a.ctx == nil {
+	if a.curCtx() == nil {
 		return nil, fmt.Errorf("backend not initialised")
 	}
-	return runtime.OpenMultipleFilesDialog(a.ctx, runtime.OpenDialogOptions{
+	return runtime.OpenMultipleFilesDialog(a.curCtx(), runtime.OpenDialogOptions{
 		Title: "选择规则集文件",
 		Filters: []runtime.FileFilter{
 			{DisplayName: "规则集 (*.srs)", Pattern: "*.srs"},

@@ -36,8 +36,8 @@ func (a *App) RunningProfileName() string {
 // autostart, hotkeys).
 func (a *App) emitRunningState() {
 	a.refreshTrayStatus()
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "running:changed", a.RunningProfile())
+	if a.curCtx() != nil {
+		runtime.EventsEmit(a.curCtx(), "running:changed", a.RunningProfile())
 	}
 	// A node that has just come up is a foreign side that has just become reachable:
 	// one query over its own path now, so the first real lookup skips the CONNECT

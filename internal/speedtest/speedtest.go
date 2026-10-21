@@ -370,13 +370,24 @@ func (r *Runner) withTestCore(ent *db.ProxyEntity, wait time.Duration, fn func(p
 		if spec.Program == "" {
 			continue
 		}
-		ec := exec.Command(spec.Program, spec.Args...)
+		// The path is the one the reader typed into the extra-core setting, and
+		// it may be relative. It is taken against the folder the executable sits
+		// in — the same rule the controller follows — and never against the
+		// working directory: on Windows a relative program path is resolved by
+		// CreateProcess against the PARENT's current directory, and cmd.Dir does
+		// not take part in it. So a relative path started a core from somewhere
+		// else, the node worked perfectly through the app, and every speed test
+		// of it failed with "core did not become ready in time".
+		ec := exec.Command(util.ResolveAppPath(spec.Program), spec.Args...)
 		ec.Dir = r.configDir
 		if len(spec.Env) > 0 {
 			ec.Env = append(os.Environ(), spec.Env...)
 		}
 		util.HideConsole(ec)
 		if err := ec.Start(); err != nil {
+			// The error used to be dropped on the floor, so the test that failed
+			// said nothing about the external core at all.
+			r.logf(fmt.Sprintf("[test] external core %s failed to start: %v", spec.Tag, err))
 			continue
 		}
 		extCmds = append(extCmds, ec)

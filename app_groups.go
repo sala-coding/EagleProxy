@@ -77,6 +77,9 @@ func (a *App) ListGroups() []GroupInfo {
 // GetGroup returns a full group definition — a snapshot, so the caller (the edit
 // dialog and its serialization) cannot race a concurrent writer's fields.
 func (a *App) GetGroup(id int) (*db.Group, error) {
+	if a.curMgr() == nil {
+		return nil, fmt.Errorf("backend not initialised")
+	}
 	g := a.curMgr().SnapshotGroup(id)
 	if g == nil {
 		return nil, fmt.Errorf("group %d not found", id)
@@ -86,6 +89,9 @@ func (a *App) GetGroup(id int) (*db.Group, error) {
 
 // CreateGroup adds a new group.
 func (a *App) CreateGroup(name string) (int, error) {
+	if a.curMgr() == nil {
+		return -1, fmt.Errorf("backend not initialised")
+	}
 	g := &db.Group{ID: -1, FrontProxyID: -1, Name: name}
 	if err := a.curMgr().AddGroup(g); err != nil {
 		return -1, err
@@ -104,6 +110,9 @@ func (a *App) CreateGroup(name string) (int, error) {
 // those go through, and the walk's fields pass untouched. Under subMu for the
 // same reason DeleteGroup is: a walk in flight holds a snapshot of this group.
 func (a *App) UpdateGroup(g db.Group) error {
+	if a.curMgr() == nil {
+		return fmt.Errorf("backend not initialised")
+	}
 	a.subMu.Lock()
 	defer a.subMu.Unlock()
 	return a.curMgr().UpdateGroup(g.ID, true, func(live *db.Group) {
@@ -123,6 +132,9 @@ func (a *App) UpdateGroup(g db.Group) error {
 // The delete therefore waits for a walk to finish, which is the price of the tree
 // staying consistent.
 func (a *App) DeleteGroup(gid int) error {
+	if a.curMgr() == nil {
+		return fmt.Errorf("backend not initialised")
+	}
 	a.subMu.Lock()
 	defer a.subMu.Unlock()
 	// A group whose member is running cannot go: the deletion would take the
@@ -133,7 +145,28 @@ func (a *App) DeleteGroup(gid int) error {
 			return fmt.Errorf("该分组的节点正在运行，请先停止或切换节点再删除")
 		}
 	}
-	return a.curMgr().DeleteGroup(gid)
+	if err := a.curMgr().DeleteGroup(gid); err != nil {
+		return err
+	}
+	// The persisted "current group" must not go on naming what no longer
+	// exists. The front end falls back in its own memory, but nothing wrote
+	// that back: StartLastProfile then answered "no profile to start", the
+	// next-profile hotkey reported an empty group, and the builder's selector
+	// had no candidates — while the other groups held plenty of nodes. The
+	// choice here is the same one the front end shows: the first group that is
+	// left, or none at all.
+	if s := a.curSetting(); s != nil && s.CurrentGroup == gid {
+		next := -1
+		if order := a.curMgr().TabOrder(); len(order) > 0 {
+			next = order[0]
+		}
+		n := s.Clone()
+		n.CurrentGroup = next
+		if err := a.applySetting(n); err != nil {
+			a.logf("[groups] 无法修正当前分组: " + err.Error())
+		}
+	}
+	return nil
 }
 
 // ListProfiles returns the profiles of a group (gid < 0 => all profiles).
@@ -181,6 +214,9 @@ func (a *App) ListProfiles(gid int) []ProfileInfo {
 
 // CreateProfile adds an empty profile of the given protocol type.
 func (a *App) CreateProfile(typ string, gid int) (int, error) {
+	if a.curMgr() == nil {
+		return -1, fmt.Errorf("backend not initialised")
+	}
 	ent := &db.ProxyEntity{Type: typ, ID: -1, GID: gid, Bean: format.New(typ)}
 	ent.Ensure()
 	if gid < 0 {
@@ -265,6 +301,9 @@ func (a *App) MoveProfile(id, gid int) error {
 
 // GetProfileJSON returns the raw profile JSON for editing.
 func (a *App) GetProfileJSON(id int) (string, error) {
+	if a.curMgr() == nil {
+		return "", fmt.Errorf("backend not initialised")
+	}
 	ent := a.curMgr().SnapshotProfile(id)
 	if ent == nil {
 		return "", fmt.Errorf("profile %d not found", id)
@@ -355,6 +394,9 @@ func (a *App) ImportLinks(text string, gid int) ([]int, error) {
 // ExportLink renders a profile as a share link — from a snapshot, since link
 // building walks the bean map.
 func (a *App) ExportLink(id int, nekoray bool) (string, error) {
+	if a.curMgr() == nil {
+		return "", fmt.Errorf("backend not initialised")
+	}
 	ent := a.curMgr().SnapshotProfile(id)
 	if ent == nil {
 		return "", fmt.Errorf("profile %d not found", id)
@@ -536,8 +578,12 @@ func splitLines(text string) []string {
 	return out
 }
 
+// removeInt returns the list without v. The result is a copy: the list it is
+// given is not touched. Writing the answer over the caller's own slice
+// changed the caller's list under their feet, which is a different answer
+// from the one they asked for.
 func removeInt(list []int, v int) []int {
-	out := list[:0]
+	out := make([]int, 0, len(list))
 	for _, x := range list {
 		if x != v {
 			out = append(out, x)

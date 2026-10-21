@@ -102,6 +102,12 @@ const queryTimeout = 5 * time.Second
 // a path that cannot be opened in three seconds is not a path worth having warm.
 const warmTimeout = 3 * time.Second
 
+// serveTimeout is how long one question on a forwarded connection may take, on each
+// side of it. It is a per-question allowance, refreshed before every read and every
+// write: a deadline set once is absolute, and it cut the connection after two minutes
+// however busy it was (see serve). A variable so a test can shorten it.
+var serveTimeout = 2 * time.Minute
+
 // maxInFlight bounds the queries being forwarded at once, per side. Each one holds a
 // goroutine and a slot on that side's connection; a core resolving a burst of names queues
 // here rather than opening a thread per name.
@@ -156,10 +162,32 @@ type side struct {
 	// changed, because a rebuild that has to be remembered is a rebuild that gets forgotten.
 	proxyKey string
 	egress   uint32
-	client   *dnsx.Client
+	// clients is the side's pool, not one path: a dnsx.Client answers one
+	// exchange at a time (a stream cannot carry two questions without ids to
+	// tell them apart), and with a single client per side that "one at a time"
+	// became the whole side's concurrency. A page load asks dozens of names at
+	// once, each through this pool in turn; at one path each they queued on it
+	// in arrival order and the tail of every burst met its own five-second
+	// deadline — the SERVFAILs that read as "DNS works sometimes". The pool is
+	// built and thrown away as a unit (see clientFor); poolNext is the
+	// round-robin cursor over it.
+	clients  []*dnsx.Client
+	poolNext int
 	// lastSpoke throttles the error log: a resolver that is down would otherwise write a
 	// line per query, and a DNS log nobody can read is a log nobody reads.
 	lastSpoke time.Time
+	// fails counts the questions this side's upstream has not answered, one after
+	// another, and lastTry is when the last one was asked.
+	//
+	// They are what lets a side that is down stop costing five seconds per name
+	// (see answer). A question asked of an upstream that is not answering gets the
+	// same answer as the one before it — a SERVFAIL, five seconds later — and a
+	// machine asking a dozen names at once pays that twelve times.
+	fails   int
+	lastTry time.Time
+	// failing says whether the side has been told that it is failing, so that the
+	// reader hears about it once and not once per question.
+	failing bool
 }
 
 // Server is the running forwarder.
@@ -184,8 +212,8 @@ type Server struct {
 	// every two seconds and one attempt per thirty is all the retry needs.
 	sysLastBind time.Time
 	tunnel      bool
-	closed bool
-	sem    map[Side]chan struct{}
+	closed      bool
+	sem         map[Side]chan struct{}
 }
 
 var (
@@ -395,7 +423,7 @@ func (s *Server) setSystem(w Wires) {
 		if u6 != nil {
 			_ = u6.Close()
 		}
-		closeClient(old.client)
+		closeClients(old.clients)
 		return
 	}
 	if w.Proxy == nil {
@@ -404,9 +432,16 @@ func (s *Server) setSystem(w Wires) {
 		return
 	}
 	s.mu.Lock()
-	serving := s.systemServingLocked()
+	bound := s.systemBoundLocked()
 	s.mu.Unlock()
-	if !serving {
+	if !bound {
+		// Not every socket is up. The question used to be "is anything
+		// serving?", and a half-taken port answered that — so the missing
+		// halves stayed missing for the life of the process, while the app went
+		// on telling the machine to point its interfaces at 127.0.0.1:53 and
+		// reporting the takeover as ready. bindSystem fills in each address
+		// family that is missing and leaves the ones that are up alone, so
+		// asking it again is how the rest gets there.
 		s.bindSystem()
 	}
 	s.mu.Lock()
@@ -431,7 +466,7 @@ func (s *Server) setSystem(w Wires) {
 		s.log("[dns] 系统解析器已接管：本机 53 → 核心按路由档回答")
 	}
 	if !unchanged {
-		closeClient(old.client)
+		closeClients(old.clients)
 	}
 }
 
@@ -440,6 +475,14 @@ func (s *Server) setSystem(w Wires) {
 // own timeout, so a TCP-only answer would turn every cold name into that wait. Lock-held.
 func (s *Server) systemServingLocked() bool {
 	return s.listens[System] != nil || s.sysV6 != nil || s.sysU4 != nil || s.sysU6 != nil
+}
+
+// systemBoundLocked reports whether every socket the takeover needs is up: both loopbacks,
+// over both UDP and TCP. A port half taken is not a takeover — the interface pointed at
+// it waits out a timeout on the half that answers, which is the whole reason the v6
+// sockets are taken as well. Lock-held.
+func (s *Server) systemBoundLocked() bool {
+	return s.listens[System] != nil && s.sysV6 != nil && s.sysU4 != nil && s.sysU6 != nil
 }
 
 // SystemReady reports whether the machine's resolver port is actually being answered right
@@ -549,7 +592,7 @@ func (s *Server) setSide(which Side, upstream string, w Wires) {
 		old := s.sides[which]
 		s.sides[which] = &side{}
 		s.mu.Unlock()
-		closeClient(old.client)
+		closeClients(old.clients)
 		return
 	}
 	// The client is not built here: it is built at the first query, so that the proxy it
@@ -577,7 +620,7 @@ func (s *Server) setSide(which Side, upstream string, w Wires) {
 	} else if was == "" {
 		s.log(fmt.Sprintf("[dns] %s 侧解析器为 %s", which, upstream))
 	}
-	closeClient(old.client)
+	closeClients(old.clients)
 }
 
 // upstreamProblem is the whole of "may this side be pointed at this address", and it is
@@ -659,28 +702,44 @@ func (s *Server) clientFor(which Side) *dnsx.Client {
 		// Replaced while this query was being set up; the newer one owns the side now.
 		return nil
 	}
-	if sl.client != nil && sl.proxyKey == key {
-		return sl.client
+	if len(sl.clients) > 0 && sl.proxyKey == key {
+		// Round-robin over the pool: consecutive questions land on different
+		// paths, which is the whole of the concurrency this side has (see the
+		// note on side.clients).
+		c := sl.clients[sl.poolNext%len(sl.clients)]
+		sl.poolNext++
+		return c
 	}
 	target, err := dnsx.Parse(upstream)
 	if err != nil {
 		return nil
 	}
-	old := sl.client
-	sl.client = dnsx.NewClient(target, dnsx.Options{
-		Proxy: proxy,
-		// A relay owes its client a whole answer: a truncated one is re-asked over TCP
-		// rather than passed on cut in half.
-		RetryTruncated: true,
-		Timeout:        queryTimeout,
-		InterfaceIndex: egress,
-		Bootstrap:      sl.bootstrap,
-	})
-	sl.proxyKey = key
-	if old != nil {
-		closeClient(old)
+	// The count under the old paths was theirs: failures over the proxy or
+	// resolver that has just gone must not open the new paths' account already
+	// near the breaker (see noteFailure), and a side that was failing on the
+	// old path gets its one clean question on the new one — hence the reset
+	// below, inside the same lock that swaps the pool.
+	olds := sl.clients
+	sl.clients = make([]*dnsx.Client, dnsPoolSize)
+	for i := range sl.clients {
+		sl.clients[i] = dnsx.NewClient(target, dnsx.Options{
+			Proxy: proxy,
+			// A relay owes its client a whole answer: a truncated one is re-asked over TCP
+			// rather than passed on cut in half.
+			RetryTruncated: true,
+			Timeout:        queryTimeout,
+			InterfaceIndex: egress,
+			Bootstrap:      sl.bootstrap,
+		})
 	}
-	return sl.client
+	sl.proxyKey = key
+	sl.poolNext = 1 // index 0 is the one answered below
+	if len(olds) > 0 {
+		sl.fails = 0
+		sl.failing = false
+		closeClients(olds)
+	}
+	return sl.clients[0]
 }
 
 // WarmUp opens the side's path ahead of the first real query: one exchange over the
@@ -754,12 +813,21 @@ func (s *Server) acceptUDP(pc net.PacketConn, which Side) {
 // serve reads queries off one connection and writes the answers back, in order.
 func (s *Server) serve(conn net.Conn, which Side) {
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(2 * time.Minute))
 	for {
+		// The deadline is set per question, not once at accept. A deadline set
+		// once is absolute: it does not move along with the traffic, so it cut
+		// the connection after two minutes however busy it was — and this
+		// connection is a long one. The core is told to ask over TCP (see
+		// configbuilder.stubServer) and keeps the connection open and reuses
+		// it, so the queries on it failed every two minutes for the life of the
+		// tunnel, and the answer could not even be sent back: the write deadline
+		// had passed as well.
+		_ = conn.SetReadDeadline(time.Now().Add(serveTimeout))
 		msg, err := readFramed(conn)
 		if err != nil {
 			return
 		}
+		_ = conn.SetWriteDeadline(time.Now().Add(serveTimeout))
 		if err := writeFramed(conn, s.answer(which, msg)); err != nil {
 			return
 		}
@@ -771,6 +839,17 @@ func (s *Server) serve(conn net.Conn, which Side) {
 // told "no" moves on, while a silent one waits out its own timeout on every name.
 func (s *Server) answer(which Side, msg []byte) []byte {
 	if !isQuery(msg) {
+		return servfail(msg)
+	}
+	// A side whose upstream is not answering is not asked again straight away.
+	//
+	// The answer would be the same SERVFAIL, five seconds later, for every name the
+	// machine asks — and the machine asks a lot of names when a page is loading.
+	// One attempt every so often is enough to notice a side that has come back (and
+	// the app's own smart pick moves the upstream anyway); the rest are told "no" at
+	// once, which is the difference between a browser that says it failed and one
+	// that sits there.
+	if !s.sideUsable(which) {
 		return servfail(msg)
 	}
 	client := s.clientFor(which)
@@ -790,6 +869,7 @@ func (s *Server) answer(which Side, msg []byte) []byte {
 	defer cancel()
 	reply, err := client.Exchange(ctx, msg)
 	if err != nil {
+		s.noteFailure(which, client)
 		s.spoke(which, err.Error())
 		return servfail(msg)
 	}
@@ -797,10 +877,111 @@ func (s *Server) answer(which Side, msg []byte) []byte {
 		// An answer to another question is not an answer: the client's id travels through
 		// untouched, so a mismatch means something between here and the resolver is
 		// confused, and guessing which of the two is right is not this code's business.
+		s.noteFailure(which, client)
 		s.spoke(which, "上游返回的编号与查询不符")
 		return servfail(msg)
 	}
+	s.noteSuccess(which, client)
 	return reply
+}
+
+// failThreshold is how many questions in a row the upstream has to leave unanswered
+// before this side stops asking it.
+//
+// One is not enough: a resolver can drop a single question, and a side that gave up
+// on the first sign would be a side that answers "no" to a resolver that was having
+// a bad moment. Two in a row is a pattern.
+const failThreshold = 2
+
+// failRetryAfter is how long a failing side waits before trying its upstream again.
+//
+// It is the price of the fast answer: the side is not really better off, it is
+// better off being honest sooner. A short window means a side that comes back is
+// noticed quickly; the attempt itself is what costs, and one attempt in this many
+// seconds is one question in that time waiting out the full timeout.
+var failRetryAfter = 10 * time.Second
+
+// sideUsable reports whether this side may be asked right now, and books the
+// attempt when it may.
+//
+// A side that is not failing is always asked. A side that is failing is asked once
+// per failRetryAfter, and the rest of the questions are answered at once.
+func (s *Server) sideUsable(which Side) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sl := s.sides[which]
+	if sl == nil {
+		return false
+	}
+	if sl.fails < failThreshold {
+		sl.lastTry = time.Now()
+		return true
+	}
+	if time.Since(sl.lastTry) >= failRetryAfter {
+		sl.lastTry = time.Now()
+		return true
+	}
+	return false
+}
+
+// noteFailure records that this side's upstream did not answer — but only when
+// the client it was asked through is still the side's.
+//
+// The identity matters because both replacement paths close the old client
+// with queries still in flight on it (setSide on a new resolver, clientFor on
+// a new proxy), and those exchanges come back as "the path is closed": a local
+// teardown, not an upstream that failed. Counted against whatever holds the
+// seat now, two such in-flight strays are exactly failThreshold — the breaker
+// tripped on a side that had never been asked, its first real question met
+// with ten seconds of SERVFAIL over a resolver that was fine (the window this
+// bites in — a resolver change or a core restart mid-page-load — is dense with
+// queries, so the two strays arrive together).
+//
+// from is the client the failure came back on; a nil from (no client was ever
+// established) counts as before.
+func (s *Server) noteFailure(which Side, from *dnsx.Client) {
+	s.mu.Lock()
+	sl := s.sides[which]
+	if sl == nil || !poolHas(sl.clients, from) {
+		// The seat moved while this query was in flight (or it went through a
+		// pool that has since been replaced): the failure belongs to the path
+		// that went away, and the newcomer starts with a clean count.
+		s.mu.Unlock()
+		return
+	}
+	sl.fails++
+	nowFailing := sl.fails >= failThreshold && !sl.failing
+	if nowFailing {
+		sl.failing = true
+	}
+	up := sl.upstream
+	s.mu.Unlock()
+	if nowFailing {
+		// Said once, because the reader is looking at a machine that is suddenly slow
+		// and this is the reason: the side's resolver is not answering, and every name
+		// the machine asks is being told "no" at once instead of after a wait.
+		s.log(fmt.Sprintf("[dns] %s 侧上游无响应（%s），该侧改为直接回 SERVFAIL", which, up))
+	}
+}
+
+// noteSuccess records that this side's upstream answered, and that the side is
+// working again. The same identity rule as noteFailure: an answer arriving on
+// a client the side has already replaced clears nothing — the count it would
+// have cleared belongs to the seat now, which has its own.
+func (s *Server) noteSuccess(which Side, from *dnsx.Client) {
+	s.mu.Lock()
+	sl := s.sides[which]
+	if sl == nil || !poolHas(sl.clients, from) {
+		s.mu.Unlock()
+		return
+	}
+	wasFailing := sl.failing
+	sl.fails = 0
+	sl.failing = false
+	s.mu.Unlock()
+	if wasFailing {
+		s.log(fmt.Sprintf("[dns] %s 侧已恢复响应", which))
+	}
 }
 
 // spoke logs an error at most once every thirty seconds per side. A resolver that is down
@@ -846,7 +1027,7 @@ func (s *Server) Close() {
 		}
 	}
 	for _, sl := range old {
-		closeClient(sl.client)
+		closeClients(sl.clients)
 	}
 }
 
@@ -857,6 +1038,35 @@ func closeClient(c *dnsx.Client) {
 	if c != nil {
 		go func(c *dnsx.Client) { _ = c.Close() }(c)
 	}
+}
+
+// closeClients puts a whole pool away, one goroutine per path for the reason
+// above: Close waits for the exchange in flight on that path, and the caller is
+// a settings save that must not.
+func closeClients(cs []*dnsx.Client) {
+	for _, c := range cs {
+		closeClient(c)
+	}
+}
+
+// dnsPoolSize is how many paths one side keeps open. Four is what the burst
+// from a page load needs to stay inside the five-second budget on a tunnel
+// that costs ~300ms a question: twenty waiters drain in about 1.5s, where one
+// path took six.
+const dnsPoolSize = 4
+
+// poolHas reports whether c is one of the side's current paths. A nil c (a
+// question that never got a client) counts as the side's, as it always did.
+func poolHas(pool []*dnsx.Client, c *dnsx.Client) bool {
+	if c == nil {
+		return true
+	}
+	for _, x := range pool {
+		if x == c {
+			return true
+		}
+	}
+	return false
 }
 
 // isQuery reports whether this is a single-question query, which is the only thing worth

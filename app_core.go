@@ -31,10 +31,25 @@ const (
 // on. So the controller is kept and only re-pointed at the fresh data.
 // SetDataDir passes false: the config path and data root both change.
 func (a *App) reload(keepCore bool) error {
-	if err := os.MkdirAll(a.dataDir, 0o755); err != nil {
+	if err := os.MkdirAll(a.curDataDir(), 0o755); err != nil {
+		// The webview boots either way and every binding is about to be asked, so
+		// the two core pointers must not stay nil however this launch went (the
+		// load-failure branch below does the same for its own error). Both calls
+		// answer with defaults when the directory cannot be created: Load's reads
+		// all fail silently and hand back a fresh setting, and NewManager+Load
+		// answer with an empty store. Bindings then read "nothing here" instead
+		// of panicking on a binding goroutine, where no crash.log is written.
+		if a.curMgr() == nil {
+			m := db.NewManager(a.curDataDir())
+			_ = m.Load()
+			a.setMgr(m)
+		}
+		if a.curSetting() == nil {
+			a.setSetting(setting.Load(a.curDataDir()))
+		}
 		return err
 	}
-	a.setMgr(db.NewManager(a.dataDir))
+	a.setMgr(db.NewManager(a.curDataDir()))
 	if err := a.curMgr().Load(); err != nil {
 		// A failed load on first launch leaves the setting nil, and every
 		// binding is about to be asked — the webview has booted either way.
@@ -44,12 +59,12 @@ func (a *App) reload(keepCore bool) error {
 		// process. Later reloads keep their previous setting, which is the
 		// older data the reader was seeing anyway.
 		if a.curSetting() == nil {
-			a.setSetting(setting.Load(a.dataDir))
+			a.setSetting(setting.Load(a.curDataDir()))
 		}
 		return err
 	}
 	prevSetting := a.curSetting()
-	a.setSetting(setting.Load(a.dataDir))
+	a.setSetting(setting.Load(a.curDataDir()))
 	a.curSetting().InheritRuntime(prevSetting)
 	// Another data directory is another routing profile, and with it another pair of
 	// resolvers for the forwarder to stand behind (see app_dns.go). Nothing is up on the
@@ -65,13 +80,13 @@ func (a *App) reload(keepCore bool) error {
 	if keepCore && a.curController() != nil {
 		a.curController().SetManager(a.curMgr())
 		a.curController().SetSetting(a.curSetting())
-		a.curController().SetCorePath(a.corePath)
+		a.curController().SetCorePath(a.curCorePath())
 		return nil
 	}
 
 	old := a.curController()
-	a.setController(core.New(a.curMgr(), a.curSetting(), a.dataDir))
-	a.curController().SetCorePath(a.corePath)
+	a.setController(core.New(a.curMgr(), a.curSetting(), a.curDataDir()))
+	a.curController().SetCorePath(a.curCorePath())
 	// The generation moves before the old controller is stopped, not after. Stopping
 	// it fires its OnExit, and the guard in onCoreExit is what tells a controller
 	// being replaced from a core that has crashed: a stale generation is ignored as
@@ -89,8 +104,8 @@ func (a *App) reload(keepCore bool) error {
 	}
 	a.curController().OnLog = a.logf
 	a.curController().OnExit = func(id, pid int) {
-		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "core:exit", id)
+		if a.curCtx() != nil {
+			runtime.EventsEmit(a.curCtx(), "core:exit", id)
 		}
 		a.onCoreExit(gen, id, pid)
 	}
@@ -172,6 +187,16 @@ func (a *App) onCoreExit(gen, id, pid int) {
 		// dead port. Both stand down here, the same sequence the TUN front-end's own
 		// watcher uses when it cannot recover (watchTunFront), so the surrender leaves
 		// a machine that is merely direct rather than one that cannot reach anything.
+		//
+		// On the switch's seat (startStopMu → modeMu) like every other flag flip:
+		// this runs on the controller's wait goroutine with nothing held, and an
+		// unguarded flip landed mid-switch — the surrender writing flags and the
+		// registry while a SetVPNMode was between its own flag write and its
+		// registry write, with the two overwriting each other. The wait goroutine
+		// is clear to take the seat here: it already cleared c.cmd before calling
+		// OnExit, which is all Stop's poll waits on (see controller.Stop).
+		a.startStopMu.Lock()
+		a.modeMu.Lock()
 		if st := a.curSetting(); st != nil {
 			if st.VPNMode() {
 				a.releaseTunRoutes()
@@ -191,6 +216,8 @@ func (a *App) onCoreExit(gen, id, pid int) {
 			a.rememberSpmode()
 			a.refreshTrayStatus()
 		}
+		a.modeMu.Unlock()
+		a.startStopMu.Unlock()
 		a.emitRunningState()
 		return
 	}

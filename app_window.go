@@ -13,7 +13,7 @@ import (
 // of the fix here: this runs from the single-instance processor, which Wails starts
 // before OnStartup, so a second launch inside the first second or two of this one —
 // exactly the interval a double-click on the desktop icon produces — arrived while
-// a.ctx was still nil. Both the log line and the event were then dropped on the floor:
+// the context was still nil. Both the log line and the event were then dropped on the floor:
 // the window came up, or did not, and nothing said why. notifyMessage holds the
 // message until the frontend is listening (see pendingNotice).
 func (a *App) notifySecondInstance() {
@@ -23,25 +23,25 @@ func (a *App) notifySecondInstance() {
 
 // ShowWindow shows and focuses the main window.
 func (a *App) ShowWindow() {
-	if a.ctx == nil {
+	if a.curCtx() == nil {
 		return
 	}
-	runtime.WindowShow(a.ctx)
-	runtime.WindowUnminimise(a.ctx)
+	runtime.WindowShow(a.curCtx())
+	runtime.WindowUnminimise(a.curCtx())
 }
 
 // HideWindow hides the main window.
 func (a *App) HideWindow() {
-	if a.ctx != nil {
-		runtime.WindowHide(a.ctx)
+	if a.curCtx() != nil {
+		runtime.WindowHide(a.curCtx())
 	}
 }
 
 // QuitApp exits the application.
 func (a *App) QuitApp() {
 	a.shutdown()
-	if a.ctx != nil {
-		runtime.Quit(a.ctx)
+	if a.curCtx() != nil {
+		runtime.Quit(a.curCtx())
 	}
 }
 
@@ -53,6 +53,14 @@ func (a *App) toggleSystemProxy() {
 	if a.curSetting() == nil {
 		return
 	}
+	// Held across the read and the switch, for the same reason toggleNode holds
+	// it: the hotkey layer dispatches every press on its own goroutine, and two
+	// presses a moment apart both read the flag as it stood before either ran —
+	// both decided "turn on", queued two SetSystemProxyMode(true) behind each
+	// other, and the double press meant on-then-on instead of on-then-off.
+	// Same order as the other holders (hotkeyMu → startStopMu, see setEgress).
+	a.hotkeyMu.Lock()
+	defer a.hotkeyMu.Unlock()
 	if err := a.SetSystemProxyMode(!a.curSetting().SPModeSystemProxy()); err != nil {
 		a.notifyMessage("系统代理切换失败: "+err.Error(), true)
 		// The press may well have come from the tray with the window hidden; a
@@ -69,6 +77,9 @@ func (a *App) toggleVPN() {
 	if a.curSetting() == nil {
 		return
 	}
+	// Same double-press guard as toggleSystemProxy above (see hotkeyMu).
+	a.hotkeyMu.Lock()
+	defer a.hotkeyMu.Unlock()
 	if err := a.SetVPNMode(!a.curSetting().VPNMode()); err != nil {
 		a.notifyMessage("TUN 切换失败: "+err.Error(), true)
 		a.ShowWindow()

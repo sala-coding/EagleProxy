@@ -70,6 +70,18 @@ type App struct {
 	dataDirRaw  string
 	corePath    string
 	corePathRaw string
+	// Where the logs go: a "log" folder beside the executable, decided once at
+	// startup (see setupLogDir) and read by every writer afterwards.
+	logDirPath string
+	// pathMu guards the four fields above, logDirPath and ctx. They are written
+	// rarely — startup, the settings dialog — but read by every goroutine the
+	// app runs (the heartbeat, the DNS reconcile, the traffic loop, the
+	// bindings). A Go string is two words and a two-word write is not atomic: a
+	// reader running beside a writer can pair the new pointer with the old
+	// length and get a path that names nowhere, and ctx is a two-word interface
+	// with the same exposure. Reads go through curDataDir/curCorePath/…, writes
+	// through setPaths/setDataDir/…, all under this lock.
+	pathMu sync.RWMutex
 
 	// The three core pointers are swapped (never mutated in place) and read from
 	// every goroutine in the app. The pointer itself may be touched only through
@@ -90,6 +102,9 @@ type App struct {
 	// system-proxy path only flips the setting's own flag), so a plain mutex
 	// holds, and a switch that waits for the one in front of it is honest queueing
 	// rather than a lost press.
+	//
+	// Taken as startStopMu → modeMu (never the other way): the mode switches take
+	// the start/stop seat first, so a switch's stop+start pair is one unit.
 	modeMu sync.Mutex
 
 	// One press at a time for the keys that start, stop or switch a node. The hotkey
@@ -98,6 +113,11 @@ type App struct {
 	// "nothing running", both started a node, and the second stopped what the first
 	// had just brought up. Serialised, a double press means what it says — on, then
 	// off — instead of a race whose winner decides.
+	//
+	// Lock order is hotkeyMu → startStopMu (or hotkeyMu → modeMu): every holder
+	// — toggleNode, setEgress, nextProfile, the two toggles in app_window.go —
+	// takes this one first and reaches the start/stop seat through the work it
+	// does. No path takes them the other way round.
 	hotkeyMu sync.Mutex
 
 	// One start/stop at a time, across every source. StartProfile and StopProfile
@@ -105,12 +125,11 @@ type App struct {
 	// supervisor, the startup restore — and each of those raced its stop/start
 	// pair into whichever was already mid-flight: two starts both read StoppedID
 	// and both started a core, a stop landing under a start tore its TUN
-	// sequence apart. The lock sits outside modeMu and hotkeyMu (this one is
-	// taken first, by the mode switches too), and the locked bodies never take
-	// it again — StartProfile's internal stop calls stopProfileLocked directly,
-	// since sync.Mutex is not reentrant. Lock order is startStopMu → modeMu →
-	// nothing, and startStopMu → hotkeyMu → nothing: no path runs the other
-	// way.
+	// sequence apart. The mode switches take this seat alongside modeMu
+	// (startStopMu first), and the locked bodies never take it again —
+	// StartProfile's internal stop calls stopProfileLocked directly, since
+	// sync.Mutex is not reentrant. Lock order is hotkeyMu → startStopMu →
+	// modeMu → nothing: no path runs the other way (see hotkeyMu above).
 	startStopMu sync.Mutex
 
 	// What each profile looked like when the running config was built. A core reads one
@@ -150,9 +169,9 @@ type App struct {
 	// would stop what is already stopped and sweep the front-ends again for nothing.
 	shutdownOnce sync.Once
 	// tunFrontMu serialises bringing the front-end up. Two things can ask for it at the
-	// same time now — the warm-up that runs when TUN mode is switched on, and the start
-	// of a node — and without this the second would find no pid, conclude that nothing
-	// is running, and raise a second administrator prompt behind the first one's.
+	// same time now — the capture a mode switch brings up, and the start of a node — and
+	// without this the second would find no pid, conclude that nothing is running, and
+	// raise a second administrator prompt behind the first one's.
 	tunFrontMu sync.Mutex
 	// The resident-server probe, and the answer it reached. Both exist for the ten-second
 	// wait in ensureTunServer: once per session that wait is a legitimate cold task start,
@@ -178,6 +197,16 @@ type App struct {
 	// get its routes inside the window may be followed by another start; two retries
 	// taking the same routes is harmless but two rollbacks are not.
 	tunRouteRetry atomic.Bool
+	// The watcher's own recovery record. Every successful ensure spawns a fresh
+	// watcher with its own miss count, so "restart once" held per watcher rather
+	// than per session: a front-end that dies seconds after coming up (the shape
+	// a config fault has) was an endless cleanup → ensure → death loop at ~2.5s
+	// a turn, with no rate limit and the log to match. Counted App-wide with the
+	// shape the supervisor gives a core: maxTunFrontRestarts inside
+	// tunFrontRestartWindow, then the mode stands down instead of trying again
+	// (see watchTunFront, noteTunFrontRestart).
+	tunFrontRestartMu sync.Mutex
+	tunFrontRestarts  []time.Time
 	// True while a TUN node start is on its way — from the first wait of the
 	// warm-up through the core's own start-up sequence. A fired idle-reclaim
 	// timer reads this before touching anything: its window overlaps the whole
@@ -234,6 +263,21 @@ type App struct {
 	// node that answered it.
 	exitProbeAt   time.Time
 	exitProbeLast map[string]string
+	// Consecutive probes that came back with no answer, and whether the reader has
+	// been told about them.
+	//
+	// A node that cannot carry traffic is the one failure the reader cannot see for
+	// themselves: the corner keeps the last address it had, the proxy answers on its
+	// port, and the only sign is that nothing loads. The count is here so that
+	// failure is said out loud, once, instead of only in the log.
+	exitFailStreak int
+	exitFailTold   bool
+	// When the last empty probe came back, and when the last one was written to
+	// the log. The first is what the backoff is measured from; the second keeps
+	// the log from saying the same thing every two seconds (see exitProbeDue and
+	// noteExitFailLog).
+	exitFailAt       time.Time
+	exitFailLoggedAt time.Time
 
 	// Bookkeeping for the supervisor: a core that exits on its own is started again
 	// (see onCoreExit). coreGen identifies the controller the exit came from — a
@@ -272,6 +316,17 @@ type App struct {
 	// sub.Update calls through it. Two walks racing the same group would interleave
 	// snapshots and commits — a tree referencing nodes the other has just deleted.
 	subMu sync.Mutex
+
+	// applyMu serialises applySetting's read-copy-save-swap as one unit. Its
+	// callers sit on different goroutines (the settings save, rememberStarted
+	// under startStopMu, setEgress under hotkeyMu, SetCurrentGroup) and each
+	// builds its next from a snapshot of the live setting: two of them landing
+	// together both save and the later swap silently drops the earlier one's
+	// fields — InheritRuntime only carries the two runtime mode flags, so
+	// RememberID / EgressMode / CurrentGroup went back to what the slower writer
+	// had read. Taken innermost (nothing below takes it back), so it composes
+	// with hotkeyMu / startStopMu in any of their orders.
+	applyMu sync.Mutex
 }
 
 // Accessors for the three core pointers. They are swapped on reload / applySetting
@@ -315,15 +370,107 @@ func (a *App) setController(c *core.Controller) {
 	a.stateMu.Unlock()
 }
 
+// Accessors and setters for the path fields and ctx (see pathMu). Every read
+// outside these two functions and every write goes through them: the fields are
+// written on the settings dialog's goroutine while the heartbeat and the
+// reconcile read them on their own, and a two-word field written beside an
+// unlocked read can be observed half-updated.
+func (a *App) curDataDir() string {
+	a.pathMu.RLock()
+	defer a.pathMu.RUnlock()
+	return a.dataDir
+}
+
+func (a *App) curDataDirRaw() string {
+	a.pathMu.RLock()
+	defer a.pathMu.RUnlock()
+	return a.dataDirRaw
+}
+
+func (a *App) curCorePath() string {
+	a.pathMu.RLock()
+	defer a.pathMu.RUnlock()
+	return a.corePath
+}
+
+func (a *App) curCorePathRaw() string {
+	a.pathMu.RLock()
+	defer a.pathMu.RUnlock()
+	return a.corePathRaw
+}
+
+func (a *App) curCtx() context.Context {
+	a.pathMu.RLock()
+	defer a.pathMu.RUnlock()
+	return a.ctx
+}
+
+// setPaths swaps both paths in one write, for the load and the rollback that
+// move them together.
+func (a *App) setPaths(dataDir, dataDirRaw, corePath, corePathRaw string) {
+	a.pathMu.Lock()
+	a.dataDir, a.dataDirRaw, a.corePath, a.corePathRaw = dataDir, dataDirRaw, corePath, corePathRaw
+	a.pathMu.Unlock()
+}
+
+// setDataDir writes the data directory (and the way the reader spelled it)
+// without touching the core path.
+func (a *App) setDataDir(abs, raw string) {
+	a.pathMu.Lock()
+	a.dataDir, a.dataDirRaw = abs, raw
+	a.pathMu.Unlock()
+}
+
+// setDataDirRaw writes only the reader's spelling of the data directory — the
+// no-move branch of SetDataDir, where the folder itself does not change.
+func (a *App) setDataDirRaw(raw string) {
+	a.pathMu.Lock()
+	a.dataDirRaw = raw
+	a.pathMu.Unlock()
+}
+
+// setCorePath writes both forms of the core path (raw may be empty, which is
+// what asks for auto-discovery).
+func (a *App) setCorePath(abs, raw string) {
+	a.pathMu.Lock()
+	a.corePath, a.corePathRaw = abs, raw
+	a.pathMu.Unlock()
+}
+
+func (a *App) setLogDirPath(p string) {
+	a.pathMu.Lock()
+	a.logDirPath = p
+	a.pathMu.Unlock()
+}
+
+func (a *App) curLogDirPath() string {
+	a.pathMu.RLock()
+	defer a.pathMu.RUnlock()
+	return a.logDirPath
+}
+
+func (a *App) setCtx(ctx context.Context) {
+	a.pathMu.Lock()
+	a.ctx = ctx
+	a.pathMu.Unlock()
+}
+
 // NewApp creates the backend.
 func NewApp() *App { return &App{} }
 
 // startup is called when the app starts.
 func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
+	a.setCtx(ctx)
 	// The window's caption icon is dealt with in domReady rather than here: at this
 	// point the window does not exist yet, so there would be nothing to talk to.
 	a.loadAppConfig()
+	// The log folder is decided and created before anything writes: the log
+	// store, the core's own log and the crash record all name it, and a folder
+	// that appears later is a folder the first lines went missing from.
+	a.setupLogDir()
+	// And written down, so the resident server writes its log in the same folder
+	// this process does.
+	a.saveAppConfig()
 	if err := a.reload(false); err != nil {
 		println("init error:", err.Error())
 	}
@@ -332,8 +479,8 @@ func (a *App) startup(ctx context.Context) {
 	// core whose every resolution fails. It falls back by itself if it cannot bind (see
 	// app_dns.go and dnsstub.Endpoints).
 	a.startDNSStub()
-	// Write a marker straight away so text-logs is created on every launch and
-	// it is obvious whether file logging works.
+	// Write a marker straight away so the log folder is created on every launch
+	// and it is obvious whether file logging works.
 	if a.logs != nil {
 		a.logs.Section("core", "启动 · "+time.Now().Format("2006-01-02 15:04:05")+" · "+a.logDir())
 	}
@@ -362,7 +509,7 @@ func (a *App) startup(ctx context.Context) {
 	// the reader asked not to see should not ask for one. The tray exists either
 	// way (main.go sets it up right after this), so the window stays reachable.
 	if a.curSetting() != nil && a.curSetting().StartMinimal {
-		runtime.WindowHide(a.ctx)
+		runtime.WindowHide(a.curCtx())
 	}
 	// Every long-lived goroutine runs under crashlog.Guard: a panic in any of them
 	// takes the process down without main's own deferred handler ever running, which
@@ -397,10 +544,19 @@ func (a *App) applyPendingTun() {
 	// Consume the request whatever happens next: leaving it set would retry on
 	// every launch, and each retry that lacks the token would raise a UAC prompt
 	// of its own.
-	profile := a.curSetting().PendingTunProfile
-	a.curSetting().PendingTun = false
-	a.curSetting().PendingTunProfile = core.StoppedID
-	if err := a.curSetting().Save(); err != nil {
+	//
+	// A copy and a swap, like every other write to the settings: the live object
+	// is read by the traffic loop, the speed tests and the core's config build
+	// at the same time, and a write into it is a write under their feet.
+	next := a.curSetting().Clone()
+	profile := next.PendingTunProfile
+	next.PendingTun = false
+	next.PendingTunProfile = core.StoppedID
+	// Through applySetting rather than Save + setSetting: this goroutine runs
+	// beside the settings save and the mode switches, and bypassing the shared
+	// read-copy-save-swap left this write out of the controller's setting and
+	// skipped the forwarder's re-point (see applySetting).
+	if err := a.applySetting(next); err != nil {
 		a.logf("[vpn] " + err.Error())
 	}
 
@@ -445,9 +601,9 @@ func (a *App) applyPendingTun() {
 func (a *App) subUpdateLoop() {
 	for {
 		time.Sleep(time.Minute)
-		// a.ctx is never nil after startup, so quitting is the real exit signal
-		// — and the loop takes it every minute, not only between long walks.
-		if a.ctx == nil || a.quitting.Load() {
+		// The context is never nil after startup, so quitting is the real exit
+		// signal — and the loop takes it every minute, not only between long walks.
+		if a.curCtx() == nil || a.quitting.Load() {
 			return
 		}
 		s := a.curSetting()
@@ -570,8 +726,8 @@ func (a *App) runShutdown() {
 	// needs the token only the server holds. With nothing kept, a server left
 	// running is an elevated process holding nothing, heart-beating for nobody;
 	// the next launch prewarms its own in a second.
-	if !a.keepTunFront() && a.dataDir != "" && tunserv.ServerAlive(a.dataDir) {
-		_ = tunserv.SendCommand(a.dataDir, tunserv.Command{Action: tunserv.ActionExit})
+	if dir := a.curDataDir(); !a.keepTunFront() && dir != "" && tunserv.ServerAlive(dir) {
+		_ = tunserv.SendCommand(dir, tunserv.Command{Action: tunserv.ActionExit})
 		a.logf("[shutdown] stage: resident server dismissed")
 	}
 	// Tell the elevated side to put the machine's resolvers back first, while this process
@@ -583,8 +739,8 @@ func (a *App) runShutdown() {
 	// this process as alive and leaves the resolvers where the file above put them. A
 	// keepTunFront exit leaves that server running, so the stamp is the one thing that
 	// tells it the UI is gone rather than busy.
-	if a.dataDir != "" {
-		tunserv.ClearAppHeartbeat(a.dataDir)
+	if dir := a.curDataDir(); dir != "" {
+		tunserv.ClearAppHeartbeat(dir)
 	}
 	// The forwarder goes last, and only now: the core was still asking it questions two
 	// stages ago, and a port that vanishes under a core on its way out turns a clean stop

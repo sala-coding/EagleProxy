@@ -88,18 +88,41 @@ func (a *App) buildTime() time.Time {
 // reader's screen — over a swap that has already worked. The file is a few
 // hundred bytes in the temp folder, and the next update takes it away (see
 // cleanupUpdateTemps).
+// swapScriptArgs builds the command line that launches the update swap script.
+//
+// The empty title is the whole point of it. `start` takes its first quoted
+// argument as the window title, and Go quotes an argument that holds a space —
+// and the script's path is under the temp folder, which sits under the user's
+// name and holds a space on most machines. The path was then swallowed as a
+// title: `start` opened a console titled with it, ran nothing, and the app
+// quit with "the update is on its way" and never came back. The reader got the
+// old build and no word about why.
+func swapScriptArgs(script string) []string {
+	return []string{"/c", "start", "", "/min", script}
+}
+
 func updateSwapScript(newPath, self string) string {
 	return fmt.Sprintf("@echo off\r\n"+
 		"setlocal\r\n"+
 		"set \"NEW=%s\"\r\n"+
 		"set \"SELF=%s\"\r\n"+
 		"set /a TRIES=0\r\n"+
+		// The old build is copied aside before anything is moved over it. The
+		// move is the one step no code on this side can undo, and `move /y` on
+		// Windows replaces the destination by renaming: a move that fails
+		// half-way can leave neither build in place. The copy is what the
+		// failure branch below restores from, and what a reader can put back by
+		// hand if the new build turns out not to start.
+		"copy /y \"%%SELF%%\" \"%%SELF%%.old\" > nul 2>&1\r\n"+
 		":retry\r\n"+
 		"ping -n 2 127.0.0.1 > nul\r\n"+
 		"move /y \"%%NEW%%\" \"%%SELF%%\" > nul 2>&1\r\n"+
 		"if not errorlevel 1 goto :done\r\n"+
 		"set /a TRIES+=1\r\n"+
 		"if %%TRIES%% LSS 30 goto :retry\r\n"+
+		// Nothing was replaced: put the old build back where it belongs if the
+		// failed move left the path empty, and leave the line that says so.
+		"if not exist \"%%SELF%%\" copy /y \"%%SELF%%.old\" \"%%SELF%%\" > nul 2>&1\r\n"+
 		"echo %s update failed: could not replace the running build (tried %%TRIES%% times) >> \"%%SELF%%.update.log\"\r\n"+
 		"start \"\" \"%%SELF%%\"\r\n"+
 		"exit /b\r\n"+
@@ -107,6 +130,30 @@ func updateSwapScript(newPath, self string) string {
 		"start \"\" \"%%SELF%%\"\r\n"+
 		"exit /b\r\n",
 		newPath, self, time.Now().Format("2006-01-02 15:04:05"))
+}
+
+// stopHelpersForUpdate asks the other two processes that run this same binary
+// (the TUN front-end and the resident server) to exit, so the swap can replace
+// the file. Called after the updater script is already running: it retries for
+// about thirty seconds, which is ample time for these to leave, and a failure
+// here is only worth a log line — the app is quitting either way.
+func (a *App) stopHelpersForUpdate() {
+	if pid, _ := a.vpnState(); pid > 0 {
+		if err := a.stopTunFront(); err != nil {
+			a.logf("[update] TUN 前端未能停止（替换程序前需要它退出）: " + err.Error())
+		}
+	}
+	if !tunserv.ServerAlive(a.curDataDir()) {
+		return
+	}
+	_ = tunserv.SendCommand(a.curDataDir(), tunserv.Command{Action: tunserv.ActionExit})
+	for i := 0; i < 15; i++ {
+		if !tunserv.ServerAlive(a.curDataDir()) {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	a.logf("[update] 常驻服务未退出，替换程序可能失败（脚本会重试）")
 }
 
 // canReplace reports whether this build's own folder can be written to.
@@ -206,32 +253,12 @@ func (a *App) DownloadUpdate() error {
 	// script of that run and the build it had downloaded. This run's own files
 	// are written after this, so they are never caught by it.
 	cleanupUpdateTemps()
-	if err := update.Download(asset.URL, tmp); err != nil {
+	if err := update.Download(asset.URL, tmp, asset.Size); err != nil {
 		return err
 	}
-	// Everything that runs from this same executable has to be gone before the swap.
-	// Windows will not let a running image be replaced, and both the TUN front-end and
-	// the resident server are this binary with different arguments: the bat below
-	// would retry a move that cannot succeed until the machine is rebooted, and the
-	// reader would be told the install was on its way.
+	// The flag goes up here, before anything is torn down: the exit path reads it
+	// to decide whether the front-end may be kept (see keepTunFront).
 	a.updating.Store(true)
-	if pid, _ := a.vpnState(); pid > 0 {
-		if err := a.stopTunFront(); err != nil {
-			a.logf("[update] TUN 前端未能停止（替换程序前需要它退出）: " + err.Error())
-		}
-	}
-	if tunserv.ServerAlive(a.dataDir) {
-		_ = tunserv.SendCommand(a.dataDir, tunserv.Command{Action: tunserv.ActionExit})
-		for i := 0; i < 15; i++ {
-			if !tunserv.ServerAlive(a.dataDir) {
-				break
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
-		if tunserv.ServerAlive(a.dataDir) {
-			a.logf("[update] 常驻服务未退出，替换程序可能失败（脚本会重试）")
-		}
-	}
 	script := filepath.Join(os.TempDir(), fmt.Sprintf("eagle-update-%d.bat", os.Getpid()))
 	body := updateSwapScript(tmp, self)
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
@@ -241,7 +268,12 @@ func (a *App) DownloadUpdate() error {
 		a.updating.Store(false)
 		return err
 	}
-	cmd := exec.Command("cmd", "/c", "start", "/min", script)
+	// The empty title is not decoration. `start` takes its first quoted
+	// argument as the window title, and the script's path is quoted whenever it
+	// holds a space — a temp folder under a user's name almost always does. The
+	// path was then swallowed as a title, the script never ran, and the app
+	// quit with "the update is on its way" and never came back.
+	cmd := exec.Command("cmd", swapScriptArgs(script)...)
 	util.HideConsole(cmd)
 	if err := cmd.Start(); err != nil {
 		a.updating.Store(false)
@@ -250,6 +282,16 @@ func (a *App) DownloadUpdate() error {
 	// The script is detach-started and outlives this cmd; the handle must still
 	// be released, or the updater cmd sits as a zombie until the app exits.
 	go func() { _ = cmd.Wait() }()
+	// Only now are the helpers torn down — after the one step that can still
+	// fail has succeeded. Both the TUN front-end and the resident server are
+	// this binary with different arguments, and Windows will not replace a file
+	// that is still executing: the script retries for about thirty seconds, so
+	// they have that long to leave. Stopping them BEFORE the launch meant a
+	// write to the temp folder or a CreateProcess failure left the machine
+	// without an adapter and without a server, the TUN switch still reading on,
+	// and the watcher about to ask for another UAC prompt over an update that
+	// never started.
+	a.stopHelpersForUpdate()
 	// Said before the window goes, and the wait is short because the script is already
 	// counting: quitting first is what lets the move succeed at all.
 	a.notifyMessage("更新已下载，程序即将重启完成安装…")

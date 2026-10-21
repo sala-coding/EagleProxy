@@ -77,7 +77,7 @@ func TestServerLogStampTracksTheLog(t *testing.T) {
 	if stamp := ServerLogStamp(dir); !stamp.IsZero() {
 		t.Errorf("stamp = %v with no log, want the zero time", stamp)
 	}
-	path := filepath.Join(dir, "temp", "tunserve.log")
+	path := filepath.Join(dir, "tunserve.log")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("temp: %v", err)
 	}

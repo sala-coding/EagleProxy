@@ -193,6 +193,11 @@ type builder struct {
 	// hotNodes maps a profile that ended up behind that selector to the outbound tag it
 	// answers to there — which is what a caller needs to point the selector at it.
 	hotNodes map[int]string
+	// defaultResolverServer is the DNS server the route's default_domain_resolver
+	// names. It is one of this builder's own tags, unless the reader supplied a DNS
+	// object of their own — that replaces the servers wholesale, and the tag has to
+	// be one that is in it.
+	defaultResolverServer string
 
 	domainListDNSRemote []string
 	domainListDNSDirect []string
@@ -319,6 +324,12 @@ func hopPortRanges(s string) []string {
 		if part = strings.TrimSpace(part); part == "" {
 			continue
 		}
+		// A single port is not a range. sing-box reads "start:end", and a bare
+		// number was refused with "bad port range: 443" — the whole config went
+		// down over a hop list that named one port.
+		if !strings.Contains(part, "-") && !strings.Contains(part, ":") {
+			part = part + ":" + part
+		}
 		out = append(out, strings.ReplaceAll(part, "-", ":"))
 	}
 	return out
@@ -367,7 +378,28 @@ func (b *builder) buildChain(chainID int, ent *db.ProxyEntity) (string, error) {
 		}
 		ents = append(ents, feEnts...)
 	}
+	// The same node twice in one chain: the front proxy's members and the
+	// node's own can name the same node — a group's front proxy is usually one
+	// of the group's own. The outbound tag is derived from the chain and the
+	// node, so the node would be built twice under one name and the core
+	// refuses the whole config ("duplicate outbound/end point tag"). One copy
+	// of a node is one hop: routing through it twice is the same hop.
+	ents = dedupeEntities(ents)
 	return b.buildChainInternal(chainID, ents)
+}
+
+// dedupeEntities drops the repeats from a chain, keeping the first occurrence.
+func dedupeEntities(ents []*db.ProxyEntity) []*db.ProxyEntity {
+	seen := map[int]bool{}
+	out := make([]*db.ProxyEntity, 0, len(ents))
+	for _, e := range ents {
+		if e == nil || seen[e.ID] {
+			continue
+		}
+		seen[e.ID] = true
+		out = append(out, e)
+	}
+	return out
 }
 
 // The most members a selector is given. A group of a hundred subscriptions is ordinary; a
@@ -469,11 +501,16 @@ func (b *builder) proxyGroup(ent *db.ProxyEntity) (string, error) {
 // themselves; a chain naming a missing entity is a build error further down,
 // and is treated as incomplete here so the selector simply leaves it out.
 func (b *builder) outboundComplete(ent *db.ProxyEntity) bool {
-	if ent == nil || strings.TrimSpace(ent.ServerAddress()) == "" || ent.ServerPort() <= 0 {
+	if ent == nil {
 		return false
 	}
-	switch ent.Type {
-	case "chain":
+	// A chain is made of other nodes and has no address of its own, so what
+	// decides it is its members — and that has to be asked BEFORE the address
+	// below, which a chain never has. Asked after it, every chain was left out
+	// of the selector: a chain the reader had built sat in the list of nodes
+	// and could not be switched to, and the group it was in read as if the
+	// chain were not there at all.
+	if ent.Type == "chain" {
 		members, err := b.resolveChain(ent)
 		if err != nil {
 			return false
@@ -484,6 +521,11 @@ func (b *builder) outboundComplete(ent *db.ProxyEntity) bool {
 			}
 		}
 		return true
+	}
+	if strings.TrimSpace(ent.ServerAddress()) == "" || ent.ServerPort() <= 0 {
+		return false
+	}
+	switch ent.Type {
 	case "shadowsocks", "trojan", "vless", "anytls":
 		return strings.TrimSpace(ent.Bean.Str("pass")) != ""
 	case "vmess":
@@ -1210,9 +1252,17 @@ func splitDNSAddress(raw string) (typ, host string, port int, path string) {
 		rest = s[i+3:]
 	}
 	switch typ {
-	case "tls", "udp", "tcp", "quic", "h3", "https", "h2":
-	default:
+	case "tls", "udp", "tcp", "quic", "h3", "https":
+	case "":
+		// A bare host or IP, by which the reader meant plain UDP.
 		typ = "udp"
+	default:
+		// An unrecognised scheme is left as written rather than rewritten to
+		// udp: the core refuses the type and names it, which a reader can act
+		// on, where a silent udp on port 53 was every name failing with
+		// nothing in the log to say why. The known-wrong spelling (`h2`) is
+		// also refused on the way in now (setting.validateDNSAddress); this is
+		// the path a hand-edited profile file takes.
 	}
 	if j := strings.IndexByte(rest, '/'); j >= 0 {
 		path = rest[j:]
@@ -1309,6 +1359,11 @@ func (b *builder) buildDNS(tagProxy string) map[string]interface{} {
 
 	servers = append(servers, dnsServer("dns-local", b.s.UnderlyingDNS(), "", ""))
 
+	// Whether a DNS rule carries the legacy `strategy`. sing-box refuses a DNS
+	// configuration that has a rule matching by query_type beside one carrying
+	// it — the whole config is rejected at start-up — so the two cannot both be
+	// written.
+	strategyOnRule := false
 	addRuleDNS := func(list []string, server, strategy string) {
 		rule := b.makeRule(list, false)
 		if rule == nil {
@@ -1319,6 +1374,9 @@ func (b *builder) buildDNS(tagProxy string) map[string]interface{} {
 		// query is allowed to return is decided by the rule that selects the
 		// server, so the settings value lands here.
 		setStrategy(rule, "strategy", strategy)
+		if _, ok := rule["strategy"]; ok {
+			strategyOnRule = true
+		}
 		dnsRules = append(dnsRules, rule)
 	}
 	// The connectivity probe's names resolve the way its request is routed (see
@@ -1336,8 +1394,23 @@ func (b *builder) buildDNS(tagProxy string) map[string]interface{} {
 	if !b.forTest {
 		// The old dns-block server (address "rcode://success") is not a
 		// transport any more: rejecting is a DNS rule action in 1.12+.
+		//
+		// The block on the query types is the one part of this that cannot
+		// live beside a per-side strategy. sing-box refuses the whole DNS
+		// configuration when a rule matches by query_type and another rule
+		// carries the legacy `strategy` — the core exits at start-up with
+		// "initialize dns router: Legacy `strategy` DNS rule action option is
+		// deprecated in sing-box 1.14.0 ...". So a profile that set a strategy
+		// produced a config the core would not start at all.
+		//
+		// The reader's own address family is worth more than a block on two
+		// query types nothing asks for, so the block is left out when a
+		// strategy is in play, and the rest of the rules stand.
+		if !strategyOnRule {
+			dnsRules = append(dnsRules,
+				map[string]interface{}{"query_type": []interface{}{32, 33}, "action": "reject"})
+		}
 		dnsRules = append(dnsRules,
-			map[string]interface{}{"query_type": []interface{}{32, 33}, "action": "reject"},
 			map[string]interface{}{"domain_suffix": ".lan", "action": "reject"},
 		)
 	}
@@ -1365,6 +1438,9 @@ func (b *builder) buildDNS(tagProxy string) map[string]interface{} {
 		"servers": servers,
 		"rules":   dnsRules,
 	}
+	// The route's default resolver names this one, unless the reader brings a DNS
+	// object of their own (below), which replaces the servers wholesale.
+	b.defaultResolverServer = "dns-direct"
 	// The default address family of an answer. sing-box returns A *and* AAAA unless
 	// something says otherwise, and on a network with no IPv6 the AAAA half is a promise
 	// the machine cannot keep — the caller then dials an address the routing table has no
@@ -1380,9 +1456,31 @@ func (b *builder) buildDNS(tagProxy string) map[string]interface{} {
 		var obj map[string]interface{}
 		if json.Unmarshal([]byte(b.s.Routing().DNSObject), &obj) == nil {
 			dns = obj
+			// The reader's own DNS object replaces the servers this builder
+			// wrote, so the route's default resolver has to name a server that
+			// is in it. "dns-direct" is a tag of ours, and the core answered
+			// "default domain resolver not found: dns-direct" at startup —
+			// refusing the whole config over a tag that was never there.
+			b.defaultResolverServer = firstDNSTag(obj)
 		}
 	}
 	return dns
+}
+
+// firstDNSTag returns the tag of the first server in a DNS object, or "" when it
+// carries none.
+func firstDNSTag(dns map[string]interface{}) string {
+	servers, _ := dns["servers"].([]interface{})
+	for _, s := range servers {
+		m, ok := s.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if tag, ok := m["tag"].(string); ok && tag != "" {
+			return tag
+		}
+	}
+	return ""
 }
 
 // tunInbound builds the tun inbound used in VPN mode.
@@ -1634,6 +1732,11 @@ func (b *builder) noteSniffing(tag string) {
 }
 
 func (b *builder) buildRoute(tagProxy string) map[string]interface{} {
+	// The rules that have to come first of all: sniffing and resolution. Every
+	// rule below them already sees a sniffed domain and a resolved destination,
+	// and the reader's own rules go here too — after the sniff, not before it
+	// (see the note where they are put together).
+	var head []interface{}
 	var rules []interface{}
 
 	// Sniffing and domain resolution lived on the inbound until 1.13; they are
@@ -1646,7 +1749,7 @@ func (b *builder) buildRoute(tagProxy string) map[string]interface{} {
 		// "the node will not start" with nothing pointing at the cause. The intent it stood
 		// for (sniff for the destination rather than only for routing) is carried by the
 		// resolve action below.
-		rules = append(rules, map[string]interface{}{
+		head = append(head, map[string]interface{}{
 			"inbound": b.sniffInbounds,
 			"action":  "sniff",
 		})
@@ -1657,7 +1760,7 @@ func (b *builder) buildRoute(tagProxy string) map[string]interface{} {
 	// because the point of that mode is to hand the domain to the outbound and let the far
 	// end resolve it. It is this that carries the intent now.
 	if b.resolveStrategy != "" && !b.sniffForDestination {
-		rules = append(rules, map[string]interface{}{
+		head = append(head, map[string]interface{}{
 			"action":   "resolve",
 			"strategy": b.resolveStrategy,
 		})
@@ -1799,13 +1902,25 @@ func (b *builder) buildRoute(tagProxy string) map[string]interface{} {
 		}
 	}
 
-	// custom rules take priority
+	// The custom rules take priority over the split — but they cannot come
+	// before the sniff.
+	//
+	// sing-box only knows the domain after the sniff action has run, and the
+	// rules that stood in front of the sniff rule are passed over and never
+	// tried again: a domain rule in front of it matched nothing at all. The
+	// reader's own rules were therefore dead — every one of them — and the
+	// symptom was "my rules do nothing", with the core's own log saying the
+	// connection went to the fallback outbound. Measured against the bundled
+	// core; see TestRuleOrderSniffVsCustom.
 	var customRules []interface{}
 	if !b.forTest && split {
 		customRules = append(customRules, extractRules(b.s.Routing().Custom)...)
 		customRules = append(customRules, extractRules(b.s.CustomRouteGlobal)...)
 	}
-	finalRules := append(customRules, rules...)
+	finalRules := make([]interface{}, 0, len(head)+len(customRules)+len(rules))
+	finalRules = append(finalRules, head...)
+	finalRules = append(finalRules, customRules...)
+	finalRules = append(finalRules, rules...)
 
 	// Always on, not only for the tun shapes. With a tun front-end in the picture, the
 	// main core's own outbound connections — to nodes, to DNS upstreams — must bind to
@@ -1839,6 +1954,16 @@ func (b *builder) buildRoute(tagProxy string) map[string]interface{} {
 		if final == "proxy" && tagProxy != "proxy" {
 			final = tagProxy
 		}
+		// And a name that is no outbound at all is refused the same way. "block"
+		// was nekoray's third fallback — the special block outbound — and
+		// sing-box removed it in 1.12: the core answered "default outbound not
+		// found: block" at startup and restarted in a cycle, so a profile
+		// migrated from nekoray could not start at all. The block layer above
+		// refuses the block lists in every mode, so what is left of "block" is
+		// the proxy.
+		if final == "block" {
+			final = tagProxy
+		}
 		// A TUN whitelist run answers "bypass" for everything it matches, so it is
 		// already a mode of its own; it keeps the last word.
 		if b.vpn && b.s.VPNRuleWhite {
@@ -1858,7 +1983,7 @@ func (b *builder) buildRoute(tagProxy string) map[string]interface{} {
 	// ipv4_only only where v6 cannot work; where it can — or where detection is off and
 	// the reader has taken that question back — nothing is written and both families
 	// stay on the table.
-	resolver := map[string]interface{}{"server": "dns-direct"}
+	resolver := map[string]interface{}{"server": b.defaultResolverServer}
 	switch s := b.s.Routing().OutboundDomainStrategy; {
 	case s != "" && setting.IsValidStrategy(s):
 		resolver["strategy"] = s
@@ -2014,7 +2139,15 @@ func (b *builder) makeRule(list []string, isIP bool) map[string]interface{} {
 	for _, item := range list {
 		if isIP {
 			if name := strings.TrimPrefix(item, "geoip:"); name != item {
-				ruleSet = append(ruleSet, b.addRuleSet("geoip", name))
+				// addRuleSet answers "" for an empty name ("geoip:", half a
+				// keystroke or a truncated copy). Appending that blind put
+				// rule_set: [""] in the config with no definition behind it,
+				// and sing-box refuses a reference to a rule set that does not
+				// exist — the whole config down over one empty item. An empty
+				// reference carries no intent worth keeping, so it is dropped.
+				if tag := b.addRuleSet("geoip", name); tag != "" {
+					ruleSet = append(ruleSet, tag)
+				}
 			} else {
 				ipCIDR = append(ipCIDR, item)
 			}
@@ -2022,7 +2155,9 @@ func (b *builder) makeRule(list []string, isIP bool) map[string]interface{} {
 		}
 		switch {
 		case strings.HasPrefix(item, "geosite:"):
-			ruleSet = append(ruleSet, b.addRuleSet("geosite", strings.TrimPrefix(item, "geosite:")))
+			if tag := b.addRuleSet("geosite", strings.TrimPrefix(item, "geosite:")); tag != "" {
+				ruleSet = append(ruleSet, tag)
+			}
 		case strings.HasPrefix(item, "full:"):
 			domainFull = append(domainFull, strings.ToLower(strings.TrimPrefix(item, "full:")))
 		case strings.HasPrefix(item, "domain:"):

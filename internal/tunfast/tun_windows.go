@@ -61,8 +61,8 @@ var (
 	// hands back is a real event handle, and nothing else wakes a blocked
 	// reader — without this, Close on a quiet link would hang until a
 	// packet arrived.
-	modkernel32   = windows.NewLazySystemDLL("kernel32.dll")
-	procSetEvent  = modkernel32.NewProc("SetEvent")
+	modkernel32  = windows.NewLazySystemDLL("kernel32.dll")
+	procSetEvent = modkernel32.NewProc("SetEvent")
 	moddnsapi    = windows.NewLazySystemDLL("dnsapi.dll")
 	procFlushDNS = moddnsapi.NewProc("DnsFlushResolverCache")
 )
@@ -119,6 +119,20 @@ func Open(options Options) (Interface, error) {
 	}
 	if options.AutoRoute {
 		if err = tun.startRoutes(); err != nil {
+			// startRoutes may have put its /1 halves down before failing (the
+			// strict-route filters go last), and Close does not take them back:
+			// it ends the session and closes the handle, while the wintun device
+			// — and the routes pointing the machine's whole IPv4/IPv6 traffic at
+			// it — stay. Longest-prefix match then sends every packet into an
+			// adapter nobody reads: the machine loses the internet outright
+			// until the routes are cleaned by hand. The metric configure()
+			// pinned at 0 goes back with them for the same reason an idle
+			// adapter sits at 9999 (setInterfaceMetric): 0 without the capture
+			// wins Windows' own per-interface picks — the NCSI probe above all.
+			luid := winipcfg.LUID(tun.adapter.LUID())
+			_ = clearCaptureRoutes(luid, options.Name)
+			_ = setInterfaceMetric(luid, options.Name,
+				len(options.Inet4Address) > 0, len(options.Inet6Address) > 0, linkMetricIdle)
 			tun.Close()
 			return nil, err
 		}
@@ -451,6 +465,7 @@ func (t *nativeTun) LUID() uint64 {
 // set, and everything lives in one dynamic session closed in Close. The
 //
 // layers, in the order karing's sing-tun installs them:
+//
 //	permit 13  — this process's own outbound, so neither the tunnel's
 //	             server connection nor the SOCKS hop to the core is eaten
 //	             by the block below;
@@ -492,7 +507,7 @@ func (t *nativeTun) applyStrictRoute(luid winipcfg.LUID) error {
 		FieldKey:  winsys.FWPM_CONDITION_ALE_APP_ID,
 		MatchType: winsys.FWP_MATCH_EQUAL,
 		ConditionValue: winsys.FWP_CONDITION_VALUE0{
-			Type: winsys.FWP_BYTE_BLOB_TYPE,
+			Type:  winsys.FWP_BYTE_BLOB_TYPE,
 			Value: uintptr(unsafe.Pointer(processAppID)),
 		},
 	}}
@@ -543,7 +558,7 @@ func (t *nativeTun) applyStrictRoute(luid winipcfg.LUID) error {
 				},
 			}
 			conditions[2] = winsys.FWPM_FILTER_CONDITION0{
-				FieldKey: winsys.FWPM_CONDITION_ICMP_CODE,
+				FieldKey:  winsys.FWPM_CONDITION_ICMP_CODE,
 				MatchType: winsys.FWP_MATCH_EQUAL,
 				ConditionValue: winsys.FWP_CONDITION_VALUE0{
 					Type:  winsys.FWP_UINT16,

@@ -52,19 +52,61 @@ type Result struct {
 // so the walk compares what it is offered, takes the best, and says what it
 // took in the log.
 //
+// userAgentBudget is how many client identifiers the walk asks at once when it
+// is working from the app's own built-in list. Twelve identifiers raced at a
+// panel is twelve requests the reader paid for, and the first three cover what
+// almost every panel answers.
+const userAgentBudget = 3
+
+// readerWroteUserAgents reports whether the identifier list is one the reader
+// wrote rather than the app's own built-in one.
+//
+// The two are told apart by the list itself: the settings form starts out
+// holding the built-in list, so an untouched form hands back exactly what
+// setting.DefaultUserAgents returns. A list that differs from it in any way is
+// the reader's own, and it is walked in full — the field is documented as "the
+// order they should be tried", and a reader who pasted a fifth identifier had
+// it ignored, so a panel that wanted that fifth answered the walk with nothing
+// importable while the identifier that would have worked was never sent.
+func readerWroteUserAgents(s *setting.Setting, uas []string) bool {
+	if s == nil || strings.TrimSpace(s.UserAgent) == "" {
+		return false
+	}
+	builtin := setting.DefaultUserAgents()
+	if len(builtin) != len(uas) {
+		return true
+	}
+	for i := range builtin {
+		if builtin[i] != uas[i] {
+			return true
+		}
+	}
+	return false
+}
+
 // name is for the log only: the address carries the subscription token, and a
 // log file is not where that belongs.
 func requestSubscription(rawURL, name string, s *setting.Setting, startedID int, logf func(string)) (netx.Response, bool) {
 	uas := netx.UserAgents(s)
-	// The budget is fixed at three attempts, and the identifiers race instead
-	// of queueing: racing costs the panel no more than the serial walk did, and
-	// no answer arrives later than the slowest of the three rather than the sum
-	// of them. One goroutine per identifier, no shared state beyond the answer
-	// slots — HttpGet builds its own client and transport per call, and every
-	// goroutine writes only its own slot. The probing, the choosing and the log
-	// stay on this goroutine, so the log keeps the order the serial walk had.
-	if len(uas) > 3 {
-		uas = uas[:3]
+	// The identifiers race instead of queueing: racing costs the panel no more
+	// than the serial walk did, and no answer arrives later than the slowest of
+	// them rather than the sum of them. One goroutine per identifier, no shared
+	// state beyond the answer slots — HttpGet builds its own client and transport
+	// per call, and every goroutine writes only its own slot. The probing, the
+	// choosing and the log stay on this goroutine, so the log keeps the order the
+	// serial walk had.
+	//
+	// The budget of three is what the app's OWN list is worth: a dozen
+	// identifiers raced at a panel is a dozen requests the reader paid for, and
+	// the first three cover what almost every panel answers.
+	//
+	// A list the reader wrote is not bounded that way. The field is documented
+	// as "the order they should be tried", and the walk used to stop at the third
+	// of it — so a reader who pasted a fifth identifier never saw it used, and a
+	// panel that wanted that fifth answered the walk with nothing importable
+	// while the identifier that would have worked was never sent.
+	if len(uas) > userAgentBudget && !readerWroteUserAgents(s, uas) {
+		uas = uas[:userAgentBudget]
 	}
 	type fetch struct {
 		ua   string
@@ -130,6 +172,14 @@ func requestSubscription(rawURL, name string, s *setting.Setting, startedID int,
 			logf("<<<<<<<< " + name + ": no importable node from " + strconv.Itoa(requests) + " client identifiers; using the first answer as the update's substrate")
 		}
 		return fallback, true
+	}
+	if firstErr == "" {
+		// Every identifier was answered 2xx with an empty body — the one
+		// failure mode with no message of its own. Left as "", the log line
+		// above printed nothing and the error the window showed was an empty
+		// string: the hardest failure to understand, displayed with no words
+		// at all.
+		firstErr = "服务器返回了空响应（0 个可解析节点），请更换 User-Agent 或稍后重试"
 	}
 	return netx.Response{Error: firstErr}, false
 }
@@ -288,6 +338,12 @@ func Update(mgr *db.Manager, s *setting.Setting, startedID int, ref string, gid 
 			if exempt(p.ID) {
 				continue
 			}
+			// The clear's deletion count is the one this branch used to drop: the
+			// report below carried Added only, so a "clear on update" — the mode
+			// whose deletions are by far the largest — said nothing about what it
+			// removed, and the toast and the change log both read as though only
+			// additions had happened.
+			res.Deleted = append(res.Deleted, p.DisplayType()+" "+p.DisplayName())
 			_ = mgr.DeleteProfile(p.ID)
 		}
 	}
@@ -309,7 +365,6 @@ func Update(mgr *db.Manager, s *setting.Setting, startedID int, ref string, gid 
 		// id and the measurements taken on it, and the next update takes it out like
 		// any other node, once nothing is running from it.
 		var keep *db.ProxyEntity
-		keepKey := ""
 		if runningNow >= 0 {
 			if keep = mgr.SnapshotProfile(runningNow); keep != nil && keep.GID != group.ID {
 				// The running id is global, this walk is one group's: a node of
@@ -320,26 +375,40 @@ func Update(mgr *db.Manager, s *setting.Setting, startedID int, ref string, gid 
 				keep = nil
 			}
 		}
+		// The content of every node the clear spared. A fresh node with the same
+		// content is its twin, and the twin is the one that goes: the spared node
+		// keeps its id and what the reader measured on it.
+		keepKeys := map[string]bool{}
 		if keep != nil {
-			keepKey = BeanKey(keep, false)
 			group.Order = append(group.Order, keep.ID)
+			keepKeys[BeanKey(keep, false)] = true
 			logf("<<<<<<<< 运行中的节点在清空后保留: " + keep.DisplayName())
 		}
+		// The other node the clear spared: the one the walk started on. It is on
+		// disk still, and it has to be in the order as well — a node that is on
+		// disk but not in the order is a leftover the reader can neither see nor
+		// delete, and the next update takes it out like any other node.
+		for _, p := range in {
+			if !exempt(p.ID) || p.GID != group.ID || containsInt(group.Order, p.ID) {
+				continue
+			}
+			group.Order = append(group.Order, p.ID)
+			keepKeys[BeanKey(p, false)] = true
+		}
 		for _, e := range outAll {
-			// outAll is a query of what the group holds now, so the kept node is
+			// outAll is a query of what the group holds now, so the kept nodes are
 			// in it; the exempt ones are already in the order above (or belong to
 			// another group and must not enter this one).
 			if exempt(e.ID) {
 				continue
 			}
-			if keep != nil && BeanKey(e, false) == keepKey {
+			if keepKeys[BeanKey(e, false)] {
 				// Its fresh twin: the node is already listed above, with what the
 				// reader measured on it.
 				_ = mgr.DeleteProfile(e.ID)
 				continue
 			}
 			group.Order = append(group.Order, e.ID)
-			change += "[+] " + e.DisplayType() + " " + e.DisplayName() + "\n"
 			res.Added = append(res.Added, e.DisplayType()+" "+e.DisplayName())
 		}
 		_ = mgr.UpdateGroup(gid, true, func(g *db.Group) {
@@ -448,11 +517,17 @@ func Update(mgr *db.Manager, s *setting.Setting, startedID int, ref string, gid 
 			}
 		}
 
-		change = fmt.Sprintf("Added %d profiles:\n%s\nDeleted %d profiles:\n%s",
-			len(res.Added), joinLines(res.Added), len(res.Deleted), joinLines(res.Deleted))
-		if len(res.Added)+len(res.Deleted) == 0 {
-			change = "Nothing"
-		}
+	}
+
+	// One report shape for both branches, assembled from res rather than built
+	// inside the merge only: the clear branch filled Added and (since the fix)
+	// Deleted too, and a reader seeing two formats for one toast — or, before,
+	// no deletion half at all on the branch whose deletions are the largest —
+	// had to guess what the update did.
+	change = fmt.Sprintf("Added %d profiles:\n%s\nDeleted %d profiles:\n%s",
+		len(res.Added), joinLines(res.Added), len(res.Deleted), joinLines(res.Deleted))
+	if len(res.Added)+len(res.Deleted) == 0 {
+		change = "Nothing"
 	}
 
 	// What did not come across, said once at the end. A protocol this build cannot

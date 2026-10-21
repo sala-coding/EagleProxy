@@ -44,10 +44,10 @@ func (a *App) GetAbout() map[string]string {
 		// one that still means something after the folder moves (see relToExec). The
 		// full paths ride along for the tooltip, which is where a path gets copied out
 		// of this card.
-		"dataDir":     relToExec(a.dataDir),
-		"corePath":    relToExec(a.corePath),
-		"dataDirAbs":  a.dataDir,
-		"corePathAbs": a.corePath,
+		"dataDir":     relToExec(a.curDataDir()),
+		"corePath":    relToExec(a.curCorePath()),
+		"dataDirAbs":  a.curDataDir(),
+		"corePathAbs": a.curCorePath(),
 		"repo":        updateRepo,
 	}
 	if appVersion != "" {
@@ -84,23 +84,23 @@ func (a *App) GetAbout() map[string]string {
 
 // OpenURL opens a URL in the default browser.
 func (a *App) OpenURL(url string) {
-	if a.ctx != nil && url != "" {
-		runtime.BrowserOpenURL(a.ctx, url)
+	if a.curCtx() != nil && url != "" {
+		runtime.BrowserOpenURL(a.curCtx(), url)
 	}
 }
 
 // ReadClipboard returns the system clipboard text.
 func (a *App) ReadClipboard() string {
-	if a.ctx == nil {
+	if a.curCtx() == nil {
 		return ""
 	}
-	text, _ := runtime.ClipboardGetText(a.ctx)
+	text, _ := runtime.ClipboardGetText(a.curCtx())
 	return text
 }
 
 // WriteClipboard sets the system clipboard text.
 func (a *App) WriteClipboard(text string) {
-	if a.ctx != nil {
-		_ = runtime.ClipboardSetText(a.ctx, text)
+	if a.curCtx() != nil {
+		_ = runtime.ClipboardSetText(a.curCtx(), text)
 	}
 }

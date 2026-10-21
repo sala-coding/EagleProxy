@@ -20,12 +20,16 @@ import (
 // ipEchoURLs are the services asked for this machine's address, in the order they are
 // tried. The list leads with the ones that answered on the network where the others did
 // not; being fast is not the point, being able to answer at all is.
+//
+// All of them over TLS. The last one was plain HTTP, and the answer is only checked
+// for being a well-formed address — so a cleartext answer could be any address at
+// all, and the panel would show the machine as being somewhere it is not.
 var ipEchoURLs = []string{
 	"https://ip.3322.net",
 	"https://icanhazip.com",
 	"https://api.ip.sb/ip",
 	"https://ifconfig.me/ip",
-	"http://api.ipify.org",
+	"https://api.ipify.org",
 }
 
 // ProbeHosts returns the bare host names of the address-echo services, in the order they

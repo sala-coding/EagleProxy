@@ -34,7 +34,10 @@ func TestBootstrapResolverAsksTheGivenServer(t *testing.T) {
 		}
 	}()
 
-	r := bootstrapResolver([]string{pc.LocalAddr().String()})
+	// egress 0 is "no pin": this test runs on the machine's own interface, and
+	// what it pins down is the name being asked of the given server. The pin
+	// itself is the dialer's (see directDialer and bindInterface).
+	r := bootstrapResolver([]string{pc.LocalAddr().String()}, 0)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 

@@ -5,6 +5,7 @@ import (
 	"eagle/internal/autostart"
 	"eagle/internal/core"
 	"eagle/internal/dnstest"
+	"eagle/internal/dnsstub"
 	"eagle/internal/setting"
 	"encoding/json"
 	"fmt"
@@ -131,6 +132,21 @@ func (a *App) UpdateSettings(in setting.Setting) error {
 // is swapped rather than mutated in place: goroutines that already hold the old
 // value (traffic loop, speed tests) keep reading a consistent snapshot.
 func (a *App) applySetting(next *setting.Setting) error {
+	// One read-copy-save-swap at a time (see applyMu): every caller builds its
+	// next from the setting that was live when it looked, and two of these
+	// landing together made the later swap silently drop the earlier one's
+	// fields — InheritRuntime carries only the two runtime mode flags.
+	a.applyMu.Lock()
+	defer a.applyMu.Unlock()
+	// The two runtime mode flags live on the setting object, and the object is
+	// replaced right here. The copy next was made of can already be stale: a
+	// tray or hotkey toggle writes the flag on whichever object is live at that
+	// moment, and if that lands between the copy and the swap the flag is
+	// dropped — the machine is in TUN mode while the app believes it is not, and
+	// the exit path, the DNS takeover and the tray all read that belief. So
+	// the flags are taken from the object that is live at the swap, not from
+	// the copy.
+	next.InheritRuntime(a.curSetting())
 	if err := next.Save(); err != nil {
 		return err
 	}
@@ -146,14 +162,24 @@ func (a *App) applySetting(next *setting.Setting) error {
 }
 
 // ListRoutings returns available routing profile names.
-func (a *App) ListRoutings() []string { return a.curSetting().ListRoutings() }
+func (a *App) ListRoutings() []string {
+	if a.curSetting() == nil {
+		return []string{}
+	}
+	return a.curSetting().ListRoutings()
+}
 
 // GetActiveRouting returns the active routing profile name.
-func (a *App) GetActiveRouting() string { return a.curSetting().ActiveRouting }
+func (a *App) GetActiveRouting() string {
+	if a.curSetting() == nil {
+		return ""
+	}
+	return a.curSetting().ActiveRouting
+}
 
 // GetRouting returns a routing profile by name.
 func (a *App) GetRouting(name string) (*setting.Routing, error) {
-	return setting.LoadRouting(a.dataDir, name)
+	return setting.LoadRouting(a.curDataDir(), name)
 }
 
 // SaveRouting persists a routing profile.
@@ -163,6 +189,9 @@ func (a *App) GetRouting(name string) (*setting.Routing, error) {
 // names the forwarder's ports), and the chosen resolver is in force for the very next
 // query. Nothing is restarted.
 func (a *App) SaveRouting(name string, r setting.Routing) error {
+	if a.curSetting() == nil {
+		return fmt.Errorf("settings not loaded")
+	}
 	if err := a.curSetting().SaveRouting(name, &r); err != nil {
 		return err
 	}
@@ -190,6 +219,15 @@ func (a *App) ApplyRouting(name string, r setting.Routing) error {
 	if a.curSetting() == nil {
 		return fmt.Errorf("settings not loaded")
 	}
+	// What the file held before this save. A save that moved nothing but the
+	// two resolver addresses needs no rebuild at all: the core names the
+	// forwarder's ports — which never change — and which resolver stands behind
+	// a port is the forwarder's memory (syncDNSStub below). Without this, the
+	// DNS card's own debounced write (600ms after the last keystroke) stopped
+	// the core under a running node on every edit: a dropped download per
+	// character, and a toast saying the core had been restarted for a change
+	// that never needed it.
+	prev, prevErr := setting.LoadRouting(a.curDataDir(), name)
 	if err := a.curSetting().SaveRouting(name, &r); err != nil {
 		return err
 	}
@@ -198,6 +236,14 @@ func (a *App) ApplyRouting(name string, r setting.Routing) error {
 	// app_dns.go). The rest — rules, lists, the fallback outbound — is still the core's
 	// config and still needs the restart.
 	a.syncDNSStub()
+	if prevErr == nil && prev != nil && sameRoutingExceptDNS(*prev, r) {
+		// Only the resolvers moved, and the forwarder is already asking the new
+		// ones: the core has nothing to re-read. Said in the log rather than as
+		// a toast — the card writes on a 600ms debounce, and a message per
+		// pause is noise over a change that has already taken effect.
+		a.logf("[route] " + name + ": 仅解析器变化，转发器已即时切换（不重启核心）")
+		return nil
+	}
 	running := a.RunningProfile()
 	if running == core.StoppedID {
 		// Nothing is carrying traffic: the file alone is the whole change, applied
@@ -213,6 +259,43 @@ func (a *App) ApplyRouting(name string, r setting.Routing) error {
 		return fmt.Errorf("运行中的节点已不在列表中（可能已被订阅更新替换），请重新选择节点")
 	}
 	defer a.emitRunningState()
+	return a.rebuildCoreForRouting(running)
+}
+
+// sameRoutingExceptDNS reports whether two profiles differ only in the two
+// resolver addresses — the change a running core never has to see, because its
+// config names the forwarder's ports rather than the resolvers.
+//
+// Only while the forwarder really is serving an address, though: the builder
+// falls back to writing the reader's own address into the core's config when a
+// side has no endpoint (no usable upstream, no listener, no path through the
+// core — see dnsstub.Endpoints and upstreamProblem), and in that session the
+// core DID read the address. Rewriting the file then, and returning "the
+// forwarder switched", left the core on the old resolver with nothing in the
+// log to say why — the very bug this shortcut was meant to avoid, mirrored.
+// A side without an endpoint therefore forces the rebuild.
+func sameRoutingExceptDNS(a, b setting.Routing) bool {
+	remote, direct := dnsstub.Endpoints()
+	if remote == "" || direct == "" {
+		return false
+	}
+	a.RemoteDNS, b.RemoteDNS = "", ""
+	a.DirectDNS, b.DirectDNS = "", ""
+	return reflect.DeepEqual(a, b)
+}
+
+// rebuildCoreForRouting restarts the running node so a routing change takes
+// effect: sing-box reads its config once, and the rules, lists and outbound
+// fallback live in it.
+//
+// The same seat every other start and stop takes (see startStopMu): the tray, a
+// hotkey and the crash supervisor all queue there. A routing change that
+// stopped and started the core outside it could interleave with one of them —
+// and the core then answered "a profile is already running" for a switch the
+// reader never asked for.
+func (a *App) rebuildCoreForRouting(running int) error {
+	a.startStopMu.Lock()
+	defer a.startStopMu.Unlock()
 	// Stopping the core directly rather than through StopProfile: that one would strip
 	// the Windows proxy entry under the system-proxy shape and tear the front-end down
 	// under TUN, and neither belongs to a config change. The stop is expected (no crash
@@ -273,8 +356,22 @@ func (a *App) TestDNS(servers []string, viaProxy bool) ([]dnstest.Result, error)
 		if auth := a.curSetting().InboundAuth; auth != nil && auth.NeedAuth() {
 			opts.Proxy.User = url.UserPassword(auth.Username, auth.Password)
 		}
+	} else {
+		// The domestic side is measured the way it is really reached: straight
+		// out of the machine's own interface, past the tunnel (see
+		// dnstest.Options.InterfaceIndex). A probe that took the ordinary route
+		// would be captured by the tunnel, handed to the core, and answered by
+		// the core's own rules — a measurement of the wrong path, and one that
+		// fails for reasons that have nothing to do with the resolver.
+		//
+		// The host name of a resolver is looked up with the machine's own
+		// resolvers from before the takeover, for the same reason: asking the
+		// machine's current resolver would be asking the forwarder that is
+		// serving this very question.
+		opts.InterfaceIndex = a.egressIndex()
+		opts.Bootstrap = a.bootstrapResolvers()
 	}
-	ctx := a.ctx
+	ctx := a.curCtx()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -284,11 +381,17 @@ func (a *App) TestDNS(servers []string, viaProxy bool) ([]dnstest.Result, error)
 // CreateRouting creates a routing profile from a preset (0=Default, 1=bypass CN,
 // 2=bypass RU, 3=bypass US).
 func (a *App) CreateRouting(name string, preset int) error {
+	if a.curSetting() == nil {
+		return fmt.Errorf("settings not loaded")
+	}
 	return a.curSetting().SaveRouting(name, setting.PresetRouting(preset))
 }
 
 // DeleteRouting removes a routing profile.
 func (a *App) DeleteRouting(name string) error {
+	if a.curSetting() == nil {
+		return fmt.Errorf("settings not loaded")
+	}
 	return a.curSetting().DeleteRouting(name)
 }
 
@@ -308,8 +411,8 @@ func (a *App) SetActiveRouting(name string) error {
 	// window's routing list and the status bar's outbound-mode button both read this
 	// event, and a profile switched from the settings dialog has to reach the same
 	// listeners as one switched from the hotkey.
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "routing:changed", name)
+	if a.curCtx() != nil {
+		runtime.EventsEmit(a.curCtx(), "routing:changed", name)
 	}
 	return nil
 }

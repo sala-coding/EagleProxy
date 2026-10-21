@@ -10,6 +10,7 @@ import "errors"
 type State struct {
 	Adapter   bool `json:"adapter"`
 	Resolvers bool `json:"resolvers"`
+	Node      bool `json:"node"`
 }
 
 // WriteState reports that there is nobody to record this for.

@@ -53,7 +53,7 @@ func ClearAppHeartbeat(dataDir string) {}
 func AppHeartStale(dataDir string) bool { return false }
 
 // ServerLogStamp has no log to stamp off Windows: there is no server writing one.
-func ServerLogStamp(dataDir string) time.Time { return time.Time{} }
+func ServerLogStamp(logDir string) time.Time { return time.Time{} }
 
 // Command is the call-site shape; nothing consumes it off Windows.
 type Command struct {

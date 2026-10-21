@@ -79,6 +79,18 @@ func NewTrojanVLESS() bean.Bean {
 	return withStream(b)
 }
 
+// NewAnyTLS creates an anytls bean.
+//
+// It is the trojan shape with one difference: the protocol is TLS-only, so the
+// stream says so. A node built without it went out as a plain anytls outbound
+// with no TLS at all, and the core refused it with "TLS required" — the node
+// could never be started.
+func NewAnyTLS() bean.Bean {
+	b := NewTrojanVLESS()
+	b.Peek("stream").Set("sec", "tls")
+	return b
+}
+
 // NewHysteria2 creates a hysteria2 bean.
 func NewHysteria2() bean.Bean {
 	b := baseBean(0)
@@ -199,9 +211,12 @@ func New(typ string) bean.Bean {
 		return NewShadowSocks()
 	case "vmess":
 		return NewVMess()
-	case "trojan", "vless", "anytls":
-		// anytls reuses the trojan shape: a password plus TLS options on the stream
+	case "trojan", "vless":
 		return NewTrojanVLESS()
+	case "anytls":
+		// The protocol is TLS-only, so the stream says so: the trojan shape
+		// without it is an outbound the core refuses ("TLS required").
+		return NewAnyTLS()
 	case "hysteria2":
 		return NewHysteria2()
 	case "hysteria":

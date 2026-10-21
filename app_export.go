@@ -15,10 +15,10 @@ import (
 // save is what is on screen, which is one of four streams after a category and a search
 // have been applied, and this side has no way to know which.
 func (a *App) ExportLogs(text string) (string, error) {
-	if a.ctx == nil {
+	if a.curCtx() == nil {
 		return "", fmt.Errorf("backend not initialised")
 	}
-	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+	path, err := runtime.SaveFileDialog(a.curCtx(), runtime.SaveDialogOptions{
 		Title:           "导出日志",
 		DefaultFilename: "eagle-" + time.Now().Format("20060102-150405") + ".txt",
 		Filters:         []runtime.FileFilter{{DisplayName: "文本文件 (*.txt)", Pattern: "*.txt"}},

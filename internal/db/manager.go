@@ -320,6 +320,13 @@ func (m *Manager) MoveProfile(id, gid int) error {
 	if gid < 0 || gid == ent.GID {
 		return nil
 	}
+	// A target that is not there (deleted by another window, or a stale id from
+	// the front end) would take the entity out of its old group and put it
+	// nowhere: it then shows up only in the cross-group search and no cleanup
+	// ever reaches it, because every cleanup walks groups.
+	if m.groups[gid] == nil {
+		return fmt.Errorf("group %d not found", gid)
+	}
 	if old := m.groups[ent.GID]; old != nil && len(old.Order) > 0 {
 		old.Order = removeInt(old.Order, id)
 		if err := m.saveGroupLocked(old); err != nil {
@@ -380,6 +387,12 @@ func (m *Manager) AddProfile(e *ProxyEntity, gid int) error {
 	m.profilesIDOrder = append(m.profilesIDOrder, e.ID)
 	// Under the lock already: SaveProfile would re-enter m.mu and deadlock.
 	if err := m.saveProfileLocked(e); err != nil {
+		// The write is what makes the node exist. Without this the entity
+		// stayed in the in-memory store with an id and no file: visible in
+		// AllProfiles (cross-group search), absent from every group's order,
+		// gone after the next restart — and a retry of the same import answered
+		// "profile already has an id".
+		m.undoAddLocked(e)
 		return err
 	}
 	// A subscription group's order becomes non-empty at its first update, and
@@ -411,18 +424,43 @@ func (m *Manager) AddProfiles(list []*ProxyEntity, gid int) error {
 		if e.ID >= 0 {
 			return fmt.Errorf("profile already has an id")
 		}
-		if gid < 0 {
-			gid = e.GID
+		// Per entity, not the parameter: assigning back into gid made the first
+		// element's group the whole batch's, so a call with gid<0 filed every
+		// node after the first under the first one's group.
+		target := gid
+		if target < 0 {
+			target = e.GID
 		}
-		e.GID = gid
+		e.GID = target
 		e.ID = m.newProfileIDLocked()
 		m.profiles[e.ID] = e
 		m.profilesIDOrder = append(m.profilesIDOrder, e.ID)
 		if err := m.saveProfileLocked(e); err != nil {
+			// This one is taken back (see AddProfile); the batch's earlier
+			// entities stay, because their files exist and they are whole.
+			m.undoAddLocked(e)
 			return err
 		}
 	}
 	return nil
+}
+
+// undoAddLocked takes back the in-memory half of a profile whose file could not
+// be written. Caller holds m.mu.
+func (m *Manager) undoAddLocked(e *ProxyEntity) {
+	if e == nil || e.ID < 0 {
+		return
+	}
+	delete(m.profiles, e.ID)
+	for i := len(m.profilesIDOrder) - 1; i >= 0; i-- {
+		if m.profilesIDOrder[i] == e.ID {
+			m.profilesIDOrder = append(m.profilesIDOrder[:i], m.profilesIDOrder[i+1:]...)
+			break
+		}
+	}
+	// Back to "no id yet", so the caller can retry the same entity once the
+	// disk problem is gone.
+	e.ID = -1
 }
 
 // DeleteProfile removes a profile file.

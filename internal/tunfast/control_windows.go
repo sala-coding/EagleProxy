@@ -86,12 +86,25 @@ func (l *Link) Take() error {
 	if err := l.ensureOnLink(); err != nil {
 		return err
 	}
+	// From here the machine is being captured, and every failure below puts it
+	// back: the old code returned the error straight through, leaving whichever
+	// /1 halves had already landed in the table — and by longest-prefix match a
+	// half-capture is still a capture, so the caller was told "not taken" while
+	// the machine was in fact half in the tunnel (or, on the metric failure,
+	// fully in it with a metric nothing had pinned). Release is the symmetric
+	// undo: routes gone, metric back to idle, and a no-op against a state it
+	// did not create.
 	for _, prefix := range capturePrefixes(v4, v6) {
 		if err := addRouteList(l.luid, []netip.Prefix{prefix}); err != nil {
-			return err
+			_ = l.Release()
+			return fmt.Errorf("tunfast: capture route %s on %q: %w", prefix, l.name, err)
 		}
 	}
-	return l.setMetric(v4, v6, linkMetricCaptured)
+	if err := l.setMetric(v4, v6, linkMetricCaptured); err != nil {
+		_ = l.Release()
+		return err
+	}
+	return nil
 }
 
 // linkMetricCaptured and linkMetricIdle are the two interface metrics this
@@ -131,14 +144,31 @@ func (l *Link) Release() error {
 // wants: it runs on states it did not create and must not fail over a capture
 // that is already gone.
 func (l *Link) clearCapture() error {
+	return clearCaptureRoutes(l.luid, l.name)
+}
+
+// clearCaptureRoutes is the capture removal on a bare LUID, so the Open failure
+// path can take back what startRoutes put down without a Link to go through
+// (see tun_windows.go): the /1 halves of a default route and any /0, on that
+// interface only — longer prefixes are somebody else's, above all the adapter's
+// own on-link routes.
+func clearCaptureRoutes(luid winipcfg.LUID, name string) error {
 	var firstErr error
 	for _, family := range []winipcfg.AddressFamily{windows.AF_INET, windows.AF_INET6} {
 		rows, err := winipcfg.GetIPForwardTable2(family)
 		if err != nil {
+			// A table that cannot be read is not an empty table. Answering nil
+			// here made Release report "handed back" while the capture routes
+			// might well still be in the table it could not look at — the switch
+			// reads off over a machine still routed into the tunnel. The error
+			// travels up: the release path retries it and logs it.
+			if firstErr == nil {
+				firstErr = fmt.Errorf("tunfast: read forward table (%d): %w", family, err)
+			}
 			continue
 		}
 		for i := range rows {
-			if rows[i].InterfaceLUID != l.luid {
+			if rows[i].InterfaceLUID != luid {
 				continue
 			}
 			prefix := rows[i].DestinationPrefix.Prefix()
@@ -146,7 +176,7 @@ func (l *Link) clearCapture() error {
 				continue
 			}
 			if err := rows[i].Delete(); err != nil && firstErr == nil {
-				firstErr = fmt.Errorf("tunfast: remove capture route %s on %q: %w", prefix, l.name, err)
+				firstErr = fmt.Errorf("tunfast: remove capture route %s on %q: %w", prefix, name, err)
 			}
 		}
 	}
@@ -167,13 +197,22 @@ func (l *Link) clearCapture() error {
 func (l *Link) ensureOnLink() error {
 	addrs, err := winipcfg.GetUnicastIPAddressTable(windows.AF_UNSPEC)
 	if err != nil {
-		return nil
+		// "Cannot see" used to answer "nothing to repair", and the take went on
+		// to claim a capture whose precondition could not be checked — an
+		// adapter whose own on-link route is missing is one whose replies never
+		// arrive, and that is the failure this repair exists for. Failing the
+		// take is honest: the caller reports it instead of running a tunnel that
+		// answers nothing.
+		return fmt.Errorf("tunfast: read address table: %w", err)
 	}
 	have := make(map[netip.Prefix]bool)
 	for _, family := range []winipcfg.AddressFamily{windows.AF_INET, windows.AF_INET6} {
 		rows, err := winipcfg.GetIPForwardTable2(family)
 		if err != nil {
-			continue
+			// Same rule as clearCapture: a table that cannot be read makes the
+			// presence check a guess, and a wrong guess means either a
+			// redundant write or a repair skipped.
+			return fmt.Errorf("tunfast: read forward table (%d): %w", family, err)
 		}
 		for i := range rows {
 			if rows[i].InterfaceLUID != l.luid {
@@ -259,6 +298,66 @@ func SelfDNS(name string) error {
 	}
 	if err := l.luid.SetDNS(windows.AF_INET6, servers, nil); err != nil {
 		return fmt.Errorf("tunfast: set dns on %q: %w", l.name, err)
+	}
+	return nil
+}
+
+// ResolverAddrs answers the addresses the adapter's resolver is pointed at.
+//
+// It is what a caller asks when it wants to put a question to the resolver the way
+// the machine's own probe would: the address is where the adapter's names are
+// answered, and only the adapter knows which address that is. What it answers is
+// what the adapter carries now, not what it ought to carry — an adapter that was
+// never pointed anywhere has no resolver to ask, and saying otherwise would be a
+// lie a caller could act on.
+func ResolverAddrs(name string) ([]netip.Addr, error) {
+	l, err := Find(name)
+	if err != nil {
+		return nil, err
+	}
+	addrs, err := l.luid.DNS()
+	if err != nil {
+		return nil, err
+	}
+	if len(addrs) == 0 {
+		return nil, errors.New("tunfast: the adapter carries no resolver yet")
+	}
+	return addrs, nil
+}
+
+// ClearSelfDNS takes the adapter's resolver away.
+//
+// The server behind the address is the main core's hijack-dns rule: every query
+// that enters the tunnel is answered by the core's own DNS. With no core there
+// is nothing behind it, and an adapter pointed at a peer that will not answer is
+// a machine that cannot resolve a name at all — worse than the leakage the
+// resolver was there to prevent.
+//
+// So the resolver goes back to where it was before the tunnel the moment the
+// node that answered those queries is gone. The adapter itself stays: it is the
+// expensive half, and the next start reuses it.
+func ClearSelfDNS(name string) error {
+	l, err := Find(name)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil // no adapter, nothing to point anywhere
+		}
+		return err
+	}
+	current, err := l.luid.DNS()
+	if err != nil {
+		return err
+	}
+	if len(current) == 0 {
+		return nil // nothing is written, nothing to take away
+	}
+	// Flushed per family: SetDNS keeps only the addresses of the family it is
+	// called for, and the adapter carried both.
+	if err := l.luid.FlushDNS(windows.AF_INET); err != nil {
+		return fmt.Errorf("tunfast: clear dns on %q: %w", l.name, err)
+	}
+	if err := l.luid.FlushDNS(windows.AF_INET6); err != nil {
+		return fmt.Errorf("tunfast: clear dns on %q: %w", l.name, err)
 	}
 	return nil
 }
@@ -455,6 +554,12 @@ func (l *Link) families() (v4, v6 bool) {
 // while the machine's own connection was fine. An adapter that captures nothing
 // has to sit behind the physical one, and 9999 is how it does.
 func (l *Link) setMetric(v4, v6 bool, metric uint32) error {
+	return setInterfaceMetric(l.luid, l.name, v4, v6, metric)
+}
+
+// setInterfaceMetric is the metric write on a bare LUID, shared with the Open
+// failure path (see tun_windows.go).
+func setInterfaceMetric(luid winipcfg.LUID, name string, v4, v6 bool, metric uint32) error {
 	var firstErr error
 	for _, f := range []struct {
 		on bool
@@ -468,14 +573,14 @@ func (l *Link) setMetric(v4, v6 bool, metric uint32) error {
 		}
 		// A family the adapter has no interface entry for answers with an
 		// error here; that is not a failure of the call that asked.
-		row, err := l.luid.IPInterface(f.af)
+		row, err := luid.IPInterface(f.af)
 		if err != nil {
 			continue
 		}
 		row.UseAutomaticMetric = false
 		row.Metric = metric
 		if err := row.Set(); err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("tunfast: set interface metric on %q: %w", l.name, err)
+			firstErr = fmt.Errorf("tunfast: set interface metric on %q: %w", name, err)
 		}
 	}
 	return firstErr

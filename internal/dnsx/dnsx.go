@@ -66,7 +66,13 @@ func Parse(addr string) (Target, error) {
 	t := target{Transport: UDP, Port: "53"}
 	if scheme, after, ok := strings.Cut(rest, "://"); ok {
 		rest = after
-		switch scheme {
+		// Case-insensitive, the way the config builder reads the very same
+		// string (builder.go lowercases the scheme before it switches on it):
+		// "TLS://dns.google" was accepted there and refused here, so the core
+		// ran on a resolver this package's own smart pick and forwarder would
+		// not touch — one setting, three different answers, and the side that
+		// refused it fell back silently.
+		switch strings.ToLower(scheme) {
 		case "https":
 			t.Transport, t.Port = HTTPS, "443"
 			// Only DoH has an endpoint to name; a path on any other transport would be a
@@ -177,7 +183,13 @@ type Client struct {
 
 	mu   sync.Mutex
 	conn net.Conn
-	http *http.Client
+	http *doHTransport
+	// closed is set when the path is put away. A close and an exchange run on
+	// different goroutines — the forwarder puts a client away on its own
+	// goroutine while a question may still be on it — so the exchange has to be
+	// able to tell that the path is gone instead of dialling a fresh one into a
+	// client nobody will ever close.
+	closed bool
 	// sem is what serialises exchanges, and it is a channel rather than mu for one
 	// reason: a query can need this same client to answer something else first (an
 	// upstream named by a host name has to be resolved before it can be dialled, and
@@ -215,7 +227,18 @@ func (c *Client) Exchange(ctx context.Context, msg []byte) ([]byte, error) {
 	defer cancel()
 
 	if c.t.Transport == HTTPS {
-		return c.exchangeDoHOnce(ctx, msg)
+		reply, err := c.exchangeDoHOnce(ctx, msg)
+		if err != nil {
+			// The same thing the stream path does, one layer up: a kept-open
+			// connection can be dead without having said so — the resolver closed it
+			// while it was idle, the tunnel was rebuilt under it. The stream path
+			// drops the socket and asks once more; the DoH path has to throw the
+			// pooled connection away to do the same, because the request it already
+			// wrote cannot be replayed by the transport.
+			c.dropHTTP()
+			return c.exchangeDoHOnce(ctx, msg)
+		}
+		return reply, nil
 	}
 	reply, err := c.exchangeOnce(ctx, msg)
 	if err != nil {
@@ -262,9 +285,23 @@ func (c *Client) streamed() bool {
 }
 
 // ensureConn returns the connection, dialling it if needed.
+//
+// The connection is read and written under the client's lock, like the DoH
+// transport above: the forwarder puts a client away on its own goroutine while
+// a question may still be on it, and the two of them were writing the same
+// field. The dial itself happens outside the lock — a dial can take seconds,
+// and the lock is not a place to spend them — so the connection that goes in
+// is the one that is still in place, and the one that lost the race is closed.
 func (c *Client) ensureConn(ctx context.Context) (net.Conn, error) {
-	if c.conn != nil {
-		return c.conn, nil
+	c.mu.Lock()
+	conn := c.conn
+	closed := c.closed
+	c.mu.Unlock()
+	if conn != nil {
+		return conn, nil
+	}
+	if closed {
+		return nil, errors.New("dnsx: the path is closed")
 	}
 	network := "udp"
 	if c.streamed() {
@@ -277,13 +314,68 @@ func (c *Client) ensureConn(ctx context.Context) (net.Conn, error) {
 	if c.t.Transport == TLS {
 		conn = tls.Client(conn, &tls.Config{ServerName: c.t.Host})
 	}
+	c.mu.Lock()
+	if c.closed {
+		// The path was put away while the dial was in flight. The socket is not
+		// handed out and not kept: nothing will close it later.
+		c.mu.Unlock()
+		_ = conn.Close()
+		return nil, errors.New("dnsx: the path is closed")
+	}
+	if c.conn != nil {
+		// Another path won the race and is in place already.
+		other := c.conn
+		c.mu.Unlock()
+		_ = conn.Close()
+		return other, nil
+	}
 	c.conn = conn
-	return c.conn, nil
+	c.mu.Unlock()
+	return conn, nil
 }
 
-// exchangeDoHOnce posts one message through the client's transport, which keeps its own
-// connections and is built once.
-func (c *Client) exchangeDoHOnce(ctx context.Context, msg []byte) ([]byte, error) {
+// doHTransport is the HTTP client a DoH path talks through.
+//
+// It is a type of its own for one reason: the forwarder puts a client away on
+// its own goroutine while a question may still be on it (see closeClient), and
+// a plain *http.Client left nil there would be dereferenced by the very next
+// statement of the exchange — a nil dereference, and the whole process goes
+// down with it. Here a closed path is a value the methods understand: they
+// answer an error.
+type doHTransport struct {
+	client *http.Client
+}
+
+// Do posts the request. A path that has been closed answers an error rather
+// than panicking.
+func (d *doHTransport) Do(req *http.Request) (*http.Response, error) {
+	if d == nil || d.client == nil {
+		return nil, errors.New("dnsx: the DoH path is closed")
+	}
+	return d.client.Do(req)
+}
+
+// CloseIdleConnections lets the transport's pooled connections go.
+func (d *doHTransport) CloseIdleConnections() {
+	if d == nil || d.client == nil {
+		return
+	}
+	d.client.CloseIdleConnections()
+}
+
+// dohTransport returns the DoH transport, building it the first time.
+//
+// The field is read and written under the client's lock: the forwarder puts a
+// client away on its own goroutine while a question may still be on it, and
+// without the lock the exchange and the close have nothing to serialise on.
+func (c *Client) dohTransport() *doHTransport {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		// A closed path is a value the methods understand: they answer an error.
+		// Building a fresh transport here instead would hand a client to nobody.
+		return &doHTransport{}
+	}
 	if c.http == nil {
 		transport := &http.Transport{}
 		if c.opts.Proxy != nil {
@@ -296,8 +388,15 @@ func (c *Client) exchangeDoHOnce(ctx context.Context, msg []byte) ([]byte, error
 			d := directDialer(c.opts)
 			transport.DialContext = d.DialContext
 		}
-		c.http = &http.Client{Transport: transport, Timeout: c.opts.Timeout}
+		c.http = &doHTransport{client: &http.Client{Transport: transport, Timeout: c.opts.Timeout}}
 	}
+	return c.http
+}
+
+// exchangeDoHOnce posts one message through the client's transport, which keeps its own
+// connections and is built once.
+func (c *Client) exchangeDoHOnce(ctx context.Context, msg []byte) ([]byte, error) {
+	hc := c.dohTransport()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		"https://"+c.t.Address()+c.t.Path, bytes.NewReader(msg))
 	if err != nil {
@@ -306,7 +405,7 @@ func (c *Client) exchangeDoHOnce(ctx context.Context, msg []byte) ([]byte, error
 	req.Header.Set("Content-Type", "application/dns-message")
 	req.Header.Set("Accept", "application/dns-message")
 
-	resp, err := c.http.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -323,6 +422,31 @@ func (c *Client) exchangeDoHOnce(ctx context.Context, msg []byte) ([]byte, error
 
 // dropConn forgets the connection without waiting to see whether it was usable.
 func (c *Client) dropConn() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.dropConnLocked()
+}
+
+// dropHTTP throws the DoH transport's pooled connections away.
+//
+// The transport keeps its connections between questions, which is what makes the
+// second question of a session as cheap as the first. A connection that died
+// while it was idle is the other side of that bargain: the request is written
+// into it and the answer never comes, and the transport cannot replay a request
+// whose body has already gone out. Throwing the pool away costs one handshake and
+// makes the next question start from a connection that is known to be open.
+func (c *Client) dropHTTP() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.http == nil {
+		return
+	}
+	c.http.CloseIdleConnections()
+	c.http = nil
+}
+
+// dropConnLocked is dropConn with the lock already held.
+func (c *Client) dropConnLocked() {
 	if c.conn != nil {
 		_ = c.conn.Close()
 		c.conn = nil
@@ -333,7 +457,8 @@ func (c *Client) dropConn() {
 func (c *Client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.dropConn()
+	c.closed = true
+	c.dropConnLocked()
 	if c.http != nil {
 		c.http.CloseIdleConnections()
 		c.http = nil
@@ -428,7 +553,10 @@ func directDialer(opts Options) *net.Dialer {
 		d.Control = bindInterface(opts.InterfaceIndex)
 	}
 	if len(opts.Bootstrap) > 0 {
-		d.Resolver = bootstrapResolver(opts.Bootstrap)
+		// The same pin reaches the resolver below: the bootstrap question is a
+		// dial of its own, and one left to the route table takes the tunnel
+		// the very pin exists to avoid (see bootstrapResolver).
+		d.Resolver = bootstrapResolver(opts.Bootstrap, opts.InterfaceIndex)
 	}
 	return d
 }
@@ -437,7 +565,15 @@ func directDialer(opts Options) *net.Dialer {
 // the upstream's own. Rotation rather than a fixed first — a reader whose old resolver is
 // unreachable should not lose the upstream for that, and which one answers is not a
 // property of the machine worth pinning.
-func bootstrapResolver(servers []string) *net.Resolver {
+//
+// egress is the same interface pin the dialer it hangs off carries, and it is not
+// decoration: without it this question — a plain UDP one — follows the route table, and
+// with TUN up that table leads into the tunnel. The core then answers port 53 itself
+// (hijack-dns), hands the name to its own dns rules, which name this forwarder's ports,
+// whose upstream is still a host name — the circle Options.Bootstrap exists to break.
+// The default profile names both resolvers by host name, so the circle was not an edge
+// case: every proxied name under TUN waited out the forwarder's timeout first.
+func bootstrapResolver(servers []string, egress uint32) *net.Resolver {
 	var mu sync.Mutex
 	next := 0
 	return &net.Resolver{
@@ -447,7 +583,10 @@ func bootstrapResolver(servers []string) *net.Resolver {
 			server := servers[next%len(servers)]
 			next++
 			mu.Unlock()
-			var d net.Dialer
+			d := net.Dialer{}
+			if egress != 0 {
+				d.Control = bindInterface(egress)
+			}
 			return d.DialContext(ctx, "udp", bootstrapAddress(server))
 		},
 	}

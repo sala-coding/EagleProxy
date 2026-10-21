@@ -2,6 +2,7 @@ package main
 
 import (
 	"eagle/internal/core"
+	"eagle/internal/crashlog"
 	"eagle/internal/util"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,11 @@ import (
 type appConfig struct {
 	DataDir  string `json:"data_dir"`
 	CorePath string `json:"core_path"`
+	// Where the logs are. The resident server is this same executable, so it
+	// could work the folder out for itself — but only when the program's own
+	// folder is writable (see setupLogDir), and the server has to be told which
+	// one was chosen.
+	LogDir string `json:"log_dir,omitempty"`
 }
 
 // appConfigPath is where the backend keeps the two paths the settings page edits: the
@@ -135,27 +141,28 @@ func relToExec(abs string) string {
 }
 
 func (a *App) loadAppConfig() {
-	a.dataDirRaw = defaultDataDir()
-	a.dataDir = resolveAppPath(a.dataDirRaw)
-	a.corePathRaw, a.corePath = "", ""
+	dataDirRaw := defaultDataDir()
+	dataDir := resolveAppPath(dataDirRaw)
+	corePathRaw, corePath := "", ""
 	migrateAppConfig()
 	if data, err := os.ReadFile(appConfigPath()); err == nil {
 		var c appConfig
 		if json.Unmarshal(data, &c) == nil {
 			if c.DataDir != "" {
-				a.dataDirRaw = c.DataDir
-				a.dataDir = resolveAppPath(c.DataDir)
+				dataDirRaw = c.DataDir
+				dataDir = resolveAppPath(c.DataDir)
 			}
-			a.corePathRaw = c.CorePath
-			a.corePath = resolveAppPath(c.CorePath)
+			corePathRaw = c.CorePath
+			corePath = resolveAppPath(c.CorePath)
 		}
 	}
+	a.setPaths(dataDir, dataDirRaw, corePath, corePathRaw)
 }
 
 func (a *App) saveAppConfig() {
 	// As written, not as resolved: a path saved as an absolute one stops meaning
 	// anything the moment the folder moves (see resolveAppPath).
-	c := appConfig{DataDir: a.dataDirRaw, CorePath: a.corePathRaw}
+	c := appConfig{DataDir: a.curDataDirRaw(), CorePath: a.curCorePathRaw(), LogDir: a.curLogDirPath()}
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return
@@ -165,22 +172,147 @@ func (a *App) saveAppConfig() {
 	_ = os.WriteFile(path, data, 0o644)
 }
 
-// logDir is where categorised text logs are written: a "text-logs" folder
-// beside the data directory.
+// logDirName is the folder every log this app writes goes into.
+const logDirName = "log"
+
+// logDir is where the logs go: a "log" folder beside the executable.
+//
+// One folder for all of them — the categorised text logs, the core's own log, the
+// crash record, the resident server's log and the front-end's stderr — because a
+// reader looking for "the log" should find one place, not five to guess between.
+//
+// It is beside the executable rather than inside the data directory because that
+// is where the reader will look: it is the one folder the program is in, and the
+// one a copy of the program folder carries with it.
 func (a *App) logDir() string {
-	if a.dataDir == "" {
-		return ""
+	if p := a.curLogDirPath(); p != "" {
+		return p
 	}
-	return filepath.Join(filepath.Dir(a.dataDir), "text-logs")
+	if dir := execDir(); dir != "" {
+		return filepath.Join(dir, logDirName)
+	}
+	return ""
 }
 
-// GetLogDir returns the directory holding categorised text logs.
+// GetLogDir returns the directory holding the logs.
 func (a *App) GetLogDir() string { return a.logDir() }
+
+// setupLogDir decides where the logs go, creates that folder and brings the logs
+// this app used to write elsewhere into it.
+//
+// The folder beside the executable is the one the reader asked for, and the one a
+// copy of the program folder carries with it. It is not always writable — an
+// installed copy under Program Files, a folder on a read-only share — and a log
+// that cannot be written is the same as no log at all, so the data directory
+// stands in when the program's own folder refuses. Which one was chosen is
+// written into the log itself, because from the outside the two look alike.
+//
+// Called once, at startup, before anything writes: the log store, the core's own
+// log and the crash record all name this folder, and a folder that appears later
+// is a folder the first lines went missing from.
+func (a *App) setupLogDir() string {
+	a.setLogDirPath(resolveLogDir(execDir(), a.curDataDir()))
+	p := a.curLogDirPath()
+	if p == "" {
+		return ""
+	}
+	// A panic recorded after this point belongs with the rest of the logs, in the
+	// folder the reader was told about.
+	crashlog.SetDir(p)
+	migrateOldLogs(p, a.curDataDir())
+	return p
+}
+
+// resolveLogDir picks the folder the logs go in and creates it.
+//
+// A function and not a method so a test can hand it two folders and ask what it
+// would have done: the answer depends on nothing but whether the folder can be
+// created, and that is exactly what a test has to be able to arrange.
+func resolveLogDir(exeDir, dataDir string) string {
+	if exeDir != "" {
+		dir := filepath.Join(exeDir, logDirName)
+		if err := os.MkdirAll(dir, 0o755); err == nil {
+			return dir
+		}
+	}
+	// The program's own folder would not take it. The data directory is the other
+	// place this app is allowed to write, and a log folder there is still one
+	// folder — the reader is told which one in the log's own first line.
+	if dataDir != "" {
+		dir := filepath.Join(dataDir, logDirName)
+		if err := os.MkdirAll(dir, 0o755); err == nil {
+			return dir
+		}
+	}
+	return ""
+}
+
+// migrateOldLogs brings the logs this app used to write in other places into the
+// one folder it writes them in now.
+//
+// The old places were three: a "text-logs" folder beside the data directory, the
+// core's own log beside the data directory, and the resident server's two files
+// in the data directory's temp folder. They are moved, not copied: a log in two
+// places is a log nobody knows to look at.
+//
+// A file that cannot be moved is left where it is. The server may be holding its
+// log open, and a file this app cannot move is not a reason to lose it.
+func migrateOldLogs(logDir, dataDir string) {
+	if logDir == "" || dataDir == "" {
+		return
+	}
+	type old struct {
+		from string
+		name string
+	}
+	olds := []old{
+		{filepath.Join(dataDir, "vpn-core.log"), "vpn-core.log"},
+		{filepath.Join(dataDir, "vpn-core.log.prev"), "vpn-core.log.prev"},
+		{filepath.Join(dataDir, "temp", "tunserve.log"), "tunserve.log"},
+		{filepath.Join(dataDir, "temp", "tun-front.err.log"), "tun-front.err.log"},
+		{filepath.Join(dataDir, "temp", "tun-front.err.log.prev"), "tun-front.err.log.prev"},
+	}
+	// The categorised logs are a folder of dated files, each of which keeps its
+	// name: the log panel reads them by category and day, and a renamed file
+	// would be a file the panel does not show.
+	if dir := filepath.Join(filepath.Dir(dataDir), "text-logs"); dir != "" {
+		if entries, err := os.ReadDir(dir); err == nil {
+			for _, e := range entries {
+				if e.IsDir() {
+					continue
+				}
+				olds = append(olds, old{filepath.Join(dir, e.Name()), e.Name()})
+			}
+		}
+	}
+	for _, o := range olds {
+		if _, err := os.Stat(o.from); err != nil {
+			continue
+		}
+		to := filepath.Join(logDir, o.name)
+		if _, err := os.Stat(to); err == nil {
+			// Something with that name is already there: the one in the new folder
+			// is this run's, and the old one is history that is already counted.
+			continue
+		}
+		if err := os.Rename(o.from, to); err == nil {
+			continue
+		}
+		// Another volume, or a file somebody holds open: copy it across and leave
+		// the original where it is rather than losing it.
+		if data, err := os.ReadFile(o.from); err == nil {
+			if f, err := os.OpenFile(to, os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+				_, _ = f.Write(data)
+				_ = f.Close()
+			}
+		}
+	}
+}
 
 // GetDataDir returns the data directory as the reader wrote it — a relative path stays
 // relative, which is what the settings field shows back (see resolveAppPath). The
 // resolved path is what the app runs on, and what the about box reports.
-func (a *App) GetDataDir() string { return a.dataDirRaw }
+func (a *App) GetDataDir() string { return a.curDataDirRaw() }
 
 // SetDataDir switches the data directory and reloads everything.
 //
@@ -197,13 +329,13 @@ func (a *App) SetDataDir(dir string) error {
 		return fmt.Errorf("empty directory")
 	}
 	abs := resolveAppPath(raw)
-	if samePath(abs, a.dataDir) {
+	if samePath(abs, a.curDataDir()) {
 		// The folder did not move, but the way it is written may have: the field is
 		// saved on every settle, and a directory written relatively has to stay
 		// written that way rather than being turned into this machine's spelling of
 		// it (see appConfig).
-		if raw != a.dataDirRaw {
-			a.dataDirRaw = raw
+		if raw != a.curDataDirRaw() {
+			a.setDataDirRaw(raw)
 			a.saveAppConfig()
 		}
 		return nil
@@ -213,10 +345,9 @@ func (a *App) SetDataDir(dir string) error {
 	// the machine back while those are still readable, or the next directory inherits a
 	// machine pointed at a proxy and a capture nothing in it can name (see
 	// quiesceForDataDirChange).
-	oldDir, oldRaw := a.dataDir, a.dataDirRaw
+	oldDir, oldRaw := a.curDataDir(), a.curDataDirRaw()
 	a.quiesceForDataDirChange()
-	a.dataDir = abs
-	a.dataDirRaw = raw
+	a.setDataDir(abs, raw)
 	// The same lock Refresh takes: switching the store under a subscription walk
 	// leaves that walk writing to the manager the app has just stopped using.
 	a.subMu.Lock()
@@ -230,7 +361,7 @@ func (a *App) SetDataDir(dir string) error {
 		// everything back at the directory it came from and rebuild on it; the
 		// node stays down (the quiesce saw to that), which is honest — the
 		// reader pressed a switch that failed.
-		a.dataDir, a.dataDirRaw = oldDir, oldRaw
+		a.setDataDir(oldDir, oldRaw)
 		a.subMu.Lock()
 		if err2 := a.reload(false); err2 != nil {
 			a.logf("[datadir] 回退到原目录失败: " + err2.Error())
@@ -287,16 +418,16 @@ func samePath(a, b string) bool {
 }
 
 // GetCorePath returns the core path as the reader wrote it (see GetDataDir).
-func (a *App) GetCorePath() string { return a.corePathRaw }
+func (a *App) GetCorePath() string { return a.curCorePathRaw() }
 
 // SetCorePath sets the sing-box executable path.
 func (a *App) SetCorePath(path string) {
 	raw := strings.TrimSpace(path)
-	a.corePathRaw = raw
 	// Empty stays empty: that is what asks for the core to be found automatically.
-	a.corePath = resolveAppPath(raw)
+	abs := resolveAppPath(raw)
+	a.setCorePath(abs, raw)
 	if a.curController() != nil {
-		a.curController().SetCorePath(a.corePath)
+		a.curController().SetCorePath(abs)
 	}
 	a.saveAppConfig()
 }
@@ -304,10 +435,11 @@ func (a *App) SetCorePath(path string) {
 // PickCoreFile opens the native file picker and returns the chosen executable.
 // An empty string means the user cancelled.
 func (a *App) PickCoreFile() (string, error) {
-	if a.ctx == nil {
+	ctx := a.curCtx()
+	if ctx == nil {
 		return "", fmt.Errorf("backend not initialised")
 	}
-	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+	return runtime.OpenFileDialog(ctx, runtime.OpenDialogOptions{
 		Title: "选择 sing-box 核心程序",
 		Filters: []runtime.FileFilter{
 			{DisplayName: "可执行文件 (*.exe)", Pattern: "*.exe"},
@@ -332,8 +464,9 @@ func (a *App) Refresh() error {
 // routing profiles, the rule sets and the logs live, and the one place a reader has to
 // reach by hand now and then — to drop a .srs in, or to read yesterday's log.
 func (a *App) OpenDataDir() error {
-	if a.dataDir == "" {
+	dir := a.curDataDir()
+	if dir == "" {
 		return fmt.Errorf("data directory is not set")
 	}
-	return util.OpenPath(a.dataDir)
+	return util.OpenPath(dir)
 }

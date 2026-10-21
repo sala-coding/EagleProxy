@@ -61,6 +61,9 @@ func (a *App) SpeedtestProfiles(ids []int, mode int) ([]SpeedTestResult, error) 
 
 // SpeedtestGroup tests all profiles of a group.
 func (a *App) SpeedtestGroup(gid int, mode int) ([]SpeedTestResult, error) {
+	if a.curMgr() == nil {
+		return nil, fmt.Errorf("backend not initialised")
+	}
 	var ids []int
 	for _, p := range a.curMgr().ProfilesWithOrder(gid) {
 		ids = append(ids, p.ID)
@@ -147,7 +150,12 @@ func speedtestModeName(mode int) string {
 // speedtestResultLine renders one result for the log file.
 func (a *App) speedtestResultLine(r SpeedTestResult) string {
 	label := fmt.Sprintf("#%d", r.ID)
-	if ent := a.curMgr().GetProfile(r.ID); ent != nil {
+	// The snapshot, not the live entity: DisplayName and DisplayAddress read the
+	// bean map, and the live map is written under the manager's lock by the
+	// other paths (the traffic counter, the domain resolution). Reading it
+	// without that lock is a concurrent map access, and Go does not recover
+	// from one — the whole process goes down.
+	if ent := a.curMgr().SnapshotProfile(r.ID); ent != nil {
 		label = fmt.Sprintf("#%d %s %s", ent.ID, ent.DisplayName(), ent.DisplayAddress())
 	}
 	// The speed test reports a rate, the other modes report a latency.
@@ -200,8 +208,8 @@ func (a *App) speedtest(ids []int, mode int, title string) ([]SpeedTestResult, e
 	// then is the new store: an id that named one node here names another there, and the
 	// measurement would be written onto a node nobody tested. Read at each commit for the
 	// same reason.
-	startDir := a.dataDir
-	runner := speedtest.New(a.curMgr(), a.curSetting(), a.corePath, a.dataDir)
+	startDir := a.curDataDir()
+	runner := speedtest.New(a.curMgr(), a.curSetting(), a.curCorePath(), a.curDataDir())
 	runner.SetContext(ctx)
 	runner.SetLogger(func(line string) { a.logSpeedtest(category, line) })
 
@@ -257,7 +265,7 @@ loop:
 				// announced: the work is simply not done.
 				return
 			}
-			if a.dataDir != startDir {
+			if a.curDataDir() != startDir {
 				// The store moved under the run (see startDir).
 				return
 			}
@@ -285,8 +293,8 @@ loop:
 			})
 			results = append(results, r)
 			mu.Unlock()
-			if a.ctx != nil {
-				runtime.EventsEmit(a.ctx, "speedtest:result", r)
+			if a.curCtx() != nil {
+				runtime.EventsEmit(a.curCtx(), "speedtest:result", r)
 			}
 		}(ent)
 	}

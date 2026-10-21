@@ -6,8 +6,41 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"sync"
 	"time"
 )
+
+// dirMu guards dir, the folder the crash record goes to when the caller does not
+// name one.
+var (
+	dirMu sync.Mutex
+	dir   string
+)
+
+// SetDir names the folder the crash record goes to.
+//
+// The app calls it once it has decided where the logs live — which is not always
+// the folder beside the executable, because that folder is not always writable —
+// and every panic recorded afterwards lands there with the rest of the logs.
+func SetDir(d string) {
+	dirMu.Lock()
+	dir = d
+	dirMu.Unlock()
+}
+
+// currentDir is the folder SetDir named, or the one beside the executable.
+func currentDir() string {
+	dirMu.Lock()
+	d := dir
+	dirMu.Unlock()
+	if d != "" {
+		return d
+	}
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Join(filepath.Dir(exe), "log")
+	}
+	return ""
+}
 
 // Install logs a panic (if any) to <dir>/crash.log and exits.
 // Use as: defer crashlog.Install(dir)
@@ -46,10 +79,11 @@ func write(dir, msg string) {
 		// Never the working directory. Launched from a Run key or a shortcut the
 		// working directory is %SystemRoot% or wherever the shell happened to be,
 		// and the write then fails silently — a crash with no record of it, which is
-		// the one thing this package exists to prevent. Beside the executable first:
-		// that is the folder the reader can find.
-		if exe, err := os.Executable(); err == nil {
-			candidates = append(candidates, filepath.Dir(exe))
+		// the one thing this package exists to prevent. The log folder beside the
+		// executable first: that is where the reader can find it, and where every
+		// other log of this app is.
+		if d := currentDir(); d != "" {
+			candidates = append(candidates, d)
 		}
 	}
 	// Last resort, and never skipped: wherever the app runs from, something is

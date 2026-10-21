@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"eagle/internal/configbuilder"
@@ -46,6 +47,32 @@ type Controller struct {
 	// selector — an external tun run, or a group of one — and then every switch is a
 	// restart, exactly as it was before any of this existed.
 	hotNodes map[int]string
+
+	// runningConfig is the config the running core was started with.
+	//
+	// It is kept so a caller can ask whether the core it has is the one the
+	// current settings and mode would start: a mode switch that changes nothing
+	// in the config has no reason to stop a core that is already right, and the
+	// only honest way to know that is to compare the config that is running with
+	// the one that would be built — not to compare the mode with itself.
+	runningConfig map[string]interface{}
+
+	// stopRequested marks that this core is being stopped on purpose. The
+	// supervisor reads it when the process is reaped: Windows reports a killed
+	// process as an error exit, and "core exited: exit status 1" reads like a
+	// crash of a core that was working a moment ago.
+	stopRequested atomic.Bool
+
+	// inboundReady says whether the core's own inbound is answering right now.
+	//
+	// A running process is not the same thing: sing-box reads its config, opens its
+	// inbounds and only then prints "started", and everything the app arms on the
+	// strength of a start goes through that inbound — the machine's resolvers point
+	// at this app, and the TUN front-end hands every packet to it. Armed a second
+	// early, those two things answered nothing until the core was really up: every
+	// name on the machine failed, and the traffic the capture had taken went
+	// nowhere.
+	inboundReady bool
 
 	logs []string
 
@@ -170,6 +197,21 @@ func (c *Controller) HotNodes() map[int]string {
 	return out
 }
 
+// RunningConfig returns the config the running core was started with, or nil when
+// no core is running.
+//
+// It is the map itself, not a copy: the config is not written to after the launch,
+// and the caller only reads it — a deep copy of a whole sing-box config would be
+// paid for nothing.
+func (c *Controller) RunningConfig() map[string]interface{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.runningID == StoppedID {
+		return nil
+	}
+	return c.runningConfig
+}
+
 func (c *Controller) Start(id int) error {
 	// One short locked read for the state the build needs — SetManager /
 	// SetSetting swap them from another goroutine (a reload that keeps the
@@ -221,7 +263,7 @@ func (c *Controller) StartWithConfig(id int, res *configbuilder.Result) error {
 }
 
 // startLocked runs the shared launch path. The caller holds c.mu.
-func (c *Controller) startLocked(id int, res *configbuilder.Result, ent *db.ProxyEntity) error {
+func (c *Controller) startLocked(id int, res *configbuilder.Result, ent *db.ProxyEntity) (err error) {
 	cfgPath, err := c.writeConfig(id, res.Config)
 	if err != nil {
 		c.appendLogLocked("failed to write core config: " + err.Error())
@@ -232,6 +274,24 @@ func (c *Controller) startLocked(id int, res *configbuilder.Result, ent *db.Prox
 	// launch rather than after, and that is safe because a failed launch leaves runningID
 	// at StoppedID — which is what every caller checks first.
 	c.hotNodes = res.HotNodes
+	// The config itself, for the same reason and with the same safety: a caller that
+	// wants to know whether the core it has is the one the current settings and mode
+	// would start has nothing to compare against without it.
+	c.runningConfig = res.Config
+	// Not so safe after all for HotNodes' other reader: runningID never moves on
+	// a failed launch, but tryHotSwitch compares the hot snapshot before it asks
+	// about the running id — a stale table after a failed start let that path
+	// name a node of a config nothing is running and PUT the selection to the
+	// clash API port, which another process may well be holding (the exact
+	// hazard wait() clears its own copy for). Any error below takes the two
+	// fields back with it, the same bookkeeping wait() does.
+	launched := false
+	defer func() {
+		if err != nil && !launched {
+			c.hotNodes = nil
+			c.runningConfig = nil
+		}
+	}()
 
 	exe, err := c.resolveCore()
 	if err != nil {
@@ -282,9 +342,12 @@ func (c *Controller) startLocked(id int, res *configbuilder.Result, ent *db.Prox
 		c.appendLogLocked("failed to start core: " + err.Error())
 		return fmt.Errorf("failed to start core: %w", err)
 	}
+	launched = true
 
 	c.cmd = cmd
 	c.runningID = id
+	// A new core is not a stopped one: the marker is about this process.
+	c.stopRequested.Store(false)
 	name := ""
 	if ent != nil {
 		name = fmt.Sprintf(" for [%s] %s", ent.DisplayType(), ent.DisplayName())
@@ -296,10 +359,100 @@ func (c *Controller) startLocked(id int, res *configbuilder.Result, ent *db.Prox
 	}
 	c.writePIDFile(cmd.Process.Pid)
 
+	// The core is not up when the process is: it reads its config, opens its
+	// inbounds and only then prints "started". The supervisor is started first so
+	// that a core which dies during the wait is noticed at once, and the waiter
+	// below records when the inbound answers — in the background, because the
+	// start itself must not wait for the core's boot: the reader is not held for
+	// a second and a half, and what the app arms on the strength of a start asks
+	// the flag instead.
+	exited := make(chan struct{})
+	go c.wait(cmd, id, exited)
+	go c.watchInbound(cmd, mixedInboundPort(res.Config), exited)
+
 	c.startExternals(res.Externals)
 
-	go c.wait(cmd, id)
 	return nil
+}
+
+// mixedInboundPort returns the port the core's mixed inbound listens on, or 0
+// when the config carries none.
+//
+// The port is read out of the config that was written rather than out of the
+// setting: the config is what the core was told to do, and the setting is what
+// the reader asked for. They agree today; the config is the one that is true.
+func mixedInboundPort(cfg map[string]interface{}) int {
+	inbounds, _ := cfg["inbounds"].([]interface{})
+	for _, in := range inbounds {
+		m, ok := in.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if t, _ := m["type"].(string); t != "mixed" {
+			continue
+		}
+		switch p := m["listen_port"].(type) {
+		case int:
+			return p
+		case float64:
+			return int(p)
+		}
+	}
+	return 0
+}
+
+// inboundReadyTimeout is how long the waiter gives the core to open its inbound.
+const inboundReadyTimeout = 30 * time.Second
+
+// watchInbound waits for the core's mixed inbound to answer and records that it
+// does.
+//
+// The wait ends when the process is reaped: a core that is gone will never
+// answer, and waiting out the timeout for it would only delay the report.
+func (c *Controller) watchInbound(cmd *exec.Cmd, port int, exited <-chan struct{}) {
+	if port <= 0 {
+		return
+	}
+	addr := "127.0.0.1:" + strconv.Itoa(port)
+	deadline := time.Now().Add(inboundReadyTimeout)
+	for {
+		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			c.mu.Lock()
+			// Only the core that is still up may claim the readiness: a stop and a
+			// start in quick succession leave two waiters, and the older one must
+			// not say "ready" for a process that has been replaced.
+			if c.cmd == cmd {
+				c.inboundReady = true
+			}
+			c.mu.Unlock()
+			return
+		}
+		select {
+		case <-exited:
+			return
+		default:
+		}
+		if !time.Now().Before(deadline) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// InboundReady reports whether the core's mixed inbound is answering right now.
+//
+// It is a flag and not a dial on purpose: the app asks it on a one-second tick
+// (the DNS takeover is decided there), and a dial would be a connection the core
+// logs and the clash API counts as one more reader's connection.
+func (c *Controller) InboundReady() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.inboundReady
 }
 
 // Stop terminates the running core and any external cores.
@@ -316,7 +469,15 @@ func (c *Controller) Stop() error {
 	c.extCmds = nil
 	// The config is going away with the process: there is nothing left to switch between.
 	c.hotNodes = nil
+	// And the config the process was running goes with it: there is no core left
+	// to compare anything against.
+	c.runningConfig = nil
+	// And nothing can be handed to it any more.
+	c.inboundReady = false
 	c.mu.Unlock()
+	// Set before the kill and read by the supervisor when the process is reaped:
+	// it is what tells a stop from a crash.
+	c.stopRequested.Store(true)
 
 	for _, e := range exts {
 		if e.Process != nil {
@@ -332,9 +493,13 @@ func (c *Controller) Stop() error {
 		return nil
 	}
 	c.appendLog("<<< stopping core")
-	if err := cmd.Process.Kill(); err != nil {
-		return err
-	}
+	// The kill's own error is kept, but it is not the end of the story. On
+	// Windows, terminating a process that has already ended — but not yet been
+	// reaped — fails, and returning that error straight away skipped the wait
+	// below. The caller then read a stopped core as a failed stop, and the
+	// system proxy was left pointing at a port nothing was listening on: a
+	// machine with no internet until the app was restarted.
+	killErr := cmd.Process.Kill()
 	c.clearPIDFileIf(cmd.Process.Pid)
 
 	deadline := time.Now().Add(3 * time.Second)
@@ -345,9 +510,14 @@ func (c *Controller) Stop() error {
 		gone := c.cmd == nil && c.runningID == StoppedID
 		c.mu.Unlock()
 		if gone {
+			// The process is gone. "already finished" is not a failure — the
+			// node really did stop.
 			return nil
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	if killErr != nil {
+		return killErr
 	}
 	// The kill did not take (or the supervisor is wedged): the state stays
 	// "running", which is what a caller's next Start must still be told — the
@@ -387,11 +557,25 @@ func (c *Controller) startExternals(specs []*configbuilder.ExternalSpec) {
 	}
 }
 
-func (c *Controller) wait(cmd *exec.Cmd, id int) {
+func (c *Controller) wait(cmd *exec.Cmd, id int, exited chan struct{}) {
 	err := cmd.Wait()
+	// Closed before the lock: the waiter for the core's inbound asks it whether
+	// the core is gone, and it must be able to hear that without waiting for a
+	// mutex this goroutine is about to take.
+	close(exited)
 
 	c.mu.Lock()
 	c.cmd = nil
+	// The core is gone, so nothing can be handed to it.
+	c.inboundReady = false
+	// The config went with the process: there is nothing left to switch
+	// between. A stale table let a hot switch name a node of a config that is
+	// no longer running — and the switch was a PUT to the clash API port,
+	// which another process may well have been holding.
+	c.hotNodes = nil
+	// The config went with the process: there is nothing left to compare a mode
+	// against, and a stale one would say the core is serving a config it is not.
+	c.runningConfig = nil
 	// The node that was up when the process died, which is not necessarily the
 	// one this launch was given: a hot switch moves the selector inside the
 	// running core and SwitchedTo moves runningID with it, while this goroutine
@@ -415,8 +599,15 @@ func (c *Controller) wait(cmd *exec.Cmd, id int) {
 	}
 
 	if err != nil {
-		c.appendLog(fmt.Sprintf("core exited: %v", err))
-		c.hintIfBindFailed()
+		if c.stopRequested.Load() {
+			// The stop asked for it. Windows reports a killed process as an error
+			// exit, and "core exited: exit status 1" reads like a crash of a core
+			// that was working a moment ago.
+			c.appendLog("<<< core stopped")
+		} else {
+			c.appendLog(fmt.Sprintf("core exited: %v", err))
+			c.hintIfBindFailed()
+		}
 	} else {
 		c.appendLog("core exited")
 	}

@@ -3,7 +3,6 @@ package main
 import (
 	"eagle/internal/core"
 	"eagle/internal/hotkey"
-	"eagle/internal/setting"
 	"fmt"
 	"strings"
 
@@ -95,8 +94,8 @@ func (a *App) ResumeHotkeys() {
 // hidden window would look like a press that did nothing at all.
 func (a *App) emitHotkeyToWindow(what string) {
 	a.ShowWindow()
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "hotkey:"+what)
+	if a.curCtx() != nil {
+		runtime.EventsEmit(a.curCtx(), "hotkey:"+what)
 	}
 }
 
@@ -142,7 +141,14 @@ func (a *App) cycleEgress() {
 	if a.curSetting() == nil {
 		return
 	}
-	modes := []string{"rule", "direct", "global", "block"}
+	// The three modes the status bar's list shows, in the order it shows them. It
+	// used to carry a fourth, "block" — but that mode was retired: the config
+	// builder reads it as "rule", and so do the tray and the status bar. A press
+	// that landed on it therefore wrote "block" into the settings file, said
+	// 阻断 in a toast, and changed nothing at all: the bar still read 规则 and the
+	// core was still running the rule mode. The cycle walks the modes the window
+	// actually has.
+	modes := []string{"rule", "direct", "global"}
 	cur := a.curSetting().EgressMode
 	if cur == "" {
 		cur = "rule"
@@ -187,8 +193,8 @@ func (a *App) setEgress(mode string) {
 	}
 	// The bar reads the mode out of the settings file (see refreshEgress), so this event
 	// is what puts the new word on it; the restart below is what makes the word true.
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "egress:changed", mode)
+	if a.curCtx() != nil {
+		runtime.EventsEmit(a.curCtx(), "egress:changed", mode)
 	}
 	if a.RunningProfile() == core.StoppedID {
 		// The tray's three radio items read this same value; with no node to restart,
@@ -243,10 +249,18 @@ func (a *App) nextGroup() {
 		}
 	}
 	next := order[(idx+1+len(order))%len(order)]
-	a.curSetting().CurrentGroup = next
-	_ = a.curSetting().Save()
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "groups:changed", next)
+	// Through SetCurrentGroup, not a write into the live object. The setting is
+	// replaced by the other paths (the settings save, the mode switches), and a
+	// write into the object another goroutine has already replaced is an update
+	// nobody sees: the group the hotkey asked for was lost, and the next launch
+	// came back on the old tab. The write was a data race as well — the same
+	// field the table and the config builder read without a lock.
+	if err := a.SetCurrentGroup(next); err != nil {
+		a.logf("[hotkey] 切换分组失败: " + err.Error())
+		return
+	}
+	if a.curCtx() != nil {
+		runtime.EventsEmit(a.curCtx(), "groups:changed", next)
 	}
 }
 
@@ -266,22 +280,22 @@ func (a *App) nextRouting() {
 		}
 	}
 	next := names[(idx+1+len(names))%len(names)]
-	// Through ApplyRouting, not SetActiveRouting: the routing profile's rules live
-	// in the core's config, and sing-box has no hot reload of them — a bare flag
-	// switch made the hotkey announce a routing that was not in force until the
-	// next start. The settings page's save has rebuilt the core all along; the
-	// hotkey now does the same thing the page does (and with nothing running it
-	// is just the flag, see ApplyRouting's early return).
-	r, err := setting.LoadRouting(a.dataDir, next)
-	if err != nil {
+	// Switching means the ACTIVE profile moves. This used to call ApplyRouting,
+	// which saved the target profile back to itself and rebuilt the core while
+	// ActiveRouting — and with it the profile every config build reads — stayed
+	// on the old one: the press announced a switch that had not happened, and
+	// charged a core restart for it.
+	if err := a.SetActiveRouting(next); err != nil {
 		a.notifyMessage("切换路由失败: " + err.Error())
 		return
 	}
-	if err := a.ApplyRouting(next, *r); err != nil {
-		a.notifyMessage("切换路由失败: " + err.Error())
-		return
-	}
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "routing:changed", next)
+	// The rules live in the core's config and sing-box reads it once, so a
+	// running node is rebuilt on the profile that is now active. With nothing
+	// running the file is the whole change (the next start reads it) — and the
+	// routing:changed event has already gone out from SetActiveRouting.
+	if running := a.RunningProfile(); running != core.StoppedID {
+		if err := a.rebuildCoreForRouting(running); err != nil {
+			a.notifyMessage("切换路由失败: " + err.Error())
+		}
 	}
 }

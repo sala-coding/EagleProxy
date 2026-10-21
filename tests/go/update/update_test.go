@@ -1,6 +1,10 @@
-package update
+package update_test
 
-import "testing"
+import (
+	. "eagle/internal/update"
+
+	"testing"
+)
 
 // The version comparison is what decides whether a release is an update, so
 // the cases that have bitten before are the ones written down: the same

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -80,15 +81,21 @@ func (b *builder) buildExternalNaive(ent *db.ProxyEntity, mappingPort, socksPort
 	if protocol == "" {
 		protocol = "https"
 	}
-	proxyURL := protocol + "://"
+	// Built through url.URL rather than by concatenation: a password holding
+	// ':' cut the userinfo in two (the rest of it read as part of the
+	// username), and '@', '/', '?' ended it early — the credential simply
+	// stopped matching while nothing in the error named a credential at all.
+	// URL-escaping is what the URL form means by user:pass@host.
+	proxyTarget := &url.URL{Scheme: protocol}
 	if user := bb.Str("username"); user != "" {
-		proxyURL += user
 		if pw := bb.Str("password"); pw != "" {
-			proxyURL += ":" + pw
+			proxyTarget.User = url.UserPassword(user, pw)
+		} else {
+			proxyTarget.User = url.User(user)
 		}
-		proxyURL += "@"
 	}
-	proxyURL += joinHostPort(domainAddress, connectPort)
+	proxyTarget.Host = joinHostPort(domainAddress, connectPort)
+	proxyURL := proxyTarget.String()
 
 	if !bb.Bool("disable_log") {
 		spec.Args = append(spec.Args, "--log")

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"eagle/internal/configbuilder"
@@ -104,6 +105,55 @@ func RunServer() {
 		}
 	}()
 
+	// The heart beats on its own goroutine, not once around the main loop: that
+	// loop does synchronous work whose cost is its own — the PowerShell
+	// enumeration behind reapFronts ("costs ten seconds and more"), a PnP
+	// adapter build, the two-second kill wait in teardownAfterAppCrash — and a
+	// beat written only between passes means any of those stalls the file past
+	// ServerAlive's twelve seconds. The app then reads the server as dead: its
+	// probe runs once per session (see tunServerGone), so one such stall sent
+	// every TUN start down the direct-launch fallback for the rest of the
+	// session, and the shutdown path skipped ActionExit for a server that was
+	// alive all along.
+	//
+	// Registered after the outer defer, so it stops FIRST (defers run LIFO):
+	// the wait below is what keeps a tick in flight from re-creating the heart
+	// file a moment after the exit path has cleared it.
+	heartbeatStop := make(chan struct{})
+	heartbeatDone := make(chan struct{})
+	go func() {
+		defer close(heartbeatDone)
+		fails := 0
+		beat := func() {
+			if err := Heartbeat(dataDir()); err != nil {
+				// Said when it repeats rather than once: a single failure is a
+				// locked temp folder or a full disk for one write, and the log
+				// only earns its line when the failure is a condition.
+				if fails%3 == 2 {
+					log("heartbeat write failed: %v", err)
+				}
+				fails++
+			} else {
+				fails = 0
+			}
+		}
+		beat() // first beat at once, as the loop's first pass used to give it
+		t := time.NewTicker(2 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-heartbeatStop:
+				return
+			case <-t.C:
+				beat()
+			}
+		}
+	}()
+	defer func() {
+		close(heartbeatStop)
+		<-heartbeatDone
+	}()
+
 	// The live child, plus a channel the watcher closes once Wait has reaped it:
 	// exec.Cmd documents ProcessState as writable only by Wait, and one reading
 	// on the loop tick while Wait writes it from the watcher raced every 250
@@ -112,7 +162,8 @@ func RunServer() {
 	ticks := 0
 	sysTicks := 0
 	for {
-		Heartbeat(dataDir())
+		// The heart is written by its own goroutine (see above), deliberately
+		// not here: this loop can stall for seconds inside one pass.
 
 		// The machine's resolvers are reconciled on a faster beat than the adapter, and
 		// this is the one piece of the elevated side the reader waits on directly: a node
@@ -146,6 +197,9 @@ func RunServer() {
 				}
 			}
 			ReconcileResolvers(dataDir(), st.Resolvers)
+			// And the adapter's own resolver, which belongs to the node: on while
+			// one is serving, away when there is none.
+			reconcileAdapterResolver(st.Node)
 		}
 
 		// Checked now and then rather than once: the device can be taken away
@@ -287,7 +341,7 @@ func RunServer() {
 					// one leaves the file empty. Both used to read as a bare "child
 					// exited", which is why a failed TUN start had no evidence in it.
 					if size > 0 {
-						log("child exited (code %d; stderr %d bytes in %s)", code, size, errLogPath(dataDir()))
+						log("child exited (code %d; stderr %d bytes in %s)", code, size, errLogPath())
 					} else {
 						log("child exited (code %d; no stderr)", code)
 					}
@@ -515,7 +569,9 @@ func ensureAdapter() {
 			adapterReady = true
 			log("adapter ready: %s", name)
 		}
-		applySelfDNS(name)
+		// The adapter's resolver is not written here: it belongs to a node, not to a
+		// device, and this function knows nothing about nodes (see
+		// reconcileAdapterResolver).
 		return
 	}
 	// Not in the table: never created, or prepared but never configured the way the
@@ -532,7 +588,8 @@ func ensureAdapter() {
 			adapterReady = true
 			log("adapter ready: %s", name)
 		}
-		applySelfDNS(name)
+		// The adapter's resolver is not written here either: it belongs to a node,
+		// not to a device (see reconcileAdapterResolver).
 		return
 	}
 	adapterReady = false
@@ -568,6 +625,32 @@ func applySelfDNS(name string) {
 		if msg := err.Error(); msg != lastDNSNote {
 			lastDNSNote = msg
 			log("adapter dns failed: %v", err)
+		}
+	} else {
+		lastDNSNote = ""
+	}
+}
+
+// reconcileAdapterResolver points the adapter's resolver at the adapter while a node is
+// serving, and takes it away when there is none.
+//
+// The resolver belongs to the node, not to the device: the address it names is answered by
+// the main core's hijack-dns, so with no core behind it every query the machine sends it
+// waits out a timeout. An adapter pointed at a peer that will not answer is a machine
+// that cannot resolve a name at all — and the routes are already back on the physical
+// adapter by then, so the machine has an internet connection and no way to use it.
+//
+// The adapter itself stays: it is the expensive half, and the next start reuses it.
+func reconcileAdapterResolver(serving bool) {
+	name := configbuilder.TunAdapterName()
+	if serving {
+		applySelfDNS(name)
+		return
+	}
+	if err := tunfast.ClearSelfDNS(name); err != nil {
+		if msg := err.Error(); msg != lastDNSNote {
+			lastDNSNote = msg
+			log("adapter dns release failed: %v", err)
 		}
 	} else {
 		lastDNSNote = ""
@@ -636,9 +719,10 @@ func spawnChild(core, cfg string) (*exec.Cmd, *os.File, error) {
 	return cmd, errF, nil
 }
 
-// errLogPath is where a front-end's stderr is kept: the temp folder beside the pid book.
-func errLogPath(dataDir string) string {
-	return filepath.Join(dataDir, "temp", "tun-front.err.log")
+// errLogPath is where a front-end's stderr is kept: the log folder, beside the
+// server's own log.
+func errLogPath() string {
+	return filepath.Join(appPathsOf().logDir(), "tun-front.err.log")
 }
 
 // openErrLog truncates the current stderr file and moves the previous run's aside first.
@@ -649,7 +733,7 @@ func errLogPath(dataDir string) string {
 // holds the file; then this run appends and the previous text stays in front of it,
 // which is still better than losing it.
 func openErrLog() (*os.File, error) {
-	path := errLogPath(dataDir())
+	path := errLogPath()
 	_ = os.Rename(path, path+".prev")
 	return os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 }
@@ -716,10 +800,33 @@ func hashOf(path string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// tunserveLogMax is the size at which the server's log is moved aside: this
+// file is opened append-only and never rotated, so a server that lives for
+// months (it is installed once and beat every two seconds) grew a single file
+// with no ceiling — the one file a reader opens when TUN misbehaves, and the
+// slowest one to get into.
+const tunserveLogMax = 5 << 20 // 5 MiB
+
+// logChecks counts log lines so the size check below runs once every 256 of
+// them rather than on each: the check is a stat, and log() is called from the
+// command path and the watcher alike.
+var logChecks atomic.Uint64
+
 // log appends to the server's own file so its life is readable long after a
 // dev console has scrolled it away.
 func log(format string, args ...any) {
-	f, err := os.OpenFile(uploadLogFile(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	path := uploadLogFile()
+	if logChecks.Add(1)%256 == 1 {
+		if st, err := os.Stat(path); err == nil && st.Size() >= tunserveLogMax {
+			// Side, not deleted: the last few months are what a bug report
+			// quotes. The swap is rename-then-open — anything racing it either
+			// lands in the old file (now .prev) or opens a fresh one, and a
+			// failed swap simply keeps appending to the big file.
+			_ = os.Remove(path + ".prev")
+			_ = os.Rename(path, path+".prev")
+		}
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return
 	}
@@ -728,7 +835,7 @@ func log(format string, args ...any) {
 }
 
 func uploadLogFile() string {
-	return filepath.Join(dataDir(), "temp", "tunserve.log")
+	return filepath.Join(appPathsOf().logDir(), "tunserve.log")
 }
 
 // dataDir is read once from the same app config the UI reads, so the server

@@ -19,5 +19,18 @@ func SetPAC(url string) error {
 func Clear() error { return nil }
 
 // Current has no registry to read here: there is no system proxy for this app to leave
-// behind, so the answer is always "nothing set".
-func Current() (bool, string, error) { return false, "", nil }
+// behind, so the answer is always "nothing set". The PAC field is part of the
+// signature on Windows (see sysproxy_windows.go) and stays empty here.
+func Current() (bool, string, string, error) { return false, "", "", nil }
+
+// CurrentBypass has no registry to read here.
+func CurrentBypass() (string, error) { return "", nil }
+
+// SetUndoFile / HasUndo are the Windows-side undo record (what the machine's
+// proxy was before a takeover). There is no takeover off Windows, so nothing is
+// ever recorded and nothing is ever waiting to be restored. Defined at all so
+// the app compiles on the platforms it is only ever built for in CI.
+func SetUndoFile(path string) {}
+
+// HasUndo reports no recorded takeover.
+func HasUndo() bool { return false }

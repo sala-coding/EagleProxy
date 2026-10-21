@@ -75,6 +75,12 @@ func (a *App) trafficLoop() {
 	saves := 0
 	firstPoll := true
 	var lastErrLog time.Time
+	// When the previous poll's totals were read. The rate below is per second,
+	// and the period is not the configured interval: the sleep is only part of
+	// the loop — the Clash query can take up to five seconds and the reconcile
+	// rides the same tick. Dividing by the sleep made a slow API look like
+	// several times the traffic actually moved.
+	var lastPoll time.Time
 	ticks := 0
 	for {
 		// one read per iteration: settings are swapped, never mutated in place.
@@ -84,13 +90,13 @@ func (a *App) trafficLoop() {
 			interval = s.TrafficLoopInterval
 		}
 		time.Sleep(time.Duration(interval) * time.Millisecond)
-		// a.ctx never reads nil after startup, so quitting is the real exit
+		// a.curCtx() never reads nil after startup, so quitting is the real exit
 		// signal: shutdown marks it before anything slow, and the loop then stops
 		// polling a dying core or emitting into a closing context. Checked before
 		// the reconcile below — the exit path's releaseSystemDNS writes the empty
 		// state, and a reconcile that ran after it would write a takeover record
 		// back over the cleanup.
-		if a.ctx == nil || a.quitting.Load() {
+		if a.curCtx() == nil || a.quitting.Load() {
 			return
 		}
 		// The machine's resolvers are reconciled here as well as at every start and stop
@@ -146,15 +152,24 @@ func (a *App) trafficLoop() {
 		a.trafficMu.Unlock()
 
 		// The status bar shows a rate, not the core's lifetime counter, so
-		// scale the interval delta up to bytes per second. A negative delta
-		// (fresh core) reads as no traffic rather than a huge negative rate.
+		// scale the delta to bytes per second over the time that actually
+		// passed (see lastPoll). A negative delta (fresh core) reads as no
+		// traffic rather than a huge negative rate.
+		now := time.Now()
+		span := int64(interval)
+		if !lastPoll.IsZero() {
+			if ms := now.Sub(lastPoll).Milliseconds(); ms > 0 {
+				span = ms
+			}
+		}
+		lastPoll = now
 		var upRate, downRate int64
-		if interval > 0 && (dUp > 0 || dDown > 0) {
-			upRate = dUp * 1000 / int64(interval)
-			downRate = dDown * 1000 / int64(interval)
+		if span > 0 && (dUp > 0 || dDown > 0) {
+			upRate = dUp * 1000 / span
+			downRate = dDown * 1000 / span
 		}
 
-		runtime.EventsEmit(a.ctx, "traffic", map[string]interface{}{
+		runtime.EventsEmit(a.curCtx(), "traffic", map[string]interface{}{
 			"up":       resp.UploadTotal,
 			"down":     resp.DownloadTotal,
 			"upRate":   upRate,
@@ -195,7 +210,7 @@ func (a *App) trafficLoop() {
 		}) != nil {
 			continue
 		}
-		runtime.EventsEmit(a.ctx, "profile:traffic", map[string]interface{}{
+		runtime.EventsEmit(a.curCtx(), "profile:traffic", map[string]interface{}{
 			"id": id, "up": up, "down": down,
 		})
 	}

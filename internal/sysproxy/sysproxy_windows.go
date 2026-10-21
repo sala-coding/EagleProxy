@@ -14,10 +14,14 @@
 package sysproxy
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -46,6 +50,178 @@ const (
 )
 
 var procInternetSetOption = syscall.NewLazyDLL("wininet.dll").NewProc("InternetSetOptionW")
+
+// The undo record: what the machine's own proxy was before this app took it
+// over, kept on disk so the restore survives a crash — the same bargain
+// tunserv's resolver undo makes (sysdns_windows.go). Without it the original
+// was gone the moment Set ran: the exit path wrote the DIRECT flag and nothing
+// else, so a reader whose machine pointed at a corporate proxy went home on
+// direct after one session with Eagle. Written once per takeover (the file
+// being present means the takeover already recorded its starting point) and
+// removed by the restore, so a Set→Clear→Set cycle remembers each takeover's
+// own origin rather than the very first one forever.
+//
+// SetUndoFile names the record; an empty path disables the whole mechanism and
+// leaves Set/Clear exactly as they were (Set overwrites, Clear writes DIRECT).
+// The caller decides the path because the app's data directory — where temp/
+// lives — is its own, and it can move under a running session.
+type undoRecord struct {
+	Enable   bool   `json:"enable"`
+	Server   string `json:"server"`
+	Override string `json:"override"`
+	PAC      string `json:"pac"`
+}
+
+var (
+	undoMu   sync.Mutex
+	undoPath string
+)
+
+// SetUndoFile points the package at its undo record. Callers set it before the
+// first Set/Clear of a session and again after the data directory moves; an
+// empty value turns undo off.
+func SetUndoFile(path string) {
+	undoMu.Lock()
+	undoPath = path
+	undoMu.Unlock()
+}
+
+// HasUndo reports whether a recorded takeover is waiting to be restored.
+func HasUndo() bool {
+	undoMu.Lock()
+	defer undoMu.Unlock()
+	if undoPath == "" {
+		return false
+	}
+	_, err := os.Stat(undoPath)
+	return err == nil
+}
+
+// captureUndo records the machine's current setting, if no takeover is
+// already recorded. Read-before-write: the snapshot has to be taken before the
+// new values land, and the file's presence is what makes a second Set (the
+// mode re-entered while the record is still out) keep the first origin rather
+// than record the app's own server as the "original".
+func captureUndo() {
+	undoMu.Lock()
+	path := undoPath
+	undoMu.Unlock()
+	if path == "" {
+		return
+	}
+	if _, err := os.Stat(path); err == nil {
+		return // a takeover is already recorded; its origin is the one to restore
+	}
+	enable, server, pac, err := Current()
+	if err != nil {
+		return // unreadable settings: nothing worth recording, and Set must go on
+	}
+	rec := undoRecord{Enable: enable, Server: server, PAC: pac}
+	// The bypass list too: Set writes its own, and the reader's LAN/NAS rules
+	// are exactly the sort of thing that must not be lost to one session.
+	if b, err := CurrentBypass(); err == nil {
+		rec.Override = b
+	}
+	data, err := json.Marshal(rec)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+	}
+}
+
+// restoreUndo puts the recorded setting back and removes the record. Reports
+// whether there was one.
+func restoreUndo() (bool, error) {
+	undoMu.Lock()
+	path := undoPath
+	undoMu.Unlock()
+	if path == "" {
+		return false, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, nil // no record: the caller falls back to plain DIRECT
+	}
+	var rec undoRecord
+	if json.Unmarshal(data, &rec) != nil {
+		// A torn record is still a record, and it has to be acted on rather
+		// than just deleted: `rec` stays zero, which applyUndo reads as "write
+		// DIRECT and clear the fields" — the machine ends up direct instead of
+		// left pointing at this app's inbound for the rest of the session,
+		// with the record that could have fixed it already gone. The error is
+		// still reported so the caller's log names the corrupt file.
+		rec = undoRecord{}
+		if aerr := applyUndo(rec); aerr != nil {
+			return true, aerr
+		}
+		_ = os.Remove(path)
+		return true, fmt.Errorf("sysproxy: undo record was unreadable, cleared instead of restored")
+	}
+	if err := applyUndo(rec); err != nil {
+		return true, err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return true, fmt.Errorf("sysproxy: undo record kept after restore: %w", err)
+	}
+	return true, nil
+}
+
+// applyUndo writes the four recorded values back through WinINet, the same
+// per-connection route Set takes — a bare registry write would miss the
+// connectoids Set also touched.
+func applyUndo(rec undoRecord) error {
+	flags := uint32(proxyTypeDirect)
+	if rec.Enable {
+		flags |= proxyTypeProxy
+	}
+	opts := []perConnOption{
+		{dwOption: internetPerConnFlags, value: uintptr(flags)},
+	}
+	// Empty strings clear the value: "no server was set" is the record of a
+	// machine that had none, and leaving our server behind would be the very
+	// leftover this exists to prevent.
+	//
+	// keep pins the UTF-16 buffers: the option values are uintptrs, which the
+	// GC cannot see — the same bargain Set pays with runtime.KeepAlive.
+	var keep []*uint16
+	pin := func(s string, opt uint32) {
+		if s == "" {
+			opts = append(opts, perConnOption{dwOption: opt, value: 0})
+			return
+		}
+		p, err := windows.UTF16PtrFromString(s)
+		if err != nil {
+			return
+		}
+		opts = append(opts, perConnOption{dwOption: opt, value: uintptr(unsafe.Pointer(p))})
+		keep = append(keep, p)
+	}
+	pin(rec.Server, internetPerConnProxyServer)
+	pin(rec.Override, internetPerConnProxyBypass)
+	if rec.PAC != "" {
+		flags |= proxyTypeAutoProxyURL
+		opts[0].value = uintptr(flags)
+	}
+	pin(rec.PAC, internetPerConnAutoConfigURL)
+	// The release direction: LAN first, but the connectoids are written even
+	// when it fails (see applyToAllConnectionsReleasing).
+	err := applyToAllConnectionsReleasing(opts)
+	runtime.KeepAlive(keep)
+	if err != nil {
+		return err
+	}
+	_ = notify()
+	return nil
+}
 
 // perConnOption mirrors INTERNET_PER_CONN_OPTIONW. value is the union: a DWORD
 // for the flags, an LPWSTR for the server/bypass/PAC fields, which is why it is
@@ -80,6 +256,9 @@ func Set(format, ip string, httpPort, socksPort int, bypass string) error {
 	if strings.TrimSpace(bypass) == "" {
 		bypass = defaultBypass
 	}
+
+	// Before anything is written: the original is only still readable now.
+	captureUndo()
 
 	serverPtr, err := windows.UTF16PtrFromString(server)
 	if err != nil {
@@ -116,6 +295,8 @@ func SetPAC(url string) error {
 	if url == "" {
 		return Clear()
 	}
+	// Before anything is written: see Set.
+	captureUndo()
 	pacPtr, err := windows.UTF16PtrFromString(url)
 	if err != nil {
 		return err
@@ -133,12 +314,23 @@ func SetPAC(url string) error {
 	return nil
 }
 
-// Clear disables the system proxy.
+// Clear hands the machine's proxy back: the recorded original when a takeover
+// is on record (see SetUndoFile), the DIRECT flag when there is nothing to put
+// back — a machine this app never took over, or one whose record went missing.
+// The restore path is what makes the exit honest: Clear used to write DIRECT
+// unconditionally, so one session with Eagle left a reader's corporate proxy
+// setting behind on direct for good.
 func Clear() error {
+	if restored, err := restoreUndo(); restored {
+		return err
+	}
 	opts := []perConnOption{
 		{dwOption: internetPerConnFlags, value: uintptr(proxyTypeDirect)},
 	}
-	if err := applyToAllConnections(opts); err != nil {
+	// Releasing, not setting: a connectoid left on this app's proxy because the
+	// LAN write failed is exactly the leftover the undo record exists to
+	// prevent (see applyToAllConnectionsReleasing).
+	if err := applyToAllConnectionsReleasing(opts); err != nil {
 		return err
 	}
 	// Written, not merely announced: see the note in Set.
@@ -147,41 +339,77 @@ func Clear() error {
 }
 
 // Current reports what Windows is configured to send requests through: whether the proxy
-// is enabled, and the server list it carries (empty when only a PAC script is set).
+// is enabled, the server list it carries (empty when only a PAC script is set) and the
+// PAC URL (empty when no script is configured).
+//
+// The PAC field is not decoration: a PAC takeover writes AutoConfigURL with
+// ProxyEnable off, so a reader that only asked "enabled + server" saw "no
+// proxy" over a machine still pointing at a script this app wrote — the
+// crash cleanup below skipped it and the PAC outlived the session.
 //
 // Read from the registry rather than through WinINet because the question is about the
 // stored setting — the one that survives a crash — not about what a running browser
 // currently holds.
-func Current() (enabled bool, server string, err error) {
+func Current() (enabled bool, server, pac string, err error) {
 	path, err := windows.UTF16PtrFromString(`Software\Microsoft\Windows\CurrentVersion\Internet Settings`)
 	if err != nil {
-		return false, "", err
+		return false, "", "", err
 	}
 	var key windows.Handle
 	if err := windows.RegOpenKeyEx(windows.HKEY_CURRENT_USER, path, 0, windows.KEY_READ, &key); err != nil {
-		return false, "", err
+		return false, "", "", err
 	}
 	defer func() { _ = windows.RegCloseKey(key) }()
 
 	name, _ := windows.UTF16PtrFromString("ProxyEnable")
 	var typ, size uint32 = 0, 4
 	var on uint32
-	if err := windows.RegQueryValueEx(key, name, nil, &typ, (*byte)(unsafe.Pointer(&on)), &size); err != nil {
-		return false, "", err
+	if err := windows.RegQueryValueEx(key, name, nil, &typ, (*byte)(unsafe.Pointer(&on)), &size); err == nil {
+		enabled = on != 0
 	}
-	enabled = on != 0
+	// Absent values read as "not set" rather than as an error: a machine that
+	// never had a server or a PAC configured answers every question here, and
+	// the callers only act on what is actually present.
+	server, _ = readRegString(key, "ProxyServer")
+	pac, _ = readRegString(key, "AutoConfigURL")
+	return enabled, server, pac, nil
+}
 
-	name, _ = windows.UTF16PtrFromString("ProxyServer")
-	typ, size = 0, 0
-	if err := windows.RegQueryValueEx(key, name, nil, &typ, nil, &size); err != nil {
-		// Enabled with no server is a state nothing can act on.
-		return enabled, "", nil
+// CurrentBypass reads the proxy bypass list (ProxyOverride) as stored. Empty
+// when the value is absent — the machine has no override list of its own.
+func CurrentBypass() (string, error) {
+	path, err := windows.UTF16PtrFromString(`Software\Microsoft\Windows\CurrentVersion\Internet Settings`)
+	if err != nil {
+		return "", err
+	}
+	var key windows.Handle
+	if err := windows.RegOpenKeyEx(windows.HKEY_CURRENT_USER, path, 0, windows.KEY_READ, &key); err != nil {
+		return "", err
+	}
+	defer func() { _ = windows.RegCloseKey(key) }()
+	return readRegString(key, "ProxyOverride")
+}
+
+// readRegString reads one REG_SZ value out of an open key. A missing value or a
+// value of the wrong type is an empty answer, not an error: the callers above
+// compare against strings and "absent" and "" mean the same to them.
+func readRegString(key windows.Handle, name string) (string, error) {
+	n, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return "", err
+	}
+	var typ, size uint32
+	if err := windows.RegQueryValueEx(key, n, nil, &typ, nil, &size); err != nil {
+		return "", err
+	}
+	if typ != windows.REG_SZ && typ != windows.REG_EXPAND_SZ {
+		return "", fmt.Errorf("sysproxy: %s is not a string value", name)
 	}
 	buf := make([]uint16, size/2+1)
-	if err := windows.RegQueryValueEx(key, name, nil, &typ, (*byte)(unsafe.Pointer(&buf[0])), &size); err != nil {
-		return enabled, "", err
+	if err := windows.RegQueryValueEx(key, n, nil, &typ, (*byte)(unsafe.Pointer(&buf[0])), &size); err != nil {
+		return "", err
 	}
-	return enabled, windows.UTF16ToString(buf), nil
+	return windows.UTF16ToString(buf), nil
 }
 
 // applyToAllConnections writes the options to the LAN connection first and then
@@ -194,8 +422,41 @@ func Current() (enabled bool, server string, err error) {
 // that still went direct. The connectoids are best-effort in the other direction — one
 // that refuses is not a reason to fail a setting the default connection took.
 func applyToAllConnections(opts []perConnOption) error {
-	lanErr := applyToConnection(nil, opts)
+	// The LAN write goes first and alone: if the default connection refused
+	// the options, the connectoids are left alone rather than written behind a
+	// failure. The old order wrote every RAS connection regardless and only
+	// then returned the LAN error — so a Set that reported failure had still
+	// put the app's proxy on the reader's VPN entries, and the caller's
+	// rollback (flag off, no Clear) left exactly that behind: the UI saying
+	// direct while the dial-up connection proxied.
+	if err := applyToConnection(nil, opts); err != nil {
+		return err
+	}
+	for _, name := range rasEntries() {
+		conn, err := windows.UTF16PtrFromString(name)
+		if err != nil {
+			continue
+		}
+		// Best-effort in this direction — one connectoid that refuses is not a
+		// reason to fail a setting the default connection took.
+		_ = applyToConnection(conn, opts)
+	}
+	return nil
+}
 
+// applyToAllConnectionsReleasing is the other direction: the same writes, but
+// the connectoids are written even when the LAN connection refuses.
+//
+// The two directions are not symmetric and must not share one rule. On a SET,
+// a LAN failure means nothing has been taken over yet, and writing the
+// connectoids behind that failure would leave the reader's VPN entries proxied
+// by a switch that reports "failed". On a CLEAR or a restore, the connectoids
+// are very likely still carrying this app's proxy from a Set that succeeded
+// earlier, and that Set wrote them too — skipping them here on a LAN error
+// left exactly the state the undo record exists to prevent: the UI saying
+// direct while the dial-up connection still went through the app.
+func applyToAllConnectionsReleasing(opts []perConnOption) error {
+	lanErr := applyToConnection(nil, opts)
 	for _, name := range rasEntries() {
 		conn, err := windows.UTF16PtrFromString(name)
 		if err != nil {

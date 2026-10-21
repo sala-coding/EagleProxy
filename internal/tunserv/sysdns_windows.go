@@ -29,6 +29,17 @@ type State struct {
 	// Resolvers asks for the machine's own resolvers to be pointed at the app's forwarder.
 	// Set while a node is running, in either mode, and cleared when it stops.
 	Resolvers bool `json:"resolvers"`
+	// Node asks for the adapter's own resolver to be pointed at the adapter, where
+	// the main core's hijack-dns answers with the profile's DNS.
+	//
+	// It is a fact of its own because the answer behind that address needs a node
+	// and the takeover on 53 does not: the adapter's resolver points at the core
+	// directly, so with the core gone every query the machine sends it waits out
+	// a timeout — a machine that cannot resolve a name at all, which is worse
+	// than the cleartext leak the resolver was there to prevent. So the adapter's
+	// resolver is written while a node is serving and taken away when there is
+	// none.
+	Node bool `json:"node"`
 }
 
 const (
