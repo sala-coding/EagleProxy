@@ -4,6 +4,7 @@
 // live rates and the run pill, the exit-details panel, the node search, the
 // batch and egress menus, the node chip and the run-state lamp.
 import {type Ref} from 'vue';
+import * as API from '../../wailsjs/go/main/App';
 import {t} from '../i18n';
 import {countryName, purityLevel, SPEED_RUNNING_KEYS} from '../lib/metrics';
 import {fmtRate} from '../lib/format';
@@ -51,7 +52,10 @@ const emit = defineEmits<{
     toggleEgress: [];
     setEgress: [mode: string];
     toggleInfo: [];
-    copied: [];
+    // The copy button reports whether the clipboard really took the address:
+    // the async API is unavailable on the app's custom scheme (see useLogs'
+    // copyLogs), so "done" is only known after the backend fallback answered.
+    copied: [ok: boolean];
     flagMissing: [];
     stopTest: [];
     stateEnter: [];
@@ -61,9 +65,24 @@ const emit = defineEmits<{
 // The exit panel's copy button: the clipboard write and the note ride one press,
 // so both live here rather than inline in the template (the template scope has
 // no navigator of its own).
-function copyIp() {
-    if (props.exitIp) void navigator.clipboard?.writeText(props.exitIp.ip);
-    emit('copied');
+async function copyIp() {
+    const text = props.exitIp?.ip ?? '';
+    if (!text) return;
+    // Same two-step the log panel pays (see useLogs.copyLogs): the async
+    // clipboard is refused outright on the custom scheme, and the backend's
+    // clipboard binding is the fallback — not an error. The empty answer that
+    // used to be reported as "copied" was a promise thrown away by `void`.
+    try {
+        await navigator.clipboard.writeText(text);
+        emit('copied', true);
+        return;
+    } catch { /* fall through to the backend */ }
+    try {
+        await API.WriteClipboard(text);
+        emit('copied', true);
+    } catch {
+        emit('copied', false);
+    }
 }
 
 // The search box's two jobs are told apart by what was pasted, not by a state

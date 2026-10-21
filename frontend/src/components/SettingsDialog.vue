@@ -280,10 +280,21 @@ const pickTheme = (i: number) => {
 // rounded rather than floored for the reason the type scale gives: the nearest cell is
 // the one being pointed at, and flooring would make a cell answer only over its
 // right-hand edge (see onScalePointer).
+//
+// The cell is clamped to the bar's own two ends. A drag that leaves the bar is the
+// ordinary way a pointer ends up outside it: the capture the press takes (see
+// onThemeDown) keeps the moves coming after the pointer has left, and the pointer
+// leaves whenever the reader drags past the end. Without the clamp the arithmetic
+// reaches past the list and picks out nothing at all, and taking a field off a
+// nothing is the one thing that cannot be recovered from — the whole window goes
+// down with it. The type scale's own arithmetic has the same shape and is safe for
+// the same reason: its value is clamped into the range (see scaleFromIndex).
 const onThemePointer = (e: PointerEvent, list: ThemeCell[]) => {
     const r = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
     if (r.width <= 0) return;
-    pickTheme(list[Math.round((e.clientX - r.left) / r.width * (list.length - 1))].i);
+    const at = Math.max(0, Math.min(list.length - 1,
+        Math.round((e.clientX - r.left) / r.width * (list.length - 1))));
+    pickTheme(list[at].i);
 };
 
 // The keyboard half: one cell per press, Home and End for the two ends. A bar whose
@@ -470,7 +481,7 @@ const checkInboundPort = async () => {
         // about, so the note can never be read as being about another number.
         const st = await API.CheckInboundPort(String(obj.value?.inbound_address ?? ''),
             Number(obj.value?.inbound_socks_port ?? 0));
-        const about = `（${st.address}:${st.port}）`;
+        const about = t('port.about', st.address, st.port);
         portOk.value = st.free || st.ours;
         portNote.value = st.free ? t('port.available') + about
             : st.ours ? t('port.ours') + about

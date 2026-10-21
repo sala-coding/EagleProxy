@@ -306,14 +306,18 @@ export type DnsServerRow = {
 };
 
 // The types a dns server can be, in the vocabulary the config builder reads addresses in (see
-// splitDNSAddress). A type chosen from here is one the core accepts.
-export const DNS_SERVER_TYPES = ['https', 'h3', 'h2', 'tls', 'quic', 'udp', 'tcp', 'local', 'fakeip'];
+// splitDNSAddress). A type chosen from here is one the core accepts — which `h2` is not: it is
+// xray's spelling, sing-box has only `https` (with HTTP/2 negotiated) and `h3`. Choosing it
+// used to be a config the core refuses to start on, because the forwarder rejected the
+// address, the builder fell back to writing the reader's own, and `{"type":"h2"}` took the
+// whole profile down with it.
+export const DNS_SERVER_TYPES = ['https', 'h3', 'tls', 'quic', 'udp', 'tcp', 'local', 'fakeip'];
 
 // The two that answer by themselves: they take no address, no path, no detour and nothing to
 // resolve their own name with.
 export const dnsTypeResolvesItself = (type: string) => type === 'local' || type === 'fakeip';
 // Only the HTTP-shaped ones have a path.
-export const dnsTypeUsesPath = (type: string) => type === 'https' || type === 'h3' || type === 'h2';
+export const dnsTypeUsesPath = (type: string) => type === 'https' || type === 'h3';
 
 // A server object as a row. The port rides inside the address, which is how the rest of this
 // card writes one, and an IPv6 host is bracketed on the way in: bracketed is the only way to

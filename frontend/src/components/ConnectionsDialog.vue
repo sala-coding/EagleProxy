@@ -118,9 +118,9 @@ const chainOf = (c: any) => Array.isArray(c.chains) ? c.chains.join(' ← ') : '
         <template #bar>
             <div class="conn-foot">
                 <div class="conn-total dim">
-                    <template v-if="showStat">上传 {{ fmtBytes(data?.uploadTotal ?? 0) }} · 下载 {{ fmtBytes(data?.downloadTotal ?? 0) }} · </template>共 {{ conns.length }} 条
+                    <template v-if="showStat">{{ t('traffic.upDown', fmtBytes(data?.uploadTotal ?? 0), fmtBytes(data?.downloadTotal ?? 0)) }} · </template>{{ t('conn.total', conns.length) }}
                 </div>
-                <button class="btn" @click="load">刷新</button>
+                <button class="btn" @click="load">{{ t('btn.refresh') }}</button>
             </div>
         </template>
         <div v-if="err" class="errline">{{ err }}</div>
@@ -157,7 +157,7 @@ const chainOf = (c: any) => Array.isArray(c.chains) ? c.chains.join(' ← ') : '
                     <span v-if="chainOf(c)" class="dim" :title="chainOf(c)">{{ chainOf(c) }}</span>
                 </div>
             </div>
-            <div v-if="conns.length === 0" class="conn-empty">暂无连接</div>
+            <div v-if="conns.length === 0" class="conn-empty">{{ t('conn.empty') }}</div>
         </div>
     </Modal>
 </template>

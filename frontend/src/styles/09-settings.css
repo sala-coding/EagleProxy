@@ -2141,111 +2141,127 @@
     color: var(--red);
 }
 
-/* The message window: the status bar's transient toasts no longer stand in the
-   bar — they arrive in their own little window, centred on the main window on
-   both axes (left/top 50% with a half-own-size translate back, so any width the
-   text needs still lands exactly on centre). The chrome is deliberately
-   window-like — a title strip with a state dot and a close — because the point
-   of the move is that the message reads as its own surface, not as a word
-   growing out of the bar. It stands above the dialogs (130) but under the
-   context menus (200+), the same seat a toast has always held. */
+/* The transient message. It used to be a small window — a title strip with a
+   state dot, monospace body text, centred on the main window on both axes —
+   which read as a dialog that had lost its buttons and sat over whatever the
+   reader was doing. Now it is one strip above the status bar, where results
+   already belong: the state is carried by a single tinted glyph, the words are
+   in the interface font, and the close button only appears under the pointer.
+   It stands above the dialogs (130) and under the context menus (200+). */
 .note-window {
     position: fixed;
     left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
+    bottom: calc(var(--status-h, 30px) + 14px);
+    transform: translateX(-50%);
     z-index: 150;
-    min-width: 220px;
-    max-width: min(460px, 78vw);
-    background: var(--bg-2);
-    border: 1px solid var(--line-strong);
-    border-radius: 10px;
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
-    overflow: hidden;
-    animation: noteWinPop .34s cubic-bezier(.2, 1.4, .4, 1) both;
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    max-width: min(520px, 82vw);
+    max-height: 40vh;
+    overflow: auto;
+    padding: 10px 8px 10px 11px;
+    background: color-mix(in srgb, var(--bg-2) 92%, var(--bg));
+    border: 1px solid color-mix(in srgb, var(--line-strong) 80%, transparent);
+    border-radius: 12px;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.34), 0 1px 2px rgba(0, 0, 0, 0.28);
+    animation: noteWinIn .2s ease-out both;
+}
+
+.note-window.err {
+    border-color: color-mix(in srgb, var(--red) 42%, var(--line-strong));
 }
 
 .note-window.leaving {
-    animation: noteWinFade .4s ease forwards;
+    animation: noteWinOut .26s ease forwards;
 }
 
-.note-window-head {
+/* The state, as one glyph in a tinted disc: a tick for a thing that landed,
+   an exclamation for one that did not. The words themselves stay in the text
+   colour — coloured prose at this size reads as shouting, and the hue here is
+   the whole of the difference between the two kinds. */
+.note-window-icon {
+    flex: none;
+    width: 17px;
+    height: 17px;
+    margin-top: 1px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
-    gap: 7px;
-    padding: 6px 8px 6px 12px;
-    background: var(--bg-3);
-    border-bottom: 1px solid var(--line);
-    font-size: .6875rem;
-    font-family: var(--font-mono);
-    color: var(--text-dim);
-    user-select: none;
-}
-
-.note-window-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--green);
-    flex: none;
-}
-
-.note-window-dot.err {
-    background: var(--red);
-}
-
-.note-window-title {
-    flex: 1;
-    letter-spacing: .04em;
-}
-
-.note-window-close {
-    border: 0;
-    background: none;
-    color: var(--text-dim);
-    font-size: .75rem;
+    justify-content: center;
+    font-size: .625rem;
+    font-weight: 700;
+    font-style: normal;
     line-height: 1;
-    padding: 2px 6px;
-    border-radius: 4px;
+    color: var(--green);
+    background: color-mix(in srgb, var(--green) 16%, transparent);
+}
+
+.note-window.err .note-window-icon {
+    color: var(--red);
+    background: color-mix(in srgb, var(--red) 16%, transparent);
+}
+
+.note-window-body {
+    font-size: .8125rem;
+    line-height: 1.5;
+    color: var(--text);
+    word-break: break-word;
+    white-space: pre-wrap;
+    padding-top: 1px;
+}
+
+/* The close sits in the corner and is invisible until the strip is hovered or
+   the button itself is focused: a toast that has to be dismissed by hand is
+   the exception, and a permanent ✕ makes every message look like it needs
+   one. */
+.note-window-close {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: .6875rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
+    opacity: 0;
+    transition: opacity .12s ease, background .12s ease, color .12s ease;
+}
+
+.note-window:hover .note-window-close,
+.note-window-close:focus-visible {
+    opacity: 1;
 }
 
 .note-window-close:hover {
     color: var(--text);
-    background: var(--line);
+    background: color-mix(in srgb, var(--line) 70%, transparent);
 }
 
-.note-window-body {
-    padding: 14px 16px 15px;
-    font-size: .8125rem;
-    font-family: var(--font-mono);
-    color: var(--green);
-    line-height: 1.55;
-    word-break: break-word;
-    white-space: pre-wrap;
-}
-
-.note-window.err .note-window-body {
-    color: var(--red);
-}
-
-/* The window arrives from slightly smaller and a touch low — the same settle
-   the dialog mask's children use — and leaves by thinning out in place, the
-   way the bar's own note always left. */
-@keyframes noteWinPop {
-    0% {
+/* It rises the last few pixels into place and leaves by sinking back out —
+   short, small, and without the bounce the window version had: a toast that
+   springs is a toast the eye is pulled to after it has already been read. */
+@keyframes noteWinIn {
+    from {
         opacity: 0;
-        transform: translate(-50%, -50%) scale(.92);
+        transform: translateX(-50%) translateY(10px) scale(.98);
     }
-    100% {
+    to {
         opacity: 1;
-        transform: translate(-50%, -50%) scale(1);
+        transform: translateX(-50%) translateY(0) scale(1);
     }
 }
 
-@keyframes noteWinFade {
+@keyframes noteWinOut {
     to {
         opacity: 0;
+        transform: translateX(-50%) translateY(6px);
     }
 }
 

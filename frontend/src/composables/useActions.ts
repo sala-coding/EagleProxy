@@ -411,13 +411,26 @@ export function useActions(deps: AppActionsDeps) {
     // Two-step confirmation on the row's own delete button: the first click arms
     // it, the second one within four seconds removes the subscription. Same pattern
     // as the node list's rows.
+    //
+    // One timer at a time, and the handle kept: the timer was never stored, so a
+    // second press on another row left the first one running, and the one that
+    // fired first cleared a confirmation the reader had just been given. The
+    // handle is handed out so the window can cancel it on the way out (see
+    // App.vue's onBeforeUnmount).
+    const gConfirmTimer: {current: number | null} = {current: null};
     const deleteGroup = async (targetGid: number) => {
         if (deps.gConfirm.value !== targetGid) {
             deps.gConfirm.value = targetGid;
-            window.setTimeout(() => {
+            if (gConfirmTimer.current !== null) window.clearTimeout(gConfirmTimer.current);
+            gConfirmTimer.current = window.setTimeout(() => {
+                gConfirmTimer.current = null;
                 if (deps.gConfirm.value === targetGid) deps.gConfirm.value = null;
             }, 4000);
             return;
+        }
+        if (gConfirmTimer.current !== null) {
+            window.clearTimeout(gConfirmTimer.current);
+            gConfirmTimer.current = null;
         }
         deps.gConfirm.value = null;
         try {
@@ -425,7 +438,15 @@ export function useActions(deps: AppActionsDeps) {
             const gs = await reload();
             // deleting the active group switches to another one
             const want = gs.some(x => x.id === deps.gid.value) ? deps.gid.value : (gs.length > 0 ? gs[0].id : -1);
-            await loadProfiles(want);
+            if (want < 0) {
+                // ListProfiles(-1) means "every group" to the backend. With no
+                // group left there is nothing to show, and an all-groups list
+                // under a "no group" tab is a table of orphans.
+                deps.gid.value = -1;
+                deps.profiles.value = [];
+            } else {
+                await loadProfiles(want);
+            }
             deps.notify(tip('group.deleted'));
         } catch (e) {
             deps.notify(errText(e), 'err');
@@ -509,7 +530,13 @@ export function useActions(deps: AppActionsDeps) {
         // or a start the reader asked for while this one was still in flight — ran a
         // second stop/start pair, and whichever finished first took the flag down,
         // releasing a guard the other was still holding.
-        if (deps.busyRef.value) return;
+        if (deps.busyRef.value) {
+            // Said rather than dropped: the card has already lit the new mode
+            // (see pickRouteCard), and a press that silently did nothing read
+            // as a broken card.
+            deps.notify(t('egress.busy'), 'err');
+            return;
+        }
         deps.setBusy(true);
         try {
             const s: any = await API.GetSettings();
@@ -752,7 +779,7 @@ export function useActions(deps: AppActionsDeps) {
         // for the life of the window.
         img.onerror = () => {
             URL.revokeObjectURL(url);
-            deps.scanErr.value = '图片无法解码，请换一张';
+            deps.scanErr.value = t('qr.decodeFailed');
         };
         img.onload = () => {
             const canvas = document.createElement('canvas');
@@ -767,7 +794,7 @@ export function useActions(deps: AppActionsDeps) {
                     deps.importText.value = deps.importText.value ? deps.importText.value + '\n' + code.data : code.data;
                     deps.scanErr.value = '';
                 } else {
-                    deps.scanErr.value = '未能识别出二维码';
+                    deps.scanErr.value = t('qr.notFound');
                 }
             }
             URL.revokeObjectURL(url);
@@ -803,7 +830,7 @@ export function useActions(deps: AppActionsDeps) {
 
     return {loadProfiles, reload, reloadQuiet, profileLoadSeq, selectGroup, hoverSwitch, hoverTimer,
         start, stop, switchTo, resetMetrics, runBatch, stopSpeedtest, speedTest,
-        updateSub, deleteGroup, toggleSP, setEgressMode,
+        updateSub, deleteGroup, gConfirmTimer, toggleSP, setEgressMode,
         addProfile, editProfile, cloneProfile, deleteProfile, copyLink,
         doImport, importFromClipboard, doPreview, addSubFromSearch, moveTo,
         showQR, showUrlQR, exportConfig, scanImage, openConns};

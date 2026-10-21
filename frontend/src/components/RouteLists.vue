@@ -50,7 +50,7 @@ const countryVals = (key: string, c: {domain?: string[]; ip?: string[]}): string
                     <template v-for="c in COUNTRY_PRESETS" :key="c.code">
                         <button v-if="countryVals(key, c).length > 0"
                                 type="button" class="rt-preset rt-flag"
-                                :title="`${countryName(c.code.toUpperCase())}：${countryVals(key, c).join('、')}`"
+                                :title="t('routing.presetTip', countryName(c.code.toUpperCase()), countryVals(key, c).join(', '))"
                                 @click="countryVals(key, c).forEach(v => emit('preset', key, v))">
                             <Flag :iso="c.code.toUpperCase()"/>
                         </button>

@@ -1,5 +1,10 @@
+import {t} from "../i18n";
 import {fmtBytes} from "./format";
 
+// The last two are translation keys rather than names — every other protocol's
+// name is the same in every language, and these two are words. Callers pass the
+// label through t(), which answers a key that names nothing with itself, so the
+// literal names above are unaffected.
 export const PROTOCOLS = [
     {id: 'socks', label: 'SOCKS'},
     {id: 'http', label: 'HTTP(S)'},
@@ -11,15 +16,15 @@ export const PROTOCOLS = [
     {id: 'anytls', label: 'AnyTLS'},
     {id: 'tuic', label: 'TUIC'},
     {id: 'naive', label: 'NaïveProxy'},
-    {id: 'custom', label: '自定义'},
-    {id: 'chain', label: '链路'},
+    {id: 'custom', label: 'proto.custom'},
+    {id: 'chain', label: 'proto.chain'},
 ];
 
 export type Dict = Record<string, unknown>;
 
 export function latencyText(v: number): string {
     if (v > 0) return `${v} ms`;
-    if (v < 0) return '不可用';
+    if (v < 0) return t('metrics.unavailable');
     return '-';
 }
 
@@ -49,11 +54,11 @@ export function speedText(v: number): string {
     return `${v.toFixed(2)} MB/s`;
 }
 
-// speedCell renders the speed column: the rate, 不可用 for a failed measurement,
-// or "-" when the profile was never speed tested.
+// speedCell renders the speed column: the rate, the "unavailable" word for a
+// failed measurement, or "-" when the profile was never speed tested.
 export function speedCell(v: number): string {
     if (v > 0) return speedText(v);
-    if (v < 0) return '不可用';
+    if (v < 0) return t('metrics.unavailable');
     return '-';
 }
 

@@ -4,6 +4,7 @@
 // error thrown while rendering the slot, shows the crash screen, and offers a
 // retry that clears the captured error and re-renders.
 import {onErrorCaptured, ref} from 'vue'
+import {t} from './i18n'
 
 const error = ref<Error | null>(null)
 
@@ -20,9 +21,9 @@ onErrorCaptured((err: Error) => {
 
 <template>
   <div v-if="error" class="crash">
-    <h2>界面渲染出错</h2>
+    <h2>{{ t('crash.title') }}</h2>
     <pre>{{ String(error.stack || error) }}</pre>
-    <button class="btn" @click="error = null">重试</button>
+    <button class="btn" @click="error = null">{{ t('crash.retry') }}</button>
   </div>
   <slot v-else/>
 </template>

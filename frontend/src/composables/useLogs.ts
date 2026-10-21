@@ -1,7 +1,7 @@
 // The log panel, extracted from App.tsx: the stream state, the merge and the two
 // filters, the follow-the-end scrolling, the batching of the live stream, and the
 // panel's own actions (clear / copy / save-as-route / export / open).
-import {computed, ref, watch} from 'vue';
+import {computed, onScopeDispose, ref, watch} from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import {setting} from '../../wailsjs/go/models';
 import {t} from '../i18n';
@@ -125,7 +125,7 @@ export function useLogs(notify: Notify) {
     const catLive = ref<Record<string, boolean>>({});
     const catLiveTimers: Record<string, number> = {};
     const prevLogLen = {current: 0};
-    watch(mergedLogs, (merged, _, onCleanup) => {
+    watch(mergedLogs, (merged) => {
         const prev = prevLogLen.current;
         prevLogLen.current = merged.length;
         // A shrink is a clear or a restart: nothing is fresh any more.
@@ -154,9 +154,19 @@ export function useLogs(notify: Notify) {
                 if (catLive.value[c]) catLive.value = {...catLive.value, [c]: false};
             }, 1500);
         }
-        onCleanup(() => {
-            for (const t of Object.values(catLiveTimers)) clearTimeout(t);
-        });
+    });
+    // The breaths are per category, and each one runs its own course: a
+    // category whose lines stopped goes still on its own timer, whatever the
+    // other categories are doing.
+    //
+    // They used to be cleared by the watcher's own cleanup, which runs before
+    // the watcher's next turn — and that turn is about a different batch. The
+    // timer that would have put a dot out was thrown away with it, so the
+    // category's dot stayed lit for good: with two categories streaming at
+    // once — the core's lines and a speed test's — one of them could never go
+    // still. The timers are cleared here instead, when the scope ends.
+    onScopeDispose(() => {
+        for (const t of Object.values(catLiveTimers)) clearTimeout(t);
     });
 
     // context menu over the log content; clearing lives here rather than on a

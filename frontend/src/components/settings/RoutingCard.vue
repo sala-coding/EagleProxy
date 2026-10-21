@@ -152,7 +152,7 @@ const onAppend = (k: string, v: string) => emit('append', k, v);
         <template v-if="focus === 'block'">
             <div class="hint">{{ t('routing.blockHint') }}</div>
             <RouteLists :form="form" :keys="['block_domain', 'block_ip']"
-                        @edit="onEdit" @append="onAppend"/>
+                        @edit="onEdit" @preset="onAppend"/>
         </template>
         <template v-else-if="focus === 'rule'">
             <!-- One field where there were four: the three DNS cells
@@ -173,7 +173,7 @@ const onAppend = (k: string, v: string) => emit('append', k, v);
             </div>
             <RouteLists :form="form"
                         :keys="['direct_domain', 'direct_ip', 'proxy_domain', 'proxy_ip']"
-                        @edit="onEdit" @append="onAppend"/>
+                        @edit="onEdit" @preset="onAppend"/>
             <!-- Whitelist mode makes the direct lists redundant as
                 connection rules — anything they match is already
                 going where the fallback sends it — but not as DNS
@@ -188,7 +188,7 @@ const onAppend = (k: string, v: string) => emit('append', k, v);
             <details class="rt-adv">
                 <summary>{{ t('routing.advanced') }}</summary>
                 <RouteLists :form="form" :keys="['custom']" mono
-                            @edit="onEdit" @append="onAppend"/>
+                            @edit="onEdit" @preset="onAppend"/>
                 <div class="rt-note">{{ t('routing.customHint') }}</div>
             </details>
         </template>

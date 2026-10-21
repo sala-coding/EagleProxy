@@ -8,10 +8,11 @@ import {CONSOLE_MAX_SHARE, CONSOLE_MIN_H} from '../lib/layout';
 import {LOG_CATEGORIES, LOG_FILTERS, LOG_LEVELS, lineLevelOf, sectionText, splitStamp, type ShownLine} from '../lib/logfilter';
 import {CopyFilled, Delete3Filled, LayoutBottomCloseFilled, PauseFilled, PlayFilled} from '../lib/icons';
 
-// The aria-valuemax of the grip: the window's own answer, sampled when the
-// panel mounts (the React version re-sampled it on every render; the panel
-// remounts on each open, which is the same moment).
-const maxConsoleH = Math.round(window.innerHeight * CONSOLE_MAX_SHARE);
+// The aria-valuemax of the grip: the window's own answer, read per render
+// rather than once at mount. The panel is not remounted when the window is
+// resized, so a sampled value went stale — a reader with a screen reader was
+// told a maximum that no longer bounded anything.
+const maxConsoleH = () => Math.round(window.innerHeight * CONSOLE_MAX_SHARE);
 
 const props = defineProps<{
     consoleH: number | null;
@@ -83,7 +84,7 @@ const views = computed(() => props.shownLogs.map(l => {
              :aria-label="t('log.resize')"
              :aria-valuenow="consoleNow"
              :aria-valuemin="CONSOLE_MIN_H"
-             :aria-valuemax="maxConsoleH"
+             :aria-valuemax="maxConsoleH()"
              tabindex="0"
              @pointerdown="emit('gripDown', $event)"
              @pointermove="emit('gripMove', $event)"

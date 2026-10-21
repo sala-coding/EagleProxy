@@ -318,7 +318,7 @@ const swallowCtx = (e: MouseEvent) => {
                                             <Refresh1Filled class="ic"/>
                                         </button>
                                         <button :class="`sub-act danger${gConfirm === d.g.id ? ' solid' : ''}`"
-                                                :title="gConfirm === d.g.id ? '确认删除' : t('btn.delete')"
+                                                :title="gConfirm === d.g.id ? t('btn.confirmDelete') : t('btn.delete')"
                                                 :aria-label="t('btn.delete')"
                                                 @click.stop="emit('deleteGroup', d.g.id)">
                                             <CloseCircleFilled v-if="gConfirm === d.g.id" class="ic"/>

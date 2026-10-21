@@ -4,6 +4,7 @@
 // re-renders only when one of its own props changes, so the traffic poll's
 // array rewrites touch the running row alone.
 import {main} from '../../wailsjs/go/models';
+import {t} from '../i18n';
 import {hueFor, latencyClass, latencyText, isLowLatency, speedCell, trafficCell} from '../lib/metrics';
 import {fmtBytes} from '../lib/format';
 import NodeName from '../components/NodeName.vue';
@@ -56,7 +57,7 @@ const rowClass = () => [props.selected ? 'selected' : '', props.running ? 'runni
         </td>
         <td class="speed" :title="p.report || ''">{{ speedCell(p.speed) }}</td>
         <td class="ptraffic"
-            :title="p.up || p.down ? `上传 ${fmtBytes(p.up)} · 下载 ${fmtBytes(p.down)}` : ''">
+            :title="p.up || p.down ? t('traffic.upDown', fmtBytes(p.up), fmtBytes(p.down)) : ''">
             {{ trafficCell(p.up, p.down) }}
         </td>
         <td class="pgroup">{{ p.group || '-' }}</td>

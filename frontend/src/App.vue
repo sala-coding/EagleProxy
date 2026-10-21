@@ -176,27 +176,34 @@ const {exitIP, exitTick, flagMissing, infoOpen, infoRef, nodeIpRef} = E;
 // The window's type scale. 0 is not a size: it is "not written down and not
 // yet read from the system", and the effect below resolves it once — to the
 // system's own text size, so a fresh install opens at the size the machine
-// already chose, not at this app's guess of it — and from then on the value
-// in localStorage is the one the reader set, which is kept as it is.
+// already chose, not at this app's guess of it.
 const savedScale = Number(window.localStorage.getItem('ui-scale'));
 const uiScale = ref(savedScale >= UI_SCALE_MIN && savedScale <= UI_SCALE_MAX ? savedScale : 0);
-// The system's answer, held so the slider's double-click "default" can mean
-// the same thing this session's first run meant: the machine's own size.
+// The machine's own text size, asked for once per launch. It is the default the
+// slider's double-click goes back to, so it is asked for whether or not the
+// reader has a size of their own: asked only when there was none, it stayed at
+// 1 from the second launch on, and "back to default" meant 100% for good — and
+// the app stopped following the machine when the machine's size changed.
 const sysScale = ref(1);
+const sysAnswered = API.SystemFontScale()
+    .then(v => {
+        sysScale.value = v > 0 ? clampScale(v) : 1;
+        // A size equal to the machine's is the machine's, and it is not kept
+        // as the reader's choice: the window would be pinned to a size the
+        // machine has since moved away from, and the reader never picked it.
+        const stored = Number(window.localStorage.getItem('ui-scale'));
+        if (stored >= UI_SCALE_MIN && stored <= UI_SCALE_MAX && Math.abs(stored - sysScale.value) < 1e-6) {
+            window.localStorage.removeItem('ui-scale');
+        }
+    })
+    .catch(() => { sysScale.value = 1; });
 watch(uiScale, scale => {
     if (scale === 0) {
-        API.SystemFontScale().then(v => {
-            const sys = v > 0 ? clampScale(v) : 1;
-            uiScale.value = sys;
-            sysScale.value = sys;
-        }).catch(() => {
-            uiScale.value = 1;
-            sysScale.value = 1;
-        });
+        // Not a size yet: take the machine's own, once it has answered.
+        void sysAnswered.then(() => { uiScale.value = sysScale.value; });
         return;
     }
     document.documentElement.style.setProperty('--ui-scale', String(scale));
-    window.localStorage.setItem('ui-scale', String(scale));
 }, {immediate: true});
 
 // The language tick: t() reads a module-level table, which Vue's reactivity cannot
@@ -247,7 +254,16 @@ watch(settingsOpen, s => {
     infoOpen.value = false;
     aboutOpen.value = false;
     importOpen.value = false;
-    editor.value = null;
+    // The node editor is not closed, it is taken away: the modal's own close
+    // event does not fire, so the editor's discard — which takes back the node
+    // that was created for it — never ran, and an empty node stayed in the
+    // list. The reader who pressed "new" and then opened the settings left
+    // behind the shell of a node they never filled in.
+    if (editor.value) {
+        const pending = editor.value;
+        editor.value = null;
+        void Promise.resolve(pending.onDiscard?.()).catch(e => notify(errText(e), 'err'));
+    }
     previewOpen.value = false;
     qrOpen.value = false;
     moveOpen.value = false;
@@ -299,15 +315,27 @@ const testingMode = ref(0);
 const testProgress = ref<{ done: number; total: number }>({done: 0, total: 0});
 const traffic = ref<{ up: number; down: number; upRate: number; downRate: number; count: number }>({up: 0, down: 0, upRate: 0, downRate: 0, count: 0});
 
-// result sorting: click 延迟/速度 once for descending (worst/fastest on top,
-// matching the sort arrow), again for ascending, a third time returns to
-// the natural order
+// Result sorting: the first press on a column puts the better value on top — the
+// lowest latency and the highest speed — the second press turns it over, and a
+// third returns the list to its natural order. The arrow over the column's name
+// says which way it is: ▲ for the ascending order, ▼ for the descending one.
+//
+// The two columns lean on opposite directions on purpose, and it is the same
+// reason the speed test leans on them (see useActions.speedTest): a low latency
+// and a high speed are both "better", so each column is read with its best
+// values on top. A speed column sorted the other way would put the slowest node
+// in the first row, which is the one row the reader is looking at.
 const sort = ref<{ key: 'latency' | 'speed'; dir: 1 | -1 } | null>(null);
+
+// The direction each column's first press sorts in: latency ascending (the
+// lowest first), speed descending (the highest first).
+const FIRST_SORT_DIR: Record<'latency' | 'speed', 1 | -1> = {latency: 1, speed: -1};
 
 const toggleSort = (key: 'latency' | 'speed') => {
     const cur = sort.value;
-    if (!cur || cur.key !== key) sort.value = {key, dir: 1};
-    else if (cur.dir === 1) sort.value = {key, dir: -1};
+    const first = FIRST_SORT_DIR[key];
+    if (!cur || cur.key !== key) sort.value = {key, dir: first};
+    else if (cur.dir === first) sort.value = {key, dir: first === 1 ? -1 : 1};
     else sort.value = null;
 };
 
@@ -333,7 +361,7 @@ const A = useActions({
 const {
     loadProfiles, reload, reloadQuiet, profileLoadSeq, selectGroup, hoverSwitch, hoverTimer,
     start, stop, switchTo, resetMetrics, runBatch, stopSpeedtest, speedTest,
-    updateSub, deleteGroup, toggleSP, setEgressMode,
+    updateSub, deleteGroup, gConfirmTimer, toggleSP, setEgressMode,
     addProfile, editProfile, cloneProfile, deleteProfile, copyLink,
     doImport, importFromClipboard, doPreview, addSubFromSearch, moveTo,
     showQR, showUrlQR, exportConfig, scanImage, openConns,
@@ -502,7 +530,19 @@ const setDnsLatency = (v: Record<string, number> | ((prev: Record<string, number
     dnsLatency.value = typeof v === 'function' ? v(dnsLatency.value) : v;
 };
 const setUiScale = (v: number | ((prev: number) => number)) => {
-    uiScale.value = typeof v === 'function' ? v(uiScale.value) : v;
+    const next = typeof v === 'function' ? v(uiScale.value) : v;
+    uiScale.value = next;
+    // Only a size of the reader's own is written down. The machine's own size
+    // is a default and not a choice: writing it down made the slider's "back
+    // to default" mean 100% from the second launch on, and the app stopped
+    // following the machine when the machine's size changed. So a size equal
+    // to the machine's is not stored at all — the machine is asked again next
+    // time, which is what "back to default" is asking for.
+    if (Math.abs(next - sysScale.value) < 1e-6) {
+        window.localStorage.removeItem('ui-scale');
+        return;
+    }
+    window.localStorage.setItem('ui-scale', String(next));
 };
 const setTheme = (v: string | ((prev: string) => string)) => {
     theme.value = typeof v === 'function' ? v(theme.value) : v;
@@ -937,7 +977,7 @@ const submenus = computed<Record<string, { items: { key: string; label: string; 
     new: {
         items: PROTOCOLS.map(p => ({
             key: p.id,
-            label: p.label,
+            label: t(p.label),
             run: () => addProfile(p.id),
         })),
     },
@@ -1100,12 +1140,14 @@ onMounted(() => {
                 ? (gs.some(x => x.id === remembered) ? remembered : gs[0].id)
                 : -1;
             gid.value = first;
-            profiles.value = await API.ListProfiles(first);
+            // -1 is the backend's "every group"; with no group at all the table
+            // stays empty rather than listing profiles nothing owns.
+            profiles.value = first < 0 ? [] : await API.ListProfiles(first);
             const rp = await API.RunningProfile();
             applyRunning(rp);
             logs.value = ((await API.GetLogs()) ?? []).map(l => ({line: l, cat: 'core'}));
             const logDir = await API.GetLogDir();
-            if (logDir) logs.value = [...logs.value, {line: `${nowStamp()} >>> 日志目录: ${logDir}`, cat: 'core'}];
+            if (logDir) logs.value = [...logs.value, {line: `${nowStamp()} >>> ${t('log.dirLine')}: ${logDir}`, cat: 'core'}];
             spMode.value = await API.GetSPMode() as { vpn: boolean; systemProxy: boolean };
             await syncUi();
         } catch (e) { console.error('startup bootstrap failed:', e); }
@@ -1274,9 +1316,12 @@ onBeforeUnmount(() => {
     flushPendingLogs();
 });
 
-// The pending hover switch must not fire after the component is gone.
+// The pending hover switch must not fire after the component is gone, and neither
+// must the delete confirmation: it would clear a confirmation the reader is no
+// longer looking at.
 onBeforeUnmount(() => {
     if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current);
+    if (gConfirmTimer.current !== null) window.clearTimeout(gConfirmTimer.current);
 });
 
 </script>
@@ -1465,29 +1510,26 @@ onBeforeUnmount(() => {
                     @toggle-egress="egressOpen = !egressOpen"
                     @set-egress="m => setEgressMode(m)"
                     @toggle-info="infoOpen = !infoOpen"
-                    @copied="notify(tip('copied'))"
+                    @copied="ok => notify(tip(ok ? 'copied' : 'log.copyFailed'), ok ? 'ok' : 'err')"
                     @flag-missing="flagMissing = true"
                     @stop-test="stopSpeedtest"
                     @state-enter="showStatusNote(isRunning ? tip('core.running') : tip('core.stopped'))"
                     @state-leave="hideStatusNote"/>
 
-        <!-- The message window: every transient toast the app has to say, in its
-            own little window rather than the status bar's text slot. It is
-            centred on the main window on both axes — the one place the reader
-            is already looking — and carries its own title strip and close, so
-            it reads as a window rather than as a toast bolted to the bar. The
-            bar keeps the quiet words: hover hints and a wait in progress. -->
-        <div v-if="statusNote && statusNote.mode === 'window'" :key="statusNote.seq" role="alertdialog" aria-live="polite"
+        <!-- The transient message: one strip above the status bar, the state
+            carried by a glyph and the words in the interface font (see the
+            note-window rules). It used to be a centred mini-window with a
+            title strip, which read as a dialog missing its buttons. The bar
+            keeps the quiet words: hover hints and a wait in progress. -->
+        <div v-if="statusNote && statusNote.mode === 'window'" :key="statusNote.seq"
+             role="status" aria-live="polite"
              :class="`note-window${statusNote.leaving ? ' leaving' : ''}${statusNote.kind === 'err' ? ' err' : ''}`">
-            <div class="note-window-head">
-                <i :class="`note-window-dot${statusNote.kind === 'err' ? ' err' : ''}`"/>
-                <span class="note-window-title">{{ t('status.noteTitle') }}</span>
-                <button class="note-window-close"
-                        :title="t('btn.close')"
-                        :aria-label="t('btn.close')"
-                        @click="hideStatusNote">✕</button>
-            </div>
+            <i class="note-window-icon" aria-hidden="true">{{ statusNote.kind === 'err' ? '!' : '✓' }}</i>
             <div class="note-window-body">{{ statusNote.text }}</div>
+            <button class="note-window-close"
+                    :title="t('btn.close')"
+                    :aria-label="t('btn.close')"
+                    @click="hideStatusNote">✕</button>
         </div>
 
         <div v-if="ctx" class="ctxmenu"
@@ -1666,9 +1708,9 @@ onBeforeUnmount(() => {
                            }"/>
                 </label>
                 <button class="btn ghost" @click="importFromClipboard">{{ t('btn.readClipboard') }}</button>
-                <button class="btn ghost" @click="importOpen = false">取消</button>
+                <button class="btn ghost" @click="importOpen = false">{{ t('btn.cancel') }}</button>
                 <button class="btn primary" :disabled="!importText.trim()"
-                        @click="doImport">导入到「{{ groups.find(g => g.id === gid)?.name ?? '' }}」
+                        @click="doImport">{{ t('import.into', groups.find(g => g.id === gid)?.name ?? '') }}
                 </button>
             </div>
         </Modal>
