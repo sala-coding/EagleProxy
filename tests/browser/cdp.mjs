@@ -33,12 +33,16 @@ const COLLECTOR = `
 (() => {
   if (window.__err) return;
   // The app remembers a chosen language in localStorage (settings-meta.ts,
-  // startLanguage / rememberLanguage) and wears it at the next start-up. That
-  // is the app working as designed, but it makes the harness non-deterministic
-  // once a probe has switched the language, so the mark is cleared before the
-  // app's own code runs. The other keys (ui-scale, custom-palette) are left
-  // alone: they are the state the probes are about.
-  try { localStorage.removeItem('lang-chosen'); } catch (e) {}
+  // startLanguage / rememberLanguage) and wears it at the next start-up. Left
+  // alone, that makes the harness non-deterministic twice over: a probe that
+  // switches the language is carried into the next page, and a runner whose
+  // system language is English starts the app in English — where the probes,
+  // which look controls up by their Chinese labels, find nothing and report
+  // an app that is fine as broken. The mark is therefore pinned to Chinese
+  // before the app's own code runs. (0 is the file's number for it; see
+  // LANGUAGES in settings-meta.ts.) The other keys (ui-scale, custom-palette)
+  // are left alone: they are the state the probes are about.
+  try { localStorage.setItem('lang-chosen', '0'); } catch (e) {}
   window.__err = [];
   const push = (kind, text, extra) => {
     try {
