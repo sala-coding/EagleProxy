@@ -216,21 +216,42 @@ async function main() {
         // the application's own page.
         const mock = fs.readFileSync(path.join(HERE, 'mock-bridge.js'), 'utf8');
         await s.send('Page.addScriptToEvaluateOnNewDocument', {source: mock});
+        // What the current document is, before the navigation. Page.navigate
+        // answers before the new document commits, so a poll that only asks
+        // "is the app painted" is answered by the document that is about to be
+        // replaced — and a probe started then loses its elements halfway
+        // through, as an intermittent "element not found" that looks like an
+        // app fault. performance.timeOrigin is per document: waiting for it to
+        // change is waiting for the new one, not for either of them to look
+        // ready.
+        const before = await s.evaluate(`(() => {
+            const app = document.getElementById('app');
+            return {origin: performance.timeOrigin, painted: !!(app && app.children.length)};
+        })()`);
         await s.send('Page.navigate', {url});
         // Wait for the app to have painted something, not merely for the load
         // event: the app fetches its word table and paints after that.
         const deadline = Date.now() + 30000;
         let ready = false;
         while (Date.now() < deadline) {
-            await sleep(250);
+            await sleep(150);
             try {
                 const v = await s.evaluate(`(() => {
                     const app = document.getElementById('app');
-                    return !!(app && app.children.length) && !!document.querySelector('.app, .navrail, .nav-rail, [class*=rail]');
+                    return {
+                        origin: performance.timeOrigin,
+                        state: document.readyState,
+                        painted: !!(app && app.children.length && document.querySelector('.app')),
+                    };
                 })()`);
-                if (v) { ready = true; break; }
+                const fresh = !before || v.origin !== before.origin;
+                if (fresh && v.state === 'complete' && v.painted) { ready = true; break; }
             } catch (e) { /* page still swapping documents */ }
         }
+        // The first frames after a paint are still the app settling: the mock
+        // answers synchronously, but the layout that follows the settings read
+        // lands on the next frame.
+        if (ready) await sleep(250);
         console.log(JSON.stringify({ready, url}, null, 2));
     } else if (cmd === 'run') {
         const file = process.argv[3];
