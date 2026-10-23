@@ -185,20 +185,6 @@ export const startLanguage = (fileCode: unknown): number => {
 // is the front end's own note that it has been given a value on purpose.
 export const rememberLanguage = (code: number) => localStorage.setItem('lang-chosen', String(code));
 
-// The groups whose fields share lines instead of taking a row each, and how many to a
-// line. Only groups made entirely of short values belong here: a card of paths or long
-// lists reads worse in columns, because each control ends up narrower than the thing it
-// holds. These were rows of values a couple of characters wide stretched across the
-// width of a window-sized sheet — the tests card, two URLs and three small numbers; the
-// hotkeys card, twelve key combinations, which one to a row read as twelve fields to
-// fill in rather than as the set of keys it is; the subscription card, three switches
-// and an interval, which as rows took four lines of a dialog to say four booleans.
-export const GROUP_COLS: Record<string, number> = {
-    'settings.group.test': 3,
-    'settings.group.hotkeys': 4,
-    'settings.group.subs': 4,
-};
-
 // The one control in a card of short values that is not short: it keeps the whole row
 // under the cells rather than being squeezed into one of them. A textarea folded into a
 // quarter of the dialog is a column of wrapped half-lines.

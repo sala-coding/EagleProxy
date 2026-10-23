@@ -468,11 +468,20 @@ export function roundChoice(side: Side, route: any, round: Round): PickWin | nul
     if (route.dns_smart_select) return win;
     if (!route.dns_smart_switch) return null;
     const current = side === 'remote' ? route.remote_dns : route.direct_dns;
-    const nowMs = round.latency[current] ?? 0;
-    // Nothing measured about what is in the field — a resolver that answered nothing, or one
-    // that was never asked — is not evidence that it is slow, and this is not the place to
-    // guess.
-    if (nowMs <= 0 || nowMs < SMART_SWITCH_AT_MS) return null;
+    const nowMs = round.latency[current];
+    // Three readings, three meanings, and they used to be two:
+    //   -1  measured, and it did not answer — the resolver is broken, which is
+    //       the one thing 智能切换 exists to notice; any working winner beats it.
+    //   undefined / 0  never asked, or asked and nothing came back to record —
+    //       no evidence either way, and not a reason to move.
+    // Anything else is a real number: move only if it has gone slow.
+    //
+    // Folding -1 in with "unmeasured" (the old `?? 0` then `<= 0`) is why the
+    // switch never replaced a resolver that had stopped answering: the one case
+    // it was written for was the one case it refused.
+    if (nowMs === -1) return win;
+    if (nowMs === undefined || nowMs === 0) return null;
+    if (nowMs < SMART_SWITCH_AT_MS) return null;
     if (win.ms > nowMs - SMART_SWITCH_BY_MS) return null;
     return win;
 }
@@ -496,8 +505,12 @@ export async function pickFastestDNS(current: {remote?: string; direct?: string}
     // What is in the field is measured too, whether or not it is one of the catalogue's own
     // entries: 智能切换 is about the resolver the reader is actually using, and a hand-typed
     // one is measured by nothing else.
+    // `local` is a keyword, not a resolver: it cannot be asked, and adding it
+    // to the list made the direct table's "Local" row read -1 — "measured, and
+    // it failed" — after every round. It is left out here rather than measured
+    // and explained away, so the row shows the dash that means "not measured".
     const withCurrent = (list: string[], value?: string) =>
-        value && !list.includes(value) ? [...list, value] : list;
+        value && value !== 'local' && !list.includes(value) ? [...list, value] : list;
     // A side that was not asked for resolves to an empty list rather than to a call: nothing
     // is measured, nothing is published, and nothing is written for it.
     const none: {server: string; ms: number; err?: string}[] = [];

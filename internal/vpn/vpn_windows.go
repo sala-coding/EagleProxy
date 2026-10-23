@@ -6,6 +6,7 @@ package vpn
 import (
 	"fmt"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -165,7 +166,16 @@ func RunElevatedWait(exe string, args []string, dir string) (int, error) {
 // threads the dialog work happens on) answers S_FALSE and stays put;
 // a different-mode one answers RPC_E_CHANGED_MODE and — since the
 // apartment itself is fine — is left alone.
+//
+// The whole call is pinned to one OS thread, because the apartment is a fact
+// about a THREAD and a goroutine is not tied to one: preempted between the
+// init and the execute, the execute could run on a thread with no apartment
+// — the occasional elevation failure with nothing in any log — and the
+// deferred uninitialize could run on a third thread still, leaving an
+// apartment leaked and the pool poisoned for the next caller.
 func shellRunAs(file, params, dir string) (handle windows.Handle, err error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	hr := windows.CoInitializeEx(0, windows.COINIT_APARTMENTTHREADED)
 	if hr == nil || hr == syscall.Errno(windows.S_FALSE) {
 		// Both answers mean an apartment is open for this thread and the

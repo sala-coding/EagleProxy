@@ -46,10 +46,18 @@ type nativeTun struct {
 	session  wintun.Session
 	readWait windows.Handle
 
-	// running counts every call sitting inside Read or Write. Close must
-	// wait for them to end the session: afterwards the ring buffer does
-	// not exist, and a late ReleaseReceivePacket would touch freed memory.
-	running sync.WaitGroup
+	// life joins the readers and the closer. A Read or Write takes it for the
+	// span of one call, and Close holds it out — so the session is ended only
+	// when no call is inside it (afterwards the ring buffer does not exist,
+	// and a late ReleaseReceivePacket would touch freed memory), and no call
+	// can ENTER while the teardown is under way.
+	//
+	// It replaces a WaitGroup, which could not promise either half: an Add
+	// landing after a Wait that had already observed the zero count left a
+	// reader inside an ended session — a ReceivePacket on freed memory — and
+	// an Add racing a blocked Wait is the panic the WaitGroup's contract
+	// names. The RWMutex has no such contract to break.
+	life sync.RWMutex
 
 	closeOnce sync.Once
 	closing   atomic.Bool
@@ -376,8 +384,8 @@ func flushResolverCache() {
 // empty it sleeps on the kernel event wintun signals, so there is no
 // busy CPU and no poll interval between a packet and the reader.
 func (t *nativeTun) Read(p []byte) (n int, err error) {
-	t.running.Add(1)
-	defer t.running.Done()
+	t.life.RLock()
+	defer t.life.RUnlock()
 	for {
 		if t.closing.Load() {
 			return 0, os.ErrClosed
@@ -410,8 +418,8 @@ func (t *nativeTun) Read(p []byte) (n int, err error) {
 // frame is cheaper than stalling the writer, and TCP recovers while a
 // blocked stream does not.
 func (t *nativeTun) Write(p []byte) (n int, err error) {
-	t.running.Add(1)
-	defer t.running.Done()
+	t.life.RLock()
+	defer t.life.RUnlock()
 	if t.closing.Load() {
 		return 0, os.ErrClosed
 	}
@@ -438,9 +446,13 @@ func (t *nativeTun) Write(p []byte) (n int, err error) {
 // the next start.
 func (t *nativeTun) Close() error {
 	t.closeOnce.Do(func() {
+		// The flag goes up and the sleepers wake BEFORE the join: a reader
+		// parked on the kernel event sees the flag on its next pass and
+		// returns, and the RWMutex below is what says every reader is out.
 		t.closing.Store(true)
 		procSetEvent.Call(uintptr(t.readWait))
-		t.running.Wait()
+		t.life.Lock()
+		defer t.life.Unlock()
 		if t.session != (wintun.Session{}) {
 			t.session.End()
 		}

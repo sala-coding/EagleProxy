@@ -136,6 +136,28 @@ func (m *Manager) SaveProfile(e *ProxyEntity) error {
 	return m.saveProfileLocked(e)
 }
 
+// FlushTrafficCounter persists the live entity the id names, when it is still
+// there, in one lock hold — the way a stop flushes the traffic counters of the
+// node it is about to take down.
+//
+// GetProfile-then-SaveProfile across two lock holds left a window in which a
+// delete could land between them: the save then wrote the file of a node the
+// reader had just removed back into existence, or — the id being recycled by
+// the next add (see newProfileIDLocked) — wrote the old entity's counters over
+// the file of the brand-new node that now owns the id. Written from the store's
+// own record under the one lock, the flush either lands on the node that still
+// exists or does nothing at all.
+func (m *Manager) FlushTrafficCounter(id int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.profiles[id]
+	if !ok || e == nil {
+		return nil
+	}
+	e.Ensure()
+	return writeJSON(m.profilePath(e.ID), e)
+}
+
 // saveProfileLocked persists a single profile file; caller holds m.mu (at
 // least for reading).
 func (m *Manager) saveProfileLocked(e *ProxyEntity) error {
@@ -327,20 +349,47 @@ func (m *Manager) MoveProfile(id, gid int) error {
 	if m.groups[gid] == nil {
 		return fmt.Errorf("group %d not found", gid)
 	}
-	if old := m.groups[ent.GID]; old != nil && len(old.Order) > 0 {
+	old := m.groups[ent.GID]
+	next := m.groups[gid]
+	var oldOrder, nextOrder []int
+	if old != nil {
+		oldOrder = append([]int(nil), old.Order...)
+	}
+	if next != nil {
+		nextOrder = append([]int(nil), next.Order...)
+	}
+	oldGID := ent.GID
+	if old != nil && len(old.Order) > 0 {
 		old.Order = removeInt(old.Order, id)
 		if err := m.saveGroupLocked(old); err != nil {
+			old.Order = oldOrder
 			return err
 		}
 	}
-	if next := m.groups[gid]; next != nil && len(next.Order) > 0 {
+	if next != nil && len(next.Order) > 0 {
 		next.Order = append(next.Order, id)
 		if err := m.saveGroupLocked(next); err != nil {
+			next.Order = nextOrder
+			if old != nil {
+				_ = m.saveGroupLocked(old)
+			}
 			return err
 		}
 	}
 	ent.GID = gid
-	return m.saveProfileLocked(ent)
+	if err := m.saveProfileLocked(ent); err != nil {
+		ent.GID = oldGID
+		if old != nil {
+			old.Order = oldOrder
+			_ = m.saveGroupLocked(old)
+		}
+		if next != nil {
+			next.Order = nextOrder
+			_ = m.saveGroupLocked(next)
+		}
+		return err
+	}
+	return nil
 }
 
 // ClearMetrics zeroes the stored latency, speed and traffic counters on every
@@ -531,6 +580,17 @@ func (m *Manager) addGroupLocked(g *Group) error {
 	m.groupsTabOrder = append(m.groupsTabOrder, g.ID)
 	// Locked already: SaveGroup would re-enter m.mu and deadlock.
 	if err := m.saveGroupLocked(g); err != nil {
+		// Taken back, the way a profile whose file could not be written is (see
+		// undoAddLocked). Left in, a group without a file behind it is a
+		// phantom: it renders until the restart, its id is spent, and the
+		// reader's retry — the one thing they would do next — answers "group
+		// already has an id" with nothing on screen to say why. The id
+		// allocation is tail+1 (see newGroupIDLocked), so dropping the entries
+		// hands the id back to the next group.
+		delete(m.groups, g.ID)
+		m.groupsIDOrder = removeInt(m.groupsIDOrder, g.ID)
+		m.groupsTabOrder = removeInt(m.groupsTabOrder, g.ID)
+		g.ID = -1
 		return err
 	}
 	return m.saveManagerLocked()
@@ -550,12 +610,16 @@ func (m *Manager) DeleteGroup(gid int) error {
 		}
 	}
 	for _, id := range toDelete {
-		_ = m.deleteProfileLocked(id)
+		if err := m.deleteProfileLocked(id); err != nil {
+			return fmt.Errorf("delete profile %d: %w", id, err)
+		}
 	}
 	delete(m.groups, gid)
 	m.groupsIDOrder = removeInt(m.groupsIDOrder, gid)
 	m.groupsTabOrder = removeInt(m.groupsTabOrder, gid)
-	_ = m.saveManagerLocked()
+	if err := m.saveManagerLocked(); err != nil {
+		return fmt.Errorf("save group index: %w", err)
+	}
 	return os.Remove(m.groupPath(gid))
 }
 

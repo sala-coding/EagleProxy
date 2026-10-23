@@ -158,9 +158,19 @@ func ReconcileResolvers(dataDir string, want bool) {
 		lastApplyTry = time.Now()
 		log("resolvers: taken over (%d interface(s); the app's forwarder answers on 53)", len(snapshot))
 	case !want && taken:
-		restoreLocked(dataDir, "the node stopped")
-		// Whether it succeeded or not is restoreLocked's to report; what is certain is
-		// that nothing is waiting to be re-applied while the takeover is off.
+		if err := restoreLocked(dataDir, "the node stopped"); err != nil {
+			// The restore did not finish: at least one interface kept the
+			// takeover resolver (or the record could not even be read). The
+			// record stays on disk, and applyIncomplete is what tells the
+			// next takeover there is a half state to finish — clearing it here
+			// (as this branch used to, on the comment that restoreLocked would
+			// report) meant the next want&&taken pass returned at the guard
+			// above: that interface stayed on the ISP resolver for the rest of
+			// the session, resolving in the clear, while the state file said
+			// the takeover was on.
+			applyIncomplete = true
+			return
+		}
 		applyIncomplete = false
 	}
 }
@@ -213,20 +223,25 @@ func RestoreResolvers(dataDir string) {
 	}
 }
 
-func restoreLocked(dataDir, why string) {
+// restoreLocked reports whether the machine's own resolvers are all back. The
+// caller needs the answer: a restore that fails leaves interfaces on the
+// takeover resolver, and the flag that makes the next takeover finish that job
+// is set from this return (see ReconcileResolvers).
+func restoreLocked(dataDir, why string) error {
 	snapshot, err := readUndo(dataDir)
 	if err != nil {
 		log("resolvers: cannot read what to restore (%s): %v", why, err)
-		return
+		return err
 	}
 	if err := tunfast.RestoreResolvers(snapshot); err != nil {
 		// The file stays: the next process to notice will try again, and deleting it now
 		// would turn a failed restore into a forgotten one.
 		log("resolvers: restore failed (%s): %v", why, err)
-		return
+		return err
 	}
 	_ = os.Remove(undoPath(dataDir))
 	log("resolvers: restored (%s; %d interface(s))", why, len(snapshot))
+	return nil
 }
 
 func undoExists(dataDir string) bool {

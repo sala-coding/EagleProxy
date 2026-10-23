@@ -24,8 +24,6 @@ export function CloneProfile(arg1:number):Promise<number>;
 
 export function CloseConnection(arg1:string):Promise<void>;
 
-export function ConsumeNotices():Promise<Array<main.Notice>>;
-
 export function CreateGroup(arg1:string):Promise<number>;
 
 export function CreateProfile(arg1:string,arg2:number):Promise<number>;

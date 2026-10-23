@@ -120,18 +120,22 @@ func (a *App) ExitAddress() map[string]string {
 	if !ok {
 		return nil
 	}
+	// A warm-up that has just answered is the answer this poll came for: it was asked
+	// after the tunnel was ready, and asking the same question again a second later is
+	// another round trip through the node for nothing. Asked for BEFORE the backoff
+	// below, because the two are about different things: the backoff is "do not ask
+	// again", and this is "there is already an answer". A start whose warm-up
+	// succeeded used to be answered by the backoff left over from the previous node,
+	// and the corner sat empty for fifteen seconds over an answer sitting right there.
+	if r := a.exitProbeCached(); r != nil {
+		return r
+	}
 	// A node that is not carrying traffic is not asked again straight away: the
 	// answer cannot have changed, and the ask is a request to each of several echo
 	// services, each of which hangs until its own timeout, through a tunnel that is
 	// not moving (see exitProbeDue).
 	if !a.exitProbeDue() {
 		return nil
-	}
-	// A warm-up that has just answered is the answer this poll came for: it was asked
-	// after the tunnel was ready, and asking the same question again a second later is
-	// another round trip through the node for nothing.
-	if r := a.exitProbeCached(); r != nil {
-		return r
 	}
 	// One flight at a time (see exitProbeBusy): the poll is every two seconds and a
 	// tunnel that is still coming up can hold a request for its whole timeout, so the
@@ -219,7 +223,13 @@ const exitFailBackoff = 15 * time.Second
 func (a *App) exitProbeDue() bool {
 	a.exitProbeMu.Lock()
 	defer a.exitProbeMu.Unlock()
-	if a.exitFailStreak == 0 {
+	// The backoff starts where the reader is told the node is dead, not at the
+	// first empty answer. One empty answer is a fact about a stranger's echo
+	// service as often as about the node, and the corner has five more tries in
+	// the ten seconds after a switch — backing off on the first one turned all of
+	// them into no-ops, so a node that came up at t+2s still showed nothing at
+	// t+15s. Two in a row is the threshold the notice already uses.
+	if a.exitFailStreak < exitFailThreshold {
 		return true
 	}
 	return time.Since(a.exitFailAt) >= exitFailBackoff
@@ -346,6 +356,10 @@ func (a *App) warmExitProbe() {
 	// Address only: the country is a flag the corner can draw a beat later, and asking
 	// it here would keep three more connections busy while the first real poll arrives.
 	a.exitProbeStore(map[string]string{"ip": ip})
+	// The node answered: whatever the previous one left in the failure streak is
+	// not this node's record, and leaving it in place made this new answer wait out
+	// the old node's backoff before the corner was allowed to show it.
+	a.noteExitSuccess()
 	a.logf("[exitip] 预热完成: " + ip)
 }
 
@@ -525,6 +539,15 @@ func asString(v interface{}) string {
 // Country codes by address, so the status bar's lookup happens once per node rather than
 // once per render. Failures are cached too: a node is asked about once, and a bar that
 // retried on every render would spend the reader's quota on nothing.
+//
+// The cap is the one thing the map was missing: a long session switches many
+// nodes, and a cache nobody bounds keeps every address ever seen — for a
+// mapping whose answers go stale the moment the node list changes. Reaching the
+// cap empties it, which is what a cache is allowed to do to its own entries;
+// the next lookup for an emptied address is one request to one service, and
+// only for an address that is being looked at.
+const ccCacheCap = 1024
+
 var (
 	ccMu    sync.Mutex
 	ccCache = map[string]string{}
@@ -569,6 +592,9 @@ func (a *App) ipCountry(client *http.Client, ip string) string {
 	cc := util.AskCountry(client, ip)
 
 	ccMu.Lock()
+	if len(ccCache) >= ccCacheCap {
+		ccCache = map[string]string{}
+	}
 	ccCache[ip] = cc
 	ccMu.Unlock()
 	return cc

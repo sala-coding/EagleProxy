@@ -34,10 +34,6 @@ export function CloseConnection(arg1) {
   return window['go']['main']['App']['CloseConnection'](arg1);
 }
 
-export function ConsumeNotices() {
-  return window['go']['main']['App']['ConsumeNotices']();
-}
-
 export function CreateGroup(arg1) {
   return window['go']['main']['App']['CreateGroup'](arg1);
 }

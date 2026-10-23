@@ -13,7 +13,7 @@ import {t, langFromCode, setLang} from "./i18n";
 import {loadTips, tip} from "./tips";
 import {errText} from "./lib/shared";
 import {FILTER_ICONS, nowStamp} from "./lib/logfilter";
-import {hueFor, metricGroup, MODE_HAS_LATENCY, MODE_HAS_SPEED, SPEED_MODE_KEYS, PROTOCOLS} from "./lib/metrics";
+import {hueFor, metricGroup, MODE_HAS_LATENCY, MODE_HAS_SPEED, SPEED_MODE_KEYS, PROTOCOLS, setRegionLocale} from "./lib/metrics";
 import {STACK_DEPTH, STACK_STEP, STACK_TILT} from "./lib/stack";
 import {clampScale, CUSTOM_VARS, LIGHT_THEMES, THEMES, THEME_REMAP, UI_SCALE_MAX, UI_SCALE_MIN, wearCustom} from "./lib/theme";
 import {startLanguage} from "./lib/settings-meta";
@@ -30,7 +30,6 @@ import {FolderFilled, AddFilled, RightFilled, PlayFilled, StopFilled, TransferHo
     Link3Filled, CodeFilled, FileExportFilled, QrcodeFilled, EraserFilled, Delete2Filled,
     Download3Filled} from "./lib/icons";
 import {STOPPED} from "./composables/shared-consts";
-import {useStatusNote} from "./composables/useStatusNote";
 import {useLogs} from "./composables/useLogs";
 import {useConsoleDrag} from "./composables/useConsoleDrag";
 import {useSubsPanel} from "./composables/useSubsPanel";
@@ -46,7 +45,29 @@ import LogPanel from "./sections/LogPanel.vue";
 import StatusDock from "./sections/StatusDock.vue";
 import ReelTable from "./components/ReelTable.vue";
 
-const {statusNote, showStatusNote, hideStatusNote, holdStatusNote, notify} = useStatusNote();
+// The bar's left text slot is gone with the useStatusNote machinery: what
+// still spoke there — the run-state readout on a hover over the state lamp,
+// and the words for a mode switch in progress (see useActions) — is a line of
+// the console's stream now, like every other notice (see notify below). The
+// rates and the test pill stay on the bar: they are readouts of what is
+// moving, not words about it.
+
+// notify — the words every notice used to carry into the floating message
+// window (centred on the main window) go into the console's stream now: the
+// log panel is where the app's answers live, next to the lines they are
+// about. The line is stamped like any other and tagged "[app]", the same tag
+// the backend's own copy of the same words carries (see notifyMessage); the
+// colour follows the words themselves (失败/错误 wear the alarm colour), so
+// the kind argument has nothing left to paint.
+//
+// The sink is bound the moment the log composable exists below — every notify
+// call after that is a line, and the ones before it (none: the earliest
+// notify runs in a mounted effect) are simply not yet wired.
+let pushNoticeLine: ((line: string) => void) | null = null;
+const notify = (text: string, kind: 'ok' | 'err' = 'ok') => {
+    void kind;
+    pushNoticeLine?.(`[app] ${text}`);
+};
 
 const groupsChangedSeq = {current: 0};
 const groups = ref<main.GroupInfo[]>([]);
@@ -87,6 +108,16 @@ const setBusy = (v: boolean) => {
 };
 
 const L = useLogs(notify);
+// The notice sink, bound now that the stream exists. Every notice from here
+// on is a stamped line of the console, beside the core's own output — and it
+// rides the window's own list (queueAppLine), not the backend's streamed
+// buffer, so reopening the panel re-reads the backend without erasing the
+// sentences this window said.
+pushNoticeLine = (line: string) => {
+    const d = new Date();
+    const p = (n: number, w: number) => String(n).padStart(w, '0');
+    L.queueAppLine(`${p(d.getHours(), 2)}:${p(d.getMinutes(), 2)}:${p(d.getSeconds(), 2)}.${p(d.getMilliseconds(), 3)} ${line}`);
+};
 const {
     logs, showLogs, logFilter, logLevel, logPaused, shownLogs, catLive, logCtx,
     logRef, onLogScroll,
@@ -353,9 +384,11 @@ const A = useActions({
     groups, gid, profiles, selected, running, runningIdRef, applyRunning,
     busyRef, setBusy, testingRef, setTesting, testingMode, testProgress,
     sort, spMode, spBusyRef, setSpBusyBoth, egress, setEgressOpen: (v: boolean) => egressOpen.value = v,
+    // Late-bound: refreshEgress is declared below with the state it feeds.
+    refreshEgress: () => refreshEgress(),
     exitTick, gConfirm, importOpen, importText, scanErr, previewOpen, previewText,
     qrOpen, qrDataUrl, moveOpen, listKey, query, subBusy, subsDrop, connOpen, connExit,
-    showLogs, batchOpen, editor, notify, holdStatusNote, loadFileCats,
+    showLogs, batchOpen, editor, notify, loadFileCats,
     openSubs, closeSubs, hardCloseSubs,
 });
 const {
@@ -413,6 +446,7 @@ const runSmartPick = async (force: boolean) => {
         // What to write is the switches' business and not this function's (see
         // roundChoice): 优选 takes the fastest, 切换 only refuses to sit on a slow one.
         const next: any = {...route};
+        const changed: Record<string, string> = {};
         const moved: string[] = [];
         for (const side of ['remote', 'direct'] as const) {
             const won = roundChoice(side, route, round);
@@ -420,12 +454,22 @@ const runSmartPick = async (force: boolean) => {
             const field = side === 'remote' ? 'remote_dns' : 'direct_dns';
             if (next[field] === won.value) continue;
             next[field] = won.value;
+            changed[field] = won.value;
             moved.push(`${t(side === 'remote' ? 'routing.remoteDNS' : 'routing.directDNS')} ${won.name}`);
         }
         // The same resolvers winning again is the usual outcome of a round: nothing to
         // write, and nothing to say about it.
         if (moved.length === 0) return;
-        await API.SaveRouting(name, new setting.Routing(next));
+        // Re-read before writing: the copy above was taken before a round that
+        // can run for tens of seconds, and the settings card may have saved its
+        // own edits — or be holding them — for the same file in between. The
+        // write therefore starts from the file as it is now and changes only the
+        // fields this round owns; everything else stays the caller's.
+        let fresh: any = null;
+        try { fresh = await API.GetRouting(name); } catch { /* the copy will do */ }
+        const write: any = fresh && typeof fresh === 'object' ? {...next, ...fresh} : next;
+        Object.assign(write, changed);
+        await API.SaveRouting(name, new setting.Routing(write));
         notify(`${t(route.dns_smart_select ? 'dns.smartAuto' : 'dns.switched')} ${moved.join(' · ')}`, 'ok');
         // An open settings card is holding the profile as it was; the file under it has
         // moved (see the dialog's routeTick effect).
@@ -468,6 +512,10 @@ watch(running, r => {
 const applyLanguage = (code: number) => {
     const lang = langFromCode(code);
     setLang(lang);
+    // The country names wear the same language as the words do (see
+    // setRegionLocale): built with no locale named, they answered in the OS's
+    // own language on an interface wearing another one.
+    setRegionLocale(lang);
     // The word table is one file per language (see tips.ts), so the file that was
     // asked for is fetched here. The tick follows the fetch rather than preceding it:
     // it is what puts the words already on screen into the language that was asked
@@ -569,7 +617,7 @@ watch(running, r => {
     const wasRunning = prevRunning.current !== STOPPED;
     prevRunning.current = r;
     if (r === STOPPED || wasRunning) return;
-    showStatusNote(tip('core.connected'), 'ok', 'window');
+    notify(tip('core.connected'));
 }, {immediate: true});
 
 // The other subscriptions' nodes, read only while the box has something in it. With
@@ -957,7 +1005,14 @@ const installUpdate = async () => {
 // What each submenu in the node menu holds. Written as data so the panel
 // below is a single piece of markup: a new submenu is a line here and a row
 // that hands over its key.
-const submenus = computed<Record<string, { items: { key: string; label: string; run: () => void }[] }>>(() => ({
+const submenus = computed<Record<string, { items: { key: string; label: string; run: () => void }[] }>>(() => {
+    // The labels below are t() strings, and t() reads a module-level language:
+    // no reactive read here means this computed never runs again after its
+    // first evaluation, and the submenu went on speaking the language the
+    // window started in until the app was restarted. The same line the style
+    // computed pays (see appStyle below).
+    void langTick.value;
+    return {
     testNode: {
         items: SPEED_MODE_KEYS.map((key, mode) => ({
             key,
@@ -981,7 +1036,8 @@ const submenus = computed<Record<string, { items: { key: string; label: string; 
             run: () => addProfile(p.id),
         })),
     },
-}));
+    };
+});
 
 // The behaviour every submenu row shares, so the rows in the menu differ only
 // in their label and their icon. The pointer's intent opens it; a click
@@ -1002,6 +1058,19 @@ const subRow = (key: string) => ({
 });
 
 const isRunning = computed(() => running.value !== STOPPED);
+
+// The state lamp's hover readout, now a line of the console. The gate holds
+// the last state it said: a lamp hovered twice in the same minute in the same
+// state is the same sentence, and re-saying it would fill the log with a
+// reader's mouse movements. The state flipping between hovers says itself on
+// the start and stop paths (the backend's own lines); this only answers the
+// pointer's question.
+let lampLast: boolean | null = null;
+const sayLampState = (on: boolean) => {
+    if (on === lampLast) return;
+    lampLast = on;
+    notify(on ? tip('core.running') : tip('core.stopped'));
+};
 
 // The row handlers ProfileRow receives. Under React they were read through a ref
 // and wrapped once in useCallback because `start` is redefined on every render and
@@ -1290,23 +1359,14 @@ onMounted(() => {
         // a press is never spent on a panel behind a hidden window.
         EventsOn("hotkey:connections", () => openConns()),
         EventsOn("hotkey:logs", () => toggleLogs()),
-        // A second launch being intercepted is said through app:message now: the
-        // interception can happen before this window has a backend context to emit
-        // into, and the notice queue is the side that holds a message until someone
-        // can hear it (see notifySecondInstance in the Go side). An event here as
-        // well would be the same sentence twice.
-        // the backend's own messages: which step of the mode-first flow is
-        // missing, or that a mode is on and waiting for a node
-        EventsOn("app:message", (text: string, isErr: boolean) =>
-            notify(String(text), isErr ? 'err' : 'ok')),
+        // The backend's own messages (a mode waiting for a node, a TUN start's
+        // steps and failures) are lines of the console's stream now — the
+        // backend writes them there itself, at the moment they are raised (see
+        // notifyMessage), so there is no app:message listener to show them
+        // with. The floating message window they used to arrive in is gone.
     ];
-    // Messages the backend raised while this page was still booting — the TUN
-    // handover does exactly that — are collected here rather than pushed, so
-    // none of them can slip through the gap before the listeners above
-    // existed. Called after EventsOn for that reason.
-    API.ConsumeNotices()
-        .then(queued => (queued ?? []).forEach(n => notify(n.text, n.isErr ? 'err' : 'ok')))
-        .catch(() => { /* nothing was waiting; not worth a message of its own */ });
+    // The log panel re-reads itself when it opens; the notice machinery has no
+    // window to hand to any more.
 });
 onBeforeUnmount(() => {
     logOff.forEach(f => f && f());
@@ -1493,7 +1553,7 @@ onBeforeUnmount(() => {
                   @scroll="onLogScroll"
                   @body-ctx="at => logCtx = at" @line-ctx="at => logCtx = at"/>
 
-        <StatusDock :traffic="traffic" :status-note="statusNote"
+        <StatusDock :traffic="traffic"
                     :testing="testing" :testing-mode="testingMode" :test-progress="testProgress"
                     :egress="egress" :egress-open="egressOpen" :batch-open="batchOpen"
                     :query="query" :sub-busy="subBusy"
@@ -1513,24 +1573,12 @@ onBeforeUnmount(() => {
                     @copied="ok => notify(tip(ok ? 'copied' : 'log.copyFailed'), ok ? 'ok' : 'err')"
                     @flag-missing="flagMissing = true"
                     @stop-test="stopSpeedtest"
-                    @state-enter="showStatusNote(isRunning ? tip('core.running') : tip('core.stopped'))"
-                    @state-leave="hideStatusNote"/>
+                    @state-enter="sayLampState(isRunning)"/>
 
-        <!-- The transient message: one strip above the status bar, the state
-            carried by a glyph and the words in the interface font (see the
-            note-window rules). It used to be a centred mini-window with a
-            title strip, which read as a dialog missing its buttons. The bar
-            keeps the quiet words: hover hints and a wait in progress. -->
-        <div v-if="statusNote && statusNote.mode === 'window'" :key="statusNote.seq"
-             role="status" aria-live="polite"
-             :class="`note-window${statusNote.leaving ? ' leaving' : ''}${statusNote.kind === 'err' ? ' err' : ''}`">
-            <i class="note-window-icon" aria-hidden="true">{{ statusNote.kind === 'err' ? '!' : '✓' }}</i>
-            <div class="note-window-body">{{ statusNote.text }}</div>
-            <button class="note-window-close"
-                    :title="t('btn.close')"
-                    :aria-label="t('btn.close')"
-                    @click="hideStatusNote">✕</button>
-        </div>
+        <!-- The bar's text slot and the floating message window are gone: the
+            app's own words — notices, the wait of a mode switch, the run state
+            read out on a hover over the lamp — are lines of the console's
+            stream now. -->
 
         <div v-if="ctx" class="ctxmenu"
              ref="ctxRef"

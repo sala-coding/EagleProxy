@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
@@ -114,14 +113,23 @@ func settingKeys(t reflect.Type) map[string]interface{} {
 
 // UpdateSettings merges modified settings and persists them.
 func (a *App) UpdateSettings(in setting.Setting) error {
-	if a.curSetting() == nil {
+	// Replace is a read of the live setting — it clones it and decodes the
+	// incoming fields onto that clone — so it belongs inside applyMu as much as
+	// the save does: a tray press that landed between the two used to write its
+	// field onto an object this one had already read, and the save below then
+	// carried the old value back.
+	a.applyMu.Lock()
+	cur := a.curSetting()
+	if cur == nil {
+		a.applyMu.Unlock()
 		return fmt.Errorf("settings not loaded")
 	}
-	next, err := a.curSetting().Replace(&in)
-	if err != nil {
-		return err
+	next, err := cur.Replace(&in)
+	if err == nil {
+		err = a.applySettingLocked(next)
 	}
-	if err := a.applySetting(next); err != nil {
+	a.applyMu.Unlock()
+	if err != nil {
 		return err
 	}
 	a.applyHotkeys()
@@ -132,12 +140,35 @@ func (a *App) UpdateSettings(in setting.Setting) error {
 // is swapped rather than mutated in place: goroutines that already hold the old
 // value (traffic loop, speed tests) keep reading a consistent snapshot.
 func (a *App) applySetting(next *setting.Setting) error {
-	// One read-copy-save-swap at a time (see applyMu): every caller builds its
-	// next from the setting that was live when it looked, and two of these
-	// landing together made the later swap silently drop the earlier one's
-	// fields — InheritRuntime carries only the two runtime mode flags.
 	a.applyMu.Lock()
 	defer a.applyMu.Unlock()
+	return a.applySettingLocked(next)
+}
+
+// mutateSetting is the form for a caller that has something to change. The
+// read, the copy, the save and the swap are one unit under applyMu — which is
+// the half applySetting on its own cannot cover: a caller that copies the live
+// setting first and saves afterwards reads outside the lock, and two of those
+// landing together each carried the other's field back to what it had been
+// (InheritRuntime protects only the two runtime mode flags). The closure runs
+// on the copy, and nothing is written if it returns an error.
+func (a *App) mutateSetting(fn func(*setting.Setting) error) error {
+	a.applyMu.Lock()
+	defer a.applyMu.Unlock()
+	cur := a.curSetting()
+	if cur == nil {
+		return fmt.Errorf("settings not loaded")
+	}
+	next := cur.Clone()
+	if err := fn(next); err != nil {
+		return err
+	}
+	return a.applySettingLocked(next)
+}
+
+// applySettingLocked persists next and makes it the live settings object. The
+// caller holds applyMu.
+func (a *App) applySettingLocked(next *setting.Setting) error {
 	// The two runtime mode flags live on the setting object, and the object is
 	// replaced right here. The copy next was made of can already be stale: a
 	// tray or hotkey toggle writes the flag on whichever object is live at that
@@ -281,6 +312,15 @@ func sameRoutingExceptDNS(a, b setting.Routing) bool {
 	}
 	a.RemoteDNS, b.RemoteDNS = "", ""
 	a.DirectDNS, b.DirectDNS = "", ""
+	// The smart-pick switches live in the same profile and the core never reads
+	// them — they only decide whether the window tests resolvers and when it
+	// writes a winner back. Flipping one is not a config change, but the card
+	// writes through ApplyRouting like every other field, so without this the
+	// switch stopped the core under a running node (a dropped download per
+	// press, and a toast about a restart for something the core never saw).
+	a.DNSSmartSelect, b.DNSSmartSelect = false, false
+	a.DNSSmartSwitch, b.DNSSmartSwitch = false, false
+	a.DNSSmartMinutes, b.DNSSmartMinutes = 0, 0
 	return reflect.DeepEqual(a, b)
 }
 
@@ -306,7 +346,7 @@ func (a *App) rebuildCoreForRouting(running int) error {
 		return err
 	}
 	if a.curSetting().VPNMode() {
-		if err := a.startVPNExternal(running); err != nil {
+		if err := a.startVPNExternal(running, nil); err != nil {
 			return err
 		}
 		// Same memory the direct branch pays below: a rebuild under TUN is still a
@@ -342,20 +382,18 @@ func (a *App) TestDNS(servers []string, viaProxy bool) ([]dnstest.Result, error)
 		if a.RunningProfile() == core.StoppedID {
 			return nil, fmt.Errorf("没有正在运行的节点：这一侧的解析器要经它才能测")
 		}
-		host := a.curSetting().InboundAddress
-		if host == "" {
-			host = "127.0.0.1"
+		// Through inboundProxyURL rather than a JoinHostPort built here: the
+		// listen field is a listen address, and a wildcard in it — 0.0.0.0, ::,
+		// [::] — is not a dial target ("every interface here", which reached
+		// nothing on some systems and the wrong thing on others), while a port
+		// out of range made the measurement fail without ever saying why. The
+		// one builder every other consumer of this inbound goes through
+		// normalizes both (see inboundProxyURL).
+		u := a.inboundProxyURL()
+		if u == nil {
+			return nil, fmt.Errorf("本地入站端口未设置或不可用")
 		}
-		if a.curSetting().InboundSocksPort <= 0 {
-			return nil, fmt.Errorf("本地入站端口未设置")
-		}
-		opts.Proxy = &url.URL{
-			Scheme: "http",
-			Host:   net.JoinHostPort(host, strconv.Itoa(a.curSetting().InboundSocksPort)),
-		}
-		if auth := a.curSetting().InboundAuth; auth != nil && auth.NeedAuth() {
-			opts.Proxy.User = url.UserPassword(auth.Username, auth.Password)
-		}
+		opts.Proxy = u
 	} else {
 		// The domestic side is measured the way it is really reached: straight
 		// out of the machine's own interface, past the tunnel (see
@@ -397,14 +435,21 @@ func (a *App) DeleteRouting(name string) error {
 
 // SetActiveRouting switches the active routing profile.
 func (a *App) SetActiveRouting(name string) error {
-	if a.curSetting() == nil {
+	// WithActiveRouting reads the live setting as well as the routing file, so
+	// it is part of the same unit as the save (see mutateSetting): a save
+	// landing between the two would write the previous profile back.
+	a.applyMu.Lock()
+	cur := a.curSetting()
+	if cur == nil {
+		a.applyMu.Unlock()
 		return fmt.Errorf("settings not loaded")
 	}
-	next, err := a.curSetting().WithActiveRouting(name)
-	if err != nil {
-		return err
+	next, err := cur.WithActiveRouting(name)
+	if err == nil {
+		err = a.applySettingLocked(next)
 	}
-	if err := a.applySetting(next); err != nil {
+	a.applyMu.Unlock()
+	if err != nil {
 		return err
 	}
 	// Announced the same way the tray's cycling announces it (see nextRouting): the

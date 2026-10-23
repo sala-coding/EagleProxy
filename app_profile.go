@@ -5,6 +5,7 @@ import (
 	"eagle/internal/configbuilder"
 	"eagle/internal/core"
 	"eagle/internal/crashlog"
+	"eagle/internal/setting"
 	"eagle/internal/sub"
 	"fmt"
 )
@@ -22,14 +23,14 @@ func (a *App) SetCurrentGroup(id int) error {
 	if !a.curMgr().HasGroup(id) {
 		return fmt.Errorf("group %d not found", id)
 	}
-	// A copy and a swap, not a write into the live object. The setting is
-	// replaced by the other paths (the mode switches, the settings save), and a
-	// write into the object another goroutine has already replaced is an
-	// update nobody sees: the group the reader picked was lost, and the next
-	// launch came back on the old tab.
-	next := s.Clone()
-	next.CurrentGroup = id
-	return a.applySetting(next)
+	// A copy and a swap, not a write into the live object — and the copy has to
+	// be taken inside applyMu (see mutateSetting), or a save landing in between
+	// writes the old tab back: the group the reader picked was lost, and the
+	// next launch came back on it.
+	return a.mutateSetting(func(next *setting.Setting) error {
+		next.CurrentGroup = id
+		return nil
+	})
 }
 
 // recordHotSnapshot remembers what the running config was built from. Called after a
@@ -144,6 +145,22 @@ func (a *App) StartProfile(id int) error {
 }
 
 func (a *App) startProfileLocked(id int) error {
+	return a.startProfileLockedOn(id, nil)
+}
+
+// startProfileLockedOn is startProfileLocked with a front-end settlement hook.
+// Only a TUN start can call it with a hook: the front-end's answer can sit
+// behind a UAC prompt (see tunFrontSwitchWait), and past that window the
+// completion runs on a background goroutine — this hook is what carries the
+// caller's own bookkeeping there (the success line, the flag-and-proxy
+// rollback a mode switch applies on a failure). A plain start passes nil and
+// gets the plain answer.
+func (a *App) startProfileLockedOn(id int, frontSettled func(error)) error {
+	// An explicit start is the reader asking for the node again, so the stop
+	// intent from an earlier press is spent (see stopRequested). Cleared here,
+	// at the one entrance every start goes through — the binding, the tray, the
+	// hotkeys, the crash supervisor and the startup restore.
+	a.stopRequested.Store(false)
 	// Nothing here touches the crash count. A start that answers success is not proof the
 	// core will stay up — the rule-set failure of a real session started fine and exited
 	// two seconds later, five times in a minute — so clearing the count on success made
@@ -186,17 +203,18 @@ func (a *App) startProfileLocked(id int) error {
 	// what could be switched between.
 	if a.RunningProfile() != core.StoppedID {
 		// Already inside startStopMu: the locked form, not the wrapper (a
-		// sync.Mutex does not re-enter).
-		if err := a.stopProfileLocked(); err != nil {
+		// sync.Mutex does not re-enter). The switch's form, not the reader's:
+		// the start below is what was asked for (see stopForSwitchLocked).
+		if err := a.stopForSwitchLocked(); err != nil {
 			return err
 		}
 	} else if pid, _ := a.vpnState(); pid > 0 {
-		if err := a.stopProfileLocked(); err != nil {
+		if err := a.stopForSwitchLocked(); err != nil {
 			return err
 		}
 	}
 	if a.curSetting().VPNMode() {
-		if err := a.startVPN(id); err != nil {
+		if err := a.startVPN(id, frontSettled); err != nil {
 			return err
 		}
 		a.recordHotSnapshot()
@@ -249,7 +267,16 @@ func (a *App) rememberStarted(id int) {
 	if s.RememberID == want {
 		return
 	}
-	if err := a.applySetting(s.WithRememberID(want)); err != nil {
+	// Inside the lock, and compared again there: the check above can be read
+	// from a setting another writer has since replaced (see mutateSetting).
+	if err := a.mutateSetting(func(next *setting.Setting) error {
+		if next.RememberEnable {
+			next.RememberID = id
+		} else {
+			next.RememberID = core.StoppedID
+		}
+		return nil
+	}); err != nil {
 		a.logf("[remember] " + err.Error())
 	}
 }
@@ -265,6 +292,29 @@ func (a *App) StopProfile() error {
 
 func (a *App) stopProfileLocked() error {
 	defer a.emitRunningState()
+	// The reader wants the node down (see stopRequested): said before the kill,
+	// so an exit that lands after the process died — but before the supervisor
+	// looked at it — is still read as this press rather than as a crash. The
+	// next start clears it.
+	a.stopRequested.Store(true)
+	return a.stopCoreLocked()
+}
+
+// stopForSwitchLocked is the stop a switch makes on its way to starting
+// something else (a node switch, a mode change, a restart). It clears the
+// intent rather than setting it: the start that follows is what the reader
+// asked for, and marking this stop as one would leave the supervisor switched
+// off for the rest of the session — a crash after a single switch then went
+// unnoticed, unlogged and unrestarted.
+func (a *App) stopForSwitchLocked() error {
+	defer a.emitRunningState()
+	a.stopRequested.Store(false)
+	return a.stopCoreLocked()
+}
+
+// stopCoreLocked is the stop itself, with no opinion about intent: the caller
+// has already said whether this is the reader's stop or a step towards a start.
+func (a *App) stopCoreLocked() error {
 	if pid, _ := a.vpnState(); pid > 0 {
 		return a.stopVPN()
 	}
@@ -406,7 +456,9 @@ func (a *App) RestartProfile() error {
 	}
 	// 节点先行 left no mode guard here: a node running with no mode on is the
 	// ordinary state of the new flow, and a restart of it is exactly that.
-	if err := a.stopProfileLocked(); err != nil {
+	// A restart is one request: the stop is a step in it, not a stop the reader
+	// asked to stay stopped (see stopForSwitchLocked).
+	if err := a.stopForSwitchLocked(); err != nil {
 		return err
 	}
 	return a.startProfileLocked(id)

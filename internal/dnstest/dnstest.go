@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"sync"
@@ -225,8 +226,16 @@ func Query(id uint16) []byte { return query(id) }
 // measuring this package is for.
 func QueryFor(name string, id uint16) []byte { return queryFor(name, id) }
 
-// checkReply is the whole of what is asked of an answer: that it is an answer, and that it
-// is this question's. What it says is beside the point — the time it took to say it is not.
+// checkReply is what is asked of an answer: that it IS an answer (QR), that it
+// belongs to this question (id), and that the resolver actually did the job
+// (RCODE).
+//
+// The last one is not decoration. A SERVFAIL or a REFUSED comes back as fast as
+// a real answer, and a wrong or refusing resolver — a misconfigured one, a
+// corporate one that only answers its own zones, one that has been tampered
+// with — was therefore timed as the quickest candidate on the list. The smart
+// pick wrote it into remote_dns, and every name on the machine stopped
+// resolving, with the table showing a green low-latency row the whole time.
 func checkReply(body []byte, id uint16) error {
 	if len(body) < 12 {
 		return errors.New("应答过短")
@@ -234,5 +243,29 @@ func checkReply(body []byte, id uint16) error {
 	if binary.BigEndian.Uint16(body[:2]) != id {
 		return errors.New("应答的编号不匹配")
 	}
+	if body[2]&0x80 == 0 {
+		return errors.New("不是应答报文（QR 未置位）")
+	}
+	if rc := body[3] & 0x0f; rc != 0 {
+		return fmt.Errorf("解析器返回错误码 %d（%s）", rc, rcodeText(rc))
+	}
 	return nil
+}
+
+// rcodeText names the codes a probe can meet, so the failure the card shows
+// says what the resolver said rather than a number.
+func rcodeText(rc byte) string {
+	switch rc {
+	case 1:
+		return "FORMERR"
+	case 2:
+		return "SERVFAIL"
+	case 3:
+		return "NXDOMAIN"
+	case 4:
+		return "NOTIMP"
+	case 5:
+		return "REFUSED"
+	}
+	return "未知错误码"
 }

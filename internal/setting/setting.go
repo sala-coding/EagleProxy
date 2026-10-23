@@ -370,6 +370,11 @@ type Setting struct {
 // process holds a single Setting anyway.
 var runtimeModeMu sync.Mutex
 
+// routingMu protects the live routing pointer and its selected name. Routing is
+// replaced as a whole when the settings window saves it, while the DNS forwarder
+// and config builder read it from background goroutines.
+var routingMu sync.RWMutex
+
 // VPNMode reports whether TUN/VPN mode is active (runtime state).
 func (s *Setting) VPNMode() bool {
 	runtimeModeMu.Lock()
@@ -601,6 +606,8 @@ var saveMu sync.Mutex
 func (s *Setting) Save() error {
 	saveMu.Lock()
 	defer saveMu.Unlock()
+	routingMu.RLock()
+	defer routingMu.RUnlock()
 	path := s.dataStorePath()
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
@@ -631,7 +638,11 @@ func writeFileAtomic(path string, data []byte) error {
 }
 
 // Routing returns the active routing profile.
-func (s *Setting) Routing() *Routing { return s.routing }
+func (s *Setting) Routing() *Routing {
+	routingMu.RLock()
+	defer routingMu.RUnlock()
+	return s.routing
+}
 
 // UnderlyingDNS returns the DNS address used as the final resolver.
 func (s *Setting) UnderlyingDNS() string {
@@ -765,6 +776,8 @@ func cloneExtraCore(e *ExtraCore) *ExtraCore {
 func (s *Setting) Clone() *Setting {
 	runtimeModeMu.Lock()
 	defer runtimeModeMu.Unlock()
+	routingMu.RLock()
+	defer routingMu.RUnlock()
 	next := *s
 	return &next
 }
@@ -812,8 +825,10 @@ func (s *Setting) SetActiveRouting(name string) error {
 	if err != nil {
 		return err
 	}
+	routingMu.Lock()
 	s.routing = r
 	s.ActiveRouting = name
+	routingMu.Unlock()
 	return s.Save()
 }
 
@@ -853,9 +868,11 @@ func (s *Setting) SaveRouting(name string, r *Routing) error {
 	if err := writeFileAtomic(filepath.Join(s.RoutingDir(), name+".json"), data); err != nil {
 		return err
 	}
-	if s.isActiveRouting(name) {
+	routingMu.Lock()
+	if s.isActiveRoutingLocked(name) {
 		s.routing = r
 	}
+	routingMu.Unlock()
 	return nil
 }
 
@@ -887,6 +904,12 @@ func validateDNSAddress(field, addr string) error {
 
 // isActiveRouting reports whether name is the profile the app is running.
 func (s *Setting) isActiveRouting(name string) bool {
+	routingMu.RLock()
+	defer routingMu.RUnlock()
+	return s.isActiveRoutingLocked(name)
+}
+
+func (s *Setting) isActiveRoutingLocked(name string) bool {
 	active := s.ActiveRouting
 	if active == "" {
 		active = "Default"

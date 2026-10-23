@@ -4,6 +4,7 @@ import (
 	"eagle/internal/core"
 	"eagle/internal/db"
 	"eagle/internal/format"
+	"eagle/internal/setting"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -160,9 +161,15 @@ func (a *App) DeleteGroup(gid int) error {
 		if order := a.curMgr().TabOrder(); len(order) > 0 {
 			next = order[0]
 		}
-		n := s.Clone()
-		n.CurrentGroup = next
-		if err := a.applySetting(n); err != nil {
+		// Inside the lock, and re-checked there: the reader may have picked a
+		// different tab while this delete was running, and that choice is not
+		// this one's to overwrite (see mutateSetting).
+		if err := a.mutateSetting(func(n *setting.Setting) error {
+			if n.CurrentGroup == gid {
+				n.CurrentGroup = next
+			}
+			return nil
+		}); err != nil {
 			a.logf("[groups] 无法修正当前分组: " + err.Error())
 		}
 	}
@@ -217,6 +224,8 @@ func (a *App) CreateProfile(typ string, gid int) (int, error) {
 	if a.curMgr() == nil {
 		return -1, fmt.Errorf("backend not initialised")
 	}
+	a.subMu.Lock()
+	defer a.subMu.Unlock()
 	ent := &db.ProxyEntity{Type: typ, ID: -1, GID: gid, Bean: format.New(typ)}
 	ent.Ensure()
 	if gid < 0 {
@@ -234,6 +243,8 @@ func (a *App) CloneProfile(id int) (int, error) {
 	if a.curMgr() == nil {
 		return -1, fmt.Errorf("backend not initialised")
 	}
+	a.subMu.Lock()
+	defer a.subMu.Unlock()
 	src := a.curMgr().SnapshotProfile(id)
 	if src == nil {
 		return -1, fmt.Errorf("profile %d not found", id)
@@ -296,6 +307,8 @@ func (a *App) MoveProfile(id, gid int) error {
 	if a.curMgr() == nil {
 		return fmt.Errorf("backend not initialised")
 	}
+	a.subMu.Lock()
+	defer a.subMu.Unlock()
 	return a.curMgr().MoveProfile(id, gid)
 }
 
@@ -354,6 +367,12 @@ func (a *App) ImportLink(link string, gid int) (int, error) {
 	if a.curMgr() == nil || a.curSetting() == nil {
 		return -1, fmt.Errorf("backend not initialised")
 	}
+	a.subMu.Lock()
+	defer a.subMu.Unlock()
+	return a.importLink(link, gid)
+}
+
+func (a *App) importLink(link string, gid int) (int, error) {
 	typ, b, ok := format.ParseLink(strings.TrimSpace(link), a.curSetting())
 	if !ok {
 		return -1, fmt.Errorf("unrecognised share link")
@@ -375,10 +394,15 @@ func (a *App) ImportLink(link string, gid int) (int, error) {
 // what did not — a batch of ten with three unrecognised used to answer nil
 // error and never mention the three.
 func (a *App) ImportLinks(text string, gid int) ([]int, error) {
+	if a.curMgr() == nil || a.curSetting() == nil {
+		return nil, fmt.Errorf("backend not initialised")
+	}
+	a.subMu.Lock()
+	defer a.subMu.Unlock()
 	var ids []int
 	var errs []string
 	for _, line := range splitLines(text) {
-		id, err := a.ImportLink(line, gid)
+		id, err := a.importLink(line, gid)
 		if err != nil {
 			errs = append(errs, line+": "+err.Error())
 			continue
@@ -522,6 +546,8 @@ func (a *App) ResolveGroupDomains(gid int) (int, error) {
 	if a.curMgr() == nil {
 		return 0, fmt.Errorf("backend not initialised")
 	}
+	a.subMu.Lock()
+	defer a.subMu.Unlock()
 	changed := 0
 	for _, p := range a.curMgr().ProfilesWithOrder(gid) {
 		addr := strings.TrimSpace(p.ServerAddress())

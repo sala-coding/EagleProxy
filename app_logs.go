@@ -67,56 +67,27 @@ func (a *App) emitLog(category, line string) {
 	}
 }
 
-// Notice is one message for the frontend to show as a toast.
-type Notice struct {
-	Text  string `json:"text"`
-	IsErr bool   `json:"isErr"`
-}
-
 // notifyMessage tells the user something in the app's own words — which step of
-// the "mode first, node second" flow is missing, for instance. Messages raised
-// before the webview is listening are queued rather than dropped: see the field
-// comment on pendingNotice for the case that makes this necessary.
-func (a *App) notifyMessage(text string, isErr ...bool) {
-	n := Notice{Text: text, IsErr: len(isErr) > 0 && isErr[0]}
-	a.noticeMu.Lock()
-	if !a.noticeReady {
-		a.pendingNotice = append(a.pendingNotice, n)
-		a.noticeMu.Unlock()
-		return
-	}
-	a.noticeMu.Unlock()
-	a.emitNotice(n)
-}
-
-// ConsumeNotices hands over the messages raised before the frontend was
-// listening, and marks it as listening from then on: anything raised after this
-// call arrives as an app:message event instead.
+// the "mode first, node second" flow is missing, for instance.
 //
-// The UI calls it immediately after installing its listeners, and that ordering
-// is what makes the handover lossless — a message cannot fall into the gap
-// between "backend raised it" and "frontend could hear it", whichever side of
-// OnDomReady that gap happens to land on. Returns nil when there is nothing.
-func (a *App) ConsumeNotices() []Notice {
-	a.noticeMu.Lock()
-	defer a.noticeMu.Unlock()
-	a.noticeReady = true
-	queued := a.pendingNotice
-	a.pendingNotice = nil
-	return queued
+// The words live in the console now: the floating message window that used to
+// carry them is gone, and every notice takes the road every line of this
+// app's own making takes — the process console, the "core" log file and the
+// panel's live stream (see logf), plus the buffer the panel re-reads when it
+// opens (see Controller.Note), so a notice raised while nothing was listening
+// — the TUN handover, a second launch — is not the one line the reader cannot
+// find again. The "[app]" tag marks these apart from the core's own output.
+func (a *App) notifyMessage(text string, isErr ...bool) {
+	line := "[app] " + text
+	a.logf(line)
+	if a.curController() != nil {
+		a.curController().Note(logstore.Stamp(line))
+	}
 }
 
-// domReady marks the frontend as listening and hands it whatever was queued
-// while it was starting up.
+// domReady runs what the window's first frame owes: the caption icon and the
+// remembered-mode restore, both delayed so neither lands in the first frame.
 func (a *App) domReady() {
-	a.noticeMu.Lock()
-	a.noticeReady = true
-	queued := a.pendingNotice
-	a.pendingNotice = nil
-	a.noticeMu.Unlock()
-	for _, n := range queued {
-		a.emitNotice(n)
-	}
 	// The window's caption icon, cleared now that the window is on screen — it does not
 	// exist yet when startup runs, which is where this used to be and why nothing
 	// happened. Twice: the icon is a resource of the executable, and a window that is
@@ -128,12 +99,6 @@ func (a *App) domReady() {
 	// the same reason and by a little more: switching a mode can restart a node or raise
 	// an administrator prompt, and neither belongs in the first frame of the window.
 	time.AfterFunc(time.Second, a.applyRememberedSpmode)
-}
-
-func (a *App) emitNotice(n Notice) {
-	if a.curCtx() != nil {
-		runtime.EventsEmit(a.curCtx(), "app:message", n.Text, n.IsErr)
-	}
 }
 
 // connNoiseFragments mark the per-connection request/response lines the core

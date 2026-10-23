@@ -30,8 +30,27 @@ func (b *builder) extraCorePath(id string) string {
 	return b.s.ExtraCore.Get(id)
 }
 
+// ExternalTempDir is the folder the external cores' own configs are written to
+// (see tempDir): one level under the data directory.
+//
+// It is also the resident server's state folder — the takeover state, the
+// command slot and the heartbeats live there (see tunserv) — so anything that
+// tidies it must go by the config names below, not by the folder.
+func ExternalTempDir(baseDir string) string {
+	return filepath.Join(baseDir, "temp")
+}
+
+// ExternalTempPrefixes are the file-name prefixes the external cores' configs
+// are written under (see writeTemp). The app's startup sweep removes exactly
+// these from the temp folder, and nothing else: the folder doubles as the
+// resident server's state folder, whose files a live server reads on its own
+// tick and whose deletion this sweep has no business doing.
+func ExternalTempPrefixes() []string {
+	return []string{"naive_", "tuic_", "hysteria2_", "custom_"}
+}
+
 func (b *builder) tempDir() string {
-	return filepath.Join(b.s.BaseDir(), "temp")
+	return ExternalTempDir(b.s.BaseDir())
 }
 
 // writeTemp writes data to a temp file and returns its path.
@@ -256,6 +275,26 @@ func (b *builder) buildExternalQUIC(ent *db.ProxyEntity, mappingPort, socksPort 
 	return spec, nil
 }
 
+// ExtConfigSuffix turns the reader's cs_suffix into the tail of the config
+// file's name. It is a file EXTENSION the reader chose — "conf", "yaml" — and
+// nothing else: separators or a parent directory in it would place the config
+// outside the temp folder (filepath.Join does not keep them in), which is both
+// a way out of the folder the startup sweep empties and a path writeTemp has no
+// business building. Rejected with the reason named: this is a field the reader
+// typed in the node editor, and an unnamed refusal is the one thing they cannot
+// act on. An empty field is "unset" — the JSON sniff decides the extension.
+func ExtConfigSuffix(s string) (string, error) {
+	if s = strings.TrimSpace(s); s == "" {
+		return "", nil
+	}
+	s = strings.TrimSpace(strings.TrimPrefix(s, "."))
+	if s == "" || strings.Contains(s, "..") || strings.HasSuffix(s, ".") ||
+		strings.ContainsAny(s, `/\:`) {
+		return "", fmt.Errorf("cs_suffix %q 不是有效的文件扩展名（不能含路径分隔符或 ..）", s)
+	}
+	return "." + s, nil
+}
+
 func (b *builder) buildExternalCustom(ent *db.ProxyEntity, mappingPort, socksPort int) (*ExternalSpec, error) {
 	bb := ent.Bean
 	spec := &ExternalSpec{Program: b.extraCorePath(bb.Str("core"))}
@@ -269,8 +308,12 @@ func (b *builder) buildExternalCustom(ent *db.ProxyEntity, mappingPort, socksPor
 
 		suffix := ""
 		if s := bb.Str("cs_suffix"); s != "" {
-			suffix = "." + s
-		} else {
+			var err error
+			if suffix, err = ExtConfigSuffix(s); err != nil {
+				return nil, err
+			}
+		}
+		if suffix == "" {
 			var obj map[string]interface{}
 			if json.Unmarshal([]byte(cfg), &obj) == nil && len(obj) > 0 {
 				suffix = ".json"

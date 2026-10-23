@@ -2045,25 +2045,18 @@
     opacity: .7;
 }
 
-/* The wrapper only hosts the lamp now: every transient word lives in the bar's
-   own text slot at its left edge (.status-note). */
+/* The wrapper only hosts the lamp. The transient words that used to grow out
+   of the rail's line beside it are lines of the console's stream now (see
+   notify in App.vue). */
 .state-wrap {
     display: inline-flex;
 }
 
-/* The status bar's one text slot, hung off the rail's vertical line rather than
-   off the bar's own left edge. That line is .statusbar::after, drawn at
-   (rail-w - 1) from the bar's padding box, and this reads the same number — so
-   the word starts at the line's right side whatever the bar's own left edge
-   happens to be (.bottom-dock pulls it out to the window edge, which is not a
-   distance this rule should have to know).
-   Positioned rather than a flex child with margin-right:auto for exactly that
-   reason, and the rail's line is the pop's origin: every transient word — the
-   run state on hover, "node connected" when a start lands, notify results —
-   grows out of it, holds for three seconds (the timers in App.tsx) and fades
-   where it stands. Green is the lamp's colour; errors wear the red. */
-/* The bar's left slot: one place for everything that speaks while something is
-   happening — a notify toast, and the test in progress. Positioned rather than laid out
+/* The bar's left slot: the readouts of what is moving — the live rates, the
+   test in progress. The transient WORDS that used to speak here (the run state
+   on hover, the app's notices) are lines of the console now; what remains is
+   not a sentence and has nowhere else to be said.
+   Positioned rather than laid out
    with the bar's own flex, which ends at the right edge: an in-flow child of the bar
    would be carried there, half a window away from the rail's line that both of these
    grow out of. Its width is its contents', so an empty slot takes no clicks.
@@ -2117,196 +2110,9 @@
     color: var(--red);
 }
 
-.status-note {
-    /* In the slot rather than positioned in it: the slot owns the place on the bar, and
-       the note owns its own growth — see notePop, which is unchanged and still scales
-       about the left edge, so the word still comes out of the rail's line. */
-    display: flex;
-    align-items: center;
-    font-size: .6875rem;
-    font-family: var(--font-mono);
-    color: var(--green);
-    white-space: nowrap;
-    transform-origin: left center;
-    animation: notePop .42s cubic-bezier(.2, 1.6, .4, 1) both;
-}
-
-.status-note.leaving {
-    animation: noteFade .4s ease forwards;
-}
-
-/* Errors say the same words in the alarm colour — the hue is the whole
-   difference, the way the log's error lines work. */
-.status-note.err {
-    color: var(--red);
-}
-
-/* The transient message. It used to be a small window — a title strip with a
-   state dot, monospace body text, centred on the main window on both axes —
-   which read as a dialog that had lost its buttons and sat over whatever the
-   reader was doing. Now it is one strip above the status bar, where results
-   already belong: the state is carried by a single tinted glyph, the words are
-   in the interface font, and the close button only appears under the pointer.
-   It stands above the dialogs (130) and under the context menus (200+). */
-.note-window {
-    position: fixed;
-    left: 50%;
-    bottom: calc(var(--status-h, 30px) + 14px);
-    transform: translateX(-50%);
-    z-index: 150;
-    display: flex;
-    align-items: flex-start;
-    gap: 9px;
-    max-width: min(520px, 82vw);
-    max-height: 40vh;
-    overflow: auto;
-    padding: 10px 8px 10px 11px;
-    background: color-mix(in srgb, var(--bg-2) 92%, var(--bg));
-    border: 1px solid color-mix(in srgb, var(--line-strong) 80%, transparent);
-    border-radius: 12px;
-    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.34), 0 1px 2px rgba(0, 0, 0, 0.28);
-    animation: noteWinIn .2s ease-out both;
-}
-
-.note-window.err {
-    border-color: color-mix(in srgb, var(--red) 42%, var(--line-strong));
-}
-
-.note-window.leaving {
-    animation: noteWinOut .26s ease forwards;
-}
-
-/* The state, as one glyph in a tinted disc: a tick for a thing that landed,
-   an exclamation for one that did not. The words themselves stay in the text
-   colour — coloured prose at this size reads as shouting, and the hue here is
-   the whole of the difference between the two kinds. */
-.note-window-icon {
-    flex: none;
-    width: 17px;
-    height: 17px;
-    margin-top: 1px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: .625rem;
-    font-weight: 700;
-    font-style: normal;
-    line-height: 1;
-    color: var(--green);
-    background: color-mix(in srgb, var(--green) 16%, transparent);
-}
-
-.note-window.err .note-window-icon {
-    color: var(--red);
-    background: color-mix(in srgb, var(--red) 16%, transparent);
-}
-
-.note-window-body {
-    font-size: .8125rem;
-    line-height: 1.5;
-    color: var(--text);
-    word-break: break-word;
-    white-space: pre-wrap;
-    padding-top: 1px;
-}
-
-/* The close sits in the corner and is invisible until the strip is hovered or
-   the button itself is focused: a toast that has to be dismissed by hand is
-   the exception, and a permanent ✕ makes every message look like it needs
-   one. */
-.note-window-close {
-    flex: none;
-    width: 18px;
-    height: 18px;
-    margin-top: 1px;
-    border: 0;
-    border-radius: 5px;
-    background: transparent;
-    color: var(--text-dim);
-    font-size: .6875rem;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity .12s ease, background .12s ease, color .12s ease;
-}
-
-.note-window:hover .note-window-close,
-.note-window-close:focus-visible {
-    opacity: 1;
-}
-
-.note-window-close:hover {
-    color: var(--text);
-    background: color-mix(in srgb, var(--line) 70%, transparent);
-}
-
-/* It rises the last few pixels into place and leaves by sinking back out —
-   short, small, and without the bounce the window version had: a toast that
-   springs is a toast the eye is pulled to after it has already been read. */
-@keyframes noteWinIn {
-    from {
-        opacity: 0;
-        transform: translateX(-50%) translateY(10px) scale(.98);
-    }
-    to {
-        opacity: 1;
-        transform: translateX(-50%) translateY(0) scale(1);
-    }
-}
-
-@keyframes noteWinOut {
-    to {
-        opacity: 0;
-        transform: translateX(-50%) translateY(6px);
-    }
-}
-
-/* It grows out of the rail's line rather than dropping into the bar: the word
-   starts narrow against that vertical line and widens to its own width, so the
-   line reads as where the text comes from. Only the horizontal axis is touched,
-   and only by scaling about the left edge — no translate, so the first frame is
-   already on the line instead of a few pixels to one side of it. The note is as
-   tall as the bar at every frame, which is what keeps it from ever poking past
-   the bar's top or bottom. */
-@keyframes notePop {
-    0% {
-        opacity: 0;
-        transform: scaleX(.72);
-    }
-    55% {
-        opacity: 1;
-        transform: scaleX(1.02);
-    }
-    100% {
-        opacity: 1;
-        transform: none;
-    }
-}
-
-/* Three seconds after it lands (the timers in App.tsx) it stops being there:
-   opacity alone, no movement and no shrinking, so a word the reader was still
-   looking at thins out instead of being taken away. */
-@keyframes noteFade {
-    from {
-        opacity: 1;
-    }
-    to {
-        opacity: 0;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .status-note,
-    .status-note.leaving,
-    .note-window,
-    .note-window.leaving {
-        animation: none;
-    }
-}
+/* The app's own words are lines of the console's stream now (see notify in
+   App.vue and notifyMessage in the Go side); the floating message window and
+   the bar's text slot that used to carry them are gone with their rules. */
 
 /* Keyboard focus is visible everywhere by default: a control that says where
    the typing or the Enter will land is not a decoration, it is the difference

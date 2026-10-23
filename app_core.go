@@ -157,7 +157,13 @@ func (a *App) onCoreExit(gen, id, pid int) {
 	}
 	expected := pid != 0 && pid == a.expectStopPID
 	a.expectStopPID = 0
-	if expected || id == core.StoppedID {
+	// The reader asked for the node to come down and that is still what they
+	// want: this exit is the stop landing, not a crash. The pid mark alone
+	// cannot carry it — a stop pressed after the process had already died wrote
+	// -1 there (nothing to name), and the restart below then brought back a node
+	// the reader had just put away.
+	stopped := a.stopRequested.Load()
+	if expected || stopped || id == core.StoppedID {
 		a.coreMu.Unlock()
 		return
 	}

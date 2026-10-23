@@ -128,11 +128,25 @@ const (
 // Releasing twice is a no-op, which is what a stop path wants: it runs on states
 // it did not create and must not fail over a capture that is already gone.
 func (l *Link) Release() error {
-	if err := l.clearCapture(); err != nil {
+	// The metric goes first. Release is a "hand the machine back" that runs on
+	// states it did not create, and each half can fail on its own — the order
+	// decides which failure leaves the machine behind. Metric first: the
+	// interface stops winning Windows' queue at once, so whatever happens
+	// below, the reader's traffic is already on the physical adapter. The old
+	// order (routes first, metric after) had the two shapes that do not: a
+	// route cut that failed part-way left a broken capture under a metric
+	// that still won it (a black hole the reader meets as "no internet"),
+	// and a metric write that failed after the cut left the interface
+	// claiming the queue with nothing captured.
+	v4, v6 := l.families()
+	if err := l.setMetric(v4, v6, linkMetricIdle); err != nil {
+		// The metric is stuck high, so the capture's routes are the machine's
+		// only honest answer for now: cut them anyway — a failed release is
+		// reported either way, and leaving both up is the black hole.
+		_ = l.clearCapture()
 		return err
 	}
-	v4, v6 := l.families()
-	return l.setMetric(v4, v6, linkMetricIdle)
+	return l.clearCapture()
 }
 
 // clearCapture removes the routes this package writes: the /1 halves of a

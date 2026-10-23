@@ -266,7 +266,7 @@ func (c *Controller) StartWithConfig(id int, res *configbuilder.Result) error {
 func (c *Controller) startLocked(id int, res *configbuilder.Result, ent *db.ProxyEntity) (err error) {
 	cfgPath, err := c.writeConfig(id, res.Config)
 	if err != nil {
-		c.appendLogLocked("failed to write core config: " + err.Error())
+		c.recordLocked("failed to write core config: "+err.Error(), true)
 		return err
 	}
 	// What this config can be switched between, kept for the caller that may want to move
@@ -295,7 +295,7 @@ func (c *Controller) startLocked(id int, res *configbuilder.Result, ent *db.Prox
 
 	exe, err := c.resolveCore()
 	if err != nil {
-		c.appendLogLocked("failed to start core: " + err.Error())
+		c.recordLocked("failed to start core: "+err.Error(), true)
 		return err
 	}
 
@@ -304,7 +304,7 @@ func (c *Controller) startLocked(id int, res *configbuilder.Result, ent *db.Prox
 	if res.NeedVPN && !WintunReady(exe, c.configDir) {
 		err := fmt.Errorf("未找到 wintun.dll：TUN 模式需要它，请把 wintun.dll 放到 %s（或核心目录 %s）后重试",
 			c.configDir, filepath.Dir(exe))
-		c.appendLogLocked(err.Error())
+		c.recordLocked(err.Error(), true)
 		return err
 	}
 
@@ -315,13 +315,13 @@ func (c *Controller) startLocked(id int, res *configbuilder.Result, ent *db.Prox
 	// running core for no reason at all whenever the two use different ports.
 	if portInUse(c.setting.CoreBoxClashAPI) {
 		if stale := readPIDFile(c.pidPath()); clearStaleCore(stale, exe) {
-			c.appendLogLocked(fmt.Sprintf("<<< 已结束上次残留的核心进程 (pid %d)", stale))
+			c.recordLocked(fmt.Sprintf("<<< 已结束上次残留的核心进程 (pid %d)", stale), true)
 			c.waitPortFree(c.setting.CoreBoxClashAPI)
 		}
 	}
 
 	if err := c.checkClashAPI(exe); err != nil {
-		c.appendLogLocked(err.Error())
+		c.recordLocked(err.Error(), true)
 		return err
 	}
 
@@ -339,7 +339,7 @@ func (c *Controller) startLocked(id int, res *configbuilder.Result, ent *db.Prox
 	}
 
 	if err := cmd.Start(); err != nil {
-		c.appendLogLocked("failed to start core: " + err.Error())
+		c.recordLocked("failed to start core: "+err.Error(), true)
 		return fmt.Errorf("failed to start core: %w", err)
 	}
 	launched = true
@@ -352,10 +352,10 @@ func (c *Controller) startLocked(id int, res *configbuilder.Result, ent *db.Prox
 	if ent != nil {
 		name = fmt.Sprintf(" for [%s] %s", ent.DisplayType(), ent.DisplayName())
 	}
-	c.appendLogLocked(fmt.Sprintf(">>> started core (pid %d)%s", cmd.Process.Pid, name))
+	c.recordLocked(fmt.Sprintf(">>> started core (pid %d)%s", cmd.Process.Pid, name), true)
 	// the OS takes it from here on a crash; the pid file covers a previous run
 	if err := trackCoreProcess(cmd.Process.Pid); err != nil {
-		c.appendLogLocked("failed to bind core to job object: " + err.Error())
+		c.recordLocked("failed to bind core to job object: "+err.Error(), true)
 	}
 	c.writePIDFile(cmd.Process.Pid)
 
@@ -548,11 +548,11 @@ func (c *Controller) startExternals(specs []*configbuilder.ExternalSpec) {
 		cmd.Stdout = w
 		cmd.Stderr = w
 		if err := cmd.Start(); err != nil {
-			c.appendLogLocked("failed to start external core " + tag + ": " + err.Error())
+			c.recordLocked("failed to start external core "+tag+": "+err.Error(), true)
 			continue
 		}
 		_ = trackCoreProcess(cmd.Process.Pid)
-		c.appendLogLocked("started external core " + tag + " (pid " + strconv.Itoa(cmd.Process.Pid) + ")")
+		c.recordLocked("started external core "+tag+" (pid "+strconv.Itoa(cmd.Process.Pid)+")", true)
 		c.extCmds = append(c.extCmds, cmd)
 	}
 }
@@ -767,7 +767,7 @@ func (c *Controller) checkClashAPI(coreExe string) error {
 	pid, who := c.displaceListener(port, coreExe)
 	if pid > 0 {
 		msg := fmt.Sprintf("Clash API 端口 %d 被 %s (pid %d) 占用，无法自动结束该进程", port, who, pid)
-		c.appendLogLocked(msg + "；请手动结束它，或在设置里换一个 Clash API 端口")
+		c.recordLocked(msg+"；请手动结束它，或在设置里换一个 Clash API 端口", true)
 		return errors.New(msg)
 	}
 	if !portInUse(port) {
@@ -783,13 +783,13 @@ func (c *Controller) checkClashAPI(coreExe string) error {
 	//     fails with no listener anywhere.
 	// Either way the core is given its chance: sing-box may bind where this
 	// plain probe cannot. If it cannot, the log now says which one it was.
-	c.appendLogLocked(fmt.Sprintf("Clash API 端口 %d 暂时无法绑定（无进程在监听，可能处于系统回收期或被系统保留），继续尝试启动核心", port))
+	c.recordLocked(fmt.Sprintf("Clash API 端口 %d 暂时无法绑定（无进程在监听，可能处于系统回收期或被系统保留），继续尝试启动核心", port), true)
 	if lines := portLines(port); len(lines) > 0 {
 		for _, l := range lines {
-			c.appendLogLocked("[port] " + l)
+			c.recordLocked("[port] "+l, true)
 		}
 	} else {
-		c.appendLogLocked("[port] netstat 未列出该端口：通常意味着端口段被 Hyper-V/WSL/Docker 保留了（此时没有任何进程可结束，换个端口即可）")
+		c.recordLocked("[port] netstat 未列出该端口：通常意味着端口段被 Hyper-V/WSL/Docker 保留了（此时没有任何进程可结束，换个端口即可）", true)
 	}
 	return nil
 }
@@ -802,7 +802,7 @@ func (c *Controller) displaceListener(port int, coreExe string) (int, string) {
 		if !clearStaleCore(pid, coreExe) {
 			continue
 		}
-		c.appendLogLocked(fmt.Sprintf("<<< 已结束占用端口 %d 的核心进程 (pid %d)", port, pid))
+		c.recordLocked(fmt.Sprintf("<<< 已结束占用端口 %d 的核心进程 (pid %d)", port, pid), true)
 		if c.waitPortFree(port) {
 			return 0, ""
 		}
@@ -882,20 +882,38 @@ func readPIDFile(path string) int {
 	return pid
 }
 
-func (c *Controller) appendLog(line string) {
+// Note records one of the app's own words in the core's log buffer — the
+// buffer the panel re-reads when it opens (see Logs). The live half of the
+// panel has already heard the line by the time this is called (notifyMessage's
+// own road to the stream delivers it), so this says nothing as it records: the
+// event OnLog carries would be the same sentence twice, once from each road.
+// It is here for the notices raised while nothing was listening — a mode
+// restored at start-up, a second launch intercepted: without it those are the
+// one lines the reader can find nowhere but the log file.
+func (c *Controller) Note(line string) {
 	c.mu.Lock()
-	c.appendLogLocked(line)
+	c.recordLocked(line, false)
 	c.mu.Unlock()
 }
 
-// appendLogLocked appends a line while the caller already holds c.mu.
+func (c *Controller) appendLog(line string) {
+	c.mu.Lock()
+	c.recordLocked(line, true)
+	c.mu.Unlock()
+}
+
+// recordLocked is the one writer of the log buffer, and the three readers of a
+// core line all hang off it: the buffer itself (what the panel reloads from),
+// and — through OnLog — the file and the live stream together. fire says
+// whether the readers hang: a line whose caller delivers it another way (see
+// Note) is recorded without saying it twice.
 //
 // Start keeps the lock for its whole body, so it must not call appendLog:
 // sync.Mutex is not reentrant, so that self-deadlocks. The deadlock fired right
 // after the core process had already been spawned, which left Start hanging
 // forever — no "started core" line, no return to the frontend, and RunningID
 // blocked behind the same mutex, so the status bar stayed empty.
-func (c *Controller) appendLogLocked(line string) {
+func (c *Controller) recordLocked(line string, fire bool) {
 	// the core may colour its output; the escapes are meaningless in a log file
 	// and in the UI, and they survive a clipboard copy as stray control bytes
 	line = util.StripANSI(line)
@@ -918,7 +936,7 @@ func (c *Controller) appendLogLocked(line string) {
 	if n := c.logCap(); len(c.logs) > n {
 		c.logs = c.logs[len(c.logs)-n:]
 	}
-	if c.OnLog != nil {
+	if fire && c.OnLog != nil {
 		c.OnLog(stamped)
 	}
 }

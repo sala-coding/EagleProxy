@@ -211,20 +211,6 @@ export namespace main {
 	        this.error = source["error"];
 	    }
 	}
-	export class Notice {
-	    text: string;
-	    isErr: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new Notice(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.text = source["text"];
-	        this.isErr = source["isErr"];
-	    }
-	}
 	export class ProfileInfo {
 	    id: number;
 	    gid: number;

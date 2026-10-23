@@ -539,8 +539,21 @@ func (b *builder) outboundComplete(ent *db.ProxyEntity) bool {
 		// buildQUIC writes the password through unchanged, and the schema the
 		// bundled core checks requires it.
 		return strings.TrimSpace(ent.Bean.Str("password")) != ""
+	case "naive":
+		return strings.TrimSpace(ent.Bean.Str("username")) != "" &&
+			strings.TrimSpace(ent.Bean.Str("password")) != ""
+	case "socks", "http":
+		// No credential to check: the address above is the whole of it.
+		return true
 	}
-	return true
+	// Everything else is a protocol this build cannot make an outbound for —
+	// a type a newer version knows, or one a share link injected (nekoray://
+	// carries its own). Entering the selector made the core refuse the whole
+	// config over a member it could not resolve, and took the group with it;
+	// left out, the node is still in the list and still importable later, and
+	// everything else in the group works. `custom` is here too: it is a whole
+	// config of its own and was never a selector member.
+	return false
 }
 
 func (b *builder) buildChainInternal(chainID int, ents []*db.ProxyEntity) (string, error) {
@@ -582,22 +595,37 @@ func (b *builder) buildChainInternal(chainID int, ents []*db.ProxyEntity) (strin
 		// Left unwired, the previous outbound would dial the target directly —
 		// a group's front proxy silently bypassed by every member whose chain
 		// ran after the first one's, with nothing anywhere to say so.
-		if index > 0 {
-			if pastExternalStat == 0 {
-				// attach previous outbound as a detour of this one
-				if prev, ok := b.outbounds[len(b.outbounds)-1].(map[string]interface{}); ok {
-					prev["detour"] = tagOut
-				}
-			} else {
-				b.chainRules = append(b.chainRules, map[string]interface{}{
-					"inbound":  []interface{}{pastTag + "-mapping"},
-					"outbound": tagOut,
-				})
-			}
-		} else {
+		//
+		// It is not written here, though: the previous outbound is pointed at
+		// this hop only once this hop has been built. Written first, a hop that
+		// failed below left the detour naming a tag nothing defines, the group
+		// kept the rest of the config, and sing-box refused the whole file
+		// ("dependency[g-2] not found") — one unbuildable node took its entire
+		// group down with it.
+		if index == 0 {
 			chainTagOut = tagOut
 		}
+		var prevOut map[string]interface{}
+		if index > 0 && pastExternalStat == 0 && len(b.outbounds) > 0 {
+			prevOut, _ = b.outbounds[len(b.outbounds)-1].(map[string]interface{})
+		}
+		wire := func() {
+			if index == 0 {
+				return
+			}
+			if prevOut != nil {
+				prevOut["detour"] = tagOut
+				return
+			}
+			b.chainRules = append(b.chainRules, map[string]interface{}{
+				"inbound":  []interface{}{pastTag + "-mapping"},
+				"outbound": tagOut,
+			})
+		}
 		if skipBuild {
+			// Nothing to build — the outbound this points from is already in
+			// `outbounds`, so the wiring is safe now.
+			wire()
 			continue
 		}
 
@@ -691,6 +719,8 @@ func (b *builder) buildChainInternal(chainID int, ents []*db.ProxyEntity) (strin
 
 		b.outbounds = append(b.outbounds, outbound)
 		b.outboundTags = append(b.outboundTags, tagOut)
+		// The hop exists now, so the one before it can be pointed at it.
+		wire()
 		pastTag = tagOut
 		pastExternalStat = extStat
 	}

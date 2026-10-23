@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"eagle/internal/configbuilder"
 	"eagle/internal/core"
 	"eagle/internal/crashlog"
 	"eagle/internal/db"
@@ -12,6 +13,9 @@ import (
 	"eagle/internal/tunserv"
 	"eagle/internal/vpn"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -212,6 +216,12 @@ type App struct {
 	// timer reads this before touching anything: its window overlaps the whole
 	// (slow) start, much of which runs before runningID is set.
 	tunWake atomic.Bool
+	// True while a TUN start's front-end answer is being waited for past the
+	// switch's own window (see tunFrontSwitchWait): the start has returned and
+	// a background goroutine owns the completion. The switch reads this to say
+	// "waiting for authorization" rather than "on", which the capture cannot
+	// honestly claim yet; the completion clears it whichever way it ends.
+	tunFrontAwaiting atomic.Bool
 	// Set once the exit path has begun. A warm-up started moments before the reader quit
 	// can still be sitting behind its administrator prompt, and the front-end it finishes
 	// building would then outlive the app that asked for it — the orphan this code spends
@@ -227,15 +237,6 @@ type App struct {
 	// used to mean a second request, a second toast for one answer, and — for the
 	// download — two writers on one temp file and one swap script.
 	updateBusy atomic.Bool
-
-	// Messages waiting for a frontend to show, and whether one is listening yet.
-	// Switching TUN on restarts the app (the tun adapter needs the administrator
-	// token), so the "now pick a node" message is raised in a fresh process whose
-	// webview is still booting — an event sent then would land nowhere. Those
-	// messages are queued until OnDomReady instead.
-	noticeMu      sync.Mutex
-	noticeReady   bool
-	pendingNotice []Notice
 
 	// Last totals seen from the Clash API. trafficLoop turns them into per-profile
 	// deltas; ResetMetrics rebaselines them so a manual reset is not immediately
@@ -295,6 +296,22 @@ type App struct {
 	coreGen       int
 	expectStopPID int
 	restarts      []time.Time
+	// stopRequested is the reader's intent, held apart from the pid mark above
+	// because the two answer different questions. expectStopPID names which
+	// process's exit was asked for; this says the reader wants the node down,
+	// full stop — and it survives the window in which the core is already dead
+	// and its exit has not been noticed yet. Without it, a stop landing in that
+	// window went through markExpectedStop's pid==0 branch (the mark became -1,
+	// which matches nothing) and the supervisor then read the death as a crash
+	// and started the node again: the reader pressed stop and the row came
+	// back. Set by the stop path, cleared by the next start.
+	stopRequested atomic.Bool
+
+	// dnsReconcileBusy keeps the traffic loop's resolver reconcile to one at a
+	// time (see trafficLoop): it runs on its own goroutine because it can wait
+	// on a UAC prompt, and this flag is what stops a queued tick from adding a
+	// second wait behind the first.
+	dnsReconcileBusy atomic.Bool
 
 	// The test run in progress, if any. A group test takes one node at a time and
 	// can take minutes, and the reader may have decided about a node long before
@@ -458,19 +475,81 @@ func (a *App) setCtx(ctx context.Context) {
 // NewApp creates the backend.
 func NewApp() *App { return &App{} }
 
+// cleanExternalTemps takes the external cores' configs from previous sessions
+// out of the temp folder, before anything can start a core.
+//
+// A config is written per start (see configbuilder's writeTemp) and read once
+// at that core's own start-up, and the file was never removed afterwards: every
+// speed test of every external-core node added one or two, and a hysteria2 or
+// tuic config is the node's credential in the clear.
+//
+// By name, not by folder: the temp folder doubles as the resident server's
+// state folder (the takeover state, the command slot, the heartbeats), whose
+// files a live server reads on its own tick. Only the config prefixes go —
+// see configbuilder.ExternalTempPrefixes.
+//
+// Nothing of this session is in the folder yet at startup, and a previous
+// session's core that is somehow still running read its config when it started
+// and does not need the file again. The sweep is best-effort like every other
+// tidying here: a file that will not come off is left for the next launch.
+func (a *App) cleanExternalTemps() {
+	dataDir := a.curDataDir()
+	if dataDir == "" {
+		return
+	}
+	dir := configbuilder.ExternalTempDir(dataDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return // no folder yet: nothing has been written so far
+	}
+	prefixes := configbuilder.ExternalTempPrefixes()
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		for _, p := range prefixes {
+			if strings.HasPrefix(name, p) {
+				_ = os.Remove(filepath.Join(dir, name))
+				break
+			}
+		}
+	}
+}
+
 // startup is called when the app starts.
 func (a *App) startup(ctx context.Context) {
 	a.setCtx(ctx)
 	// The window's caption icon is dealt with in domReady rather than here: at this
 	// point the window does not exist yet, so there would be nothing to talk to.
-	a.loadAppConfig()
+	cfgRead := a.loadAppConfig()
 	// The log folder is decided and created before anything writes: the log
 	// store, the core's own log and the crash record all name it, and a folder
 	// that appears later is a folder the first lines went missing from.
 	a.setupLogDir()
+	// A file that was there but could not be read is kept under its own name
+	// before the defaults are written: it is the reader's only record of where
+	// the library lives, and one torn write used to leave the app pointing at an
+	// empty default folder with the real one still on disk and nothing naming it.
+	// Renamed rather than left in place so that the save below can do its job
+	// (the log folder is recorded here for the resident server).
+	if !cfgRead {
+		if _, err := os.Stat(appConfigPath()); err == nil {
+			corrupt := appConfigPath() + ".corrupt"
+			if err := os.Rename(appConfigPath(), corrupt); err != nil {
+				println("app.json could not be read and could not be set aside:", err.Error())
+			} else {
+				println("app.json could not be read; kept as", corrupt)
+			}
+		}
+	}
 	// And written down, so the resident server writes its log in the same folder
 	// this process does.
 	a.saveAppConfig()
+	// The external cores' configs from previous sessions, out of the way before
+	// anything can start a core: written per start, read once at that core's own
+	// start-up, and left alone they only grew (see cleanExternalTemps).
+	a.cleanExternalTemps()
 	if err := a.reload(false); err != nil {
 		println("init error:", err.Error())
 	}
@@ -548,16 +627,25 @@ func (a *App) applyPendingTun() {
 	// A copy and a swap, like every other write to the settings: the live object
 	// is read by the traffic loop, the speed tests and the core's config build
 	// at the same time, and a write into it is a write under their feet.
-	next := a.curSetting().Clone()
-	profile := next.PendingTunProfile
-	next.PendingTun = false
-	next.PendingTunProfile = core.StoppedID
-	// Through applySetting rather than Save + setSetting: this goroutine runs
-	// beside the settings save and the mode switches, and bypassing the shared
-	// read-copy-save-swap left this write out of the controller's setting and
-	// skipped the forwarder's re-point (see applySetting).
-	if err := a.applySetting(next); err != nil {
+	profile := core.StoppedID
+	// Through mutateSetting rather than a copy made here: this goroutine runs
+	// beside the settings save and the mode switches, and a copy taken outside
+	// the lock carried the settings save's fields back (see mutateSetting).
+	//
+	// A failure below stops the whole path rather than being logged and
+	// stepped over. The request is still on disk when the save fails, so the
+	// next launch comes back to it either way; what continuing did was open TUN
+	// on a node that was never started and leave the mode flag down for a
+	// session that never had it, which the reader then met as "我的节点一启动就
+	// 要管理员权限".
+	if err := a.mutateSetting(func(next *setting.Setting) error {
+		profile = next.PendingTunProfile
+		next.PendingTun = false
+		next.PendingTunProfile = core.StoppedID
+		return nil
+	}); err != nil {
 		a.logf("[vpn] " + err.Error())
+		return
 	}
 
 	if !vpn.IsAdmin() {
@@ -571,8 +659,48 @@ func (a *App) applyPendingTun() {
 		// The flag goes down before the node comes up, so the profile starts
 		// straight into its tun config — one core start, no live switch.
 		a.curSetting().SetVPNMode(true)
-		if err := a.StartProfile(profile); err != nil {
+		// The seat and the locked form, the way StartProfile takes them, with
+		// this handover's own settlement hook: a TUN start whose front-end
+		// answer sits behind the reader's answer to a UAC prompt hands the
+		// rest of it to a background goroutine (see tunFrontSwitchWait), and
+		// the flag this branch set has to stand down with a start that never
+		// landed — from that goroutine, through this hook.
+		a.startStopMu.Lock()
+		settled := func(ferr error) {
+			if ferr == nil {
+				a.notifyMessage("TUN 模式已开启（已重启节点生效）")
+				return
+			}
+			// The same undo the failure branch below keeps, minus the log
+			// line's prefix.
+			a.curSetting().SetVPNMode(false)
+			a.refreshTrayStatus()
+			a.logf("[vpn] " + ferr.Error())
+		}
+		err := a.startProfileLockedOn(profile, settled)
+		a.startStopMu.Unlock()
+		if err != nil {
+			// The flag went down first so the profile would come up straight
+			// into its tun config; a start that never happened has to take it
+			// back. Left on, the next node the reader starts by hand goes
+			// through the TUN branch and asks for administrator rights over a
+			// mode nobody switched on.
+			//
+			// The remembered mode is NOT rewritten here: rememberSpmode records
+			// what the last session left behind, and at this moment the runtime
+			// flags hold neither mode (the restore has not run yet), so writing
+			// it would erase the list and the launch that follows would restore
+			// nothing at all.
+			a.curSetting().SetVPNMode(false)
+			a.refreshTrayStatus()
 			a.logf("[vpn] " + err.Error())
+			return
+		}
+		// A start whose front-end is still behind the reader's own answer to a
+		// UAC prompt has not captured anything yet; the completion that follows
+		// says the rest.
+		if a.tunFrontAwaiting.Swap(false) {
+			a.notifyMessage("TUN 正在等待管理员授权，确认弹窗后自动接管")
 			return
 		}
 		a.notifyMessage("TUN 模式已开启（已重启节点生效）")

@@ -101,11 +101,25 @@ func swapScriptArgs(script string) []string {
 	return []string{"/c", "start", "", "/min", script}
 }
 
-func updateSwapScript(newPath, self string) string {
+// updateSwapScript builds the updater. The two paths are NOT written into it
+// and are NOT passed on its command line either: they arrive in the environment
+// (EAGLE_NEW / EAGLE_SELF), set by the process that launches it.
+//
+// Two failure modes made that the only shape that works. A batch file is read
+// by cmd.exe in the console's code page, and this file used to carry the paths
+// as literals, saved as UTF-8 — on a Chinese Windows (CP936) every `move` and
+// `start` then named a path that did not exist. Passing them as arguments
+// instead fixed the characters but broke the launch: `start "" /min "<script>"
+// "<arg>"` does not run the script at all when both the script and an argument
+// hold a space (measured: the same call with plain arguments runs, with quoted
+// ones runs nothing), and a reader whose name is "John Smith" has both. The
+// environment block is Unicode end to end and does not change the command line,
+// which stays in the shape that has always worked.
+func updateSwapScript() string {
 	return fmt.Sprintf("@echo off\r\n"+
 		"setlocal\r\n"+
-		"set \"NEW=%s\"\r\n"+
-		"set \"SELF=%s\"\r\n"+
+		"set \"NEW=%%EAGLE_NEW%%\"\r\n"+
+		"set \"SELF=%%EAGLE_SELF%%\"\r\n"+
 		"set /a TRIES=0\r\n"+
 		// The old build is copied aside before anything is moved over it. The
 		// move is the one step no code on this side can undo, and `move /y` on
@@ -129,7 +143,7 @@ func updateSwapScript(newPath, self string) string {
 		":done\r\n"+
 		"start \"\" \"%%SELF%%\"\r\n"+
 		"exit /b\r\n",
-		newPath, self, time.Now().Format("2006-01-02 15:04:05"))
+		time.Now().Format("2006-01-02 15:04:05"))
 }
 
 // stopHelpersForUpdate asks the other two processes that run this same binary
@@ -260,7 +274,7 @@ func (a *App) DownloadUpdate() error {
 	// to decide whether the front-end may be kept (see keepTunFront).
 	a.updating.Store(true)
 	script := filepath.Join(os.TempDir(), fmt.Sprintf("eagle-update-%d.bat", os.Getpid()))
-	body := updateSwapScript(tmp, self)
+	body := updateSwapScript()
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		// The update never started, so the exit that follows is an ordinary one and the
 		// front-end may be kept: leaving the flag set told every later exit to tear it
@@ -273,7 +287,10 @@ func (a *App) DownloadUpdate() error {
 	// holds a space — a temp folder under a user's name almost always does. The
 	// path was then swallowed as a title, the script never ran, and the app
 	// quit with "the update is on its way" and never came back.
+	// The two paths ride the environment, not the file and not the command
+	// line: see updateSwapScript.
 	cmd := exec.Command("cmd", swapScriptArgs(script)...)
+	cmd.Env = append(os.Environ(), "EAGLE_NEW="+tmp, "EAGLE_SELF="+self)
 	util.HideConsole(cmd)
 	if err := cmd.Start(); err != nil {
 		a.updating.Store(false)

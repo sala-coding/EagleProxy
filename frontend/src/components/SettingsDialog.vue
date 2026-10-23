@@ -46,7 +46,8 @@ import {applyRoute, errText} from "../lib/shared";
 import {rsCategoryOf, type Dict} from "../lib/metrics";
 import {clampDockHeight, DOCK_MIN_H} from "../lib/layout";
 import {buildCustomPalette, readCustomPalette, scaleFromIndex, scaleIndex, THEMES, TONE_GROUNDS, TONE_HUES, UI_SCALE_CELLS, UI_SCALE_MAX, UI_SCALE_MIN, wearCustom} from "../lib/theme";
-import {FRAME_KEYS, GROUP_COLS, GROUP_FULL_ROW, GROUP_IN_STARTUP, LANGUAGES, rememberLanguage, ROUTING_SLIDE, SETTING_GROUPS, SETTING_HIDDEN, SETTING_SECTIONS} from "../lib/settings-meta";
+import {FRAME_KEYS, GROUP_FULL_ROW, GROUP_IN_STARTUP, LANGUAGES, rememberLanguage, ROUTING_SLIDE, SETTING_GROUPS, SETTING_HIDDEN, SETTING_SECTIONS} from "../lib/settings-meta";
+import {canonicalHotkey} from "../lib/jsonform";
 import TunCard from "./settings/TunCard.vue";
 import RoutingCard from "./settings/RoutingCard.vue";
 import DnsCard from "./settings/DnsCard.vue";
@@ -535,12 +536,12 @@ watch(hotkeyClash, (clash, _, onCleanup) => {
 const jsonGroups = computed(() => {
     if (!obj.value) return [];
     const named = new Set(SETTING_GROUPS.flatMap(g => g.keys));
-    const out: {title: string; value: Dict; cols?: number; fullRow?: string[]; note?: string}[] = [];
+    const out: {title: string; value: Dict; fullRow?: string[]; note?: string}[] = [];
     for (const g of SETTING_GROUPS) {
         const sub: Dict = {};
         for (const k of g.keys) if (k in obj.value) sub[k] = obj.value[k];
         if (Object.keys(sub).length > 0) {
-            out.push({title: g.title, value: sub, cols: GROUP_COLS[g.title],
+            out.push({title: g.title, value: sub,
                       fullRow: GROUP_FULL_ROW[g.title], note: g.note});
         }
     }
@@ -1299,11 +1300,16 @@ const onHotkeyCapture = (active: boolean) => {
 // Whether a captured combination may be recorded, and the last word on it. Two ways
 // it may not: another row already holds it — which this side can see and the field it
 // was pressed in cannot — and Windows will not take it, which only trying can tell.
+// The comparison is on the canonical forms (see canonicalHotkey): the backend folds
+// Control into Ctrl and the modifier order into a bitmask, so two spellings of one
+// combination are one registration, and the raw-string check used to let the second
+// spelling through to a registration that took the first row's key away.
 const acceptHotkey = async (key: string, combo: string) => {
     const rows: Dict = obj.value ?? {};
+    const canon = canonicalHotkey(combo);
     const clash = Object.keys(rows)
         .filter(k => k !== key && k.startsWith('hk_'))
-        .find(k => String(rows[k] ?? '').toLowerCase() === combo.toLowerCase());
+        .find(k => canonicalHotkey(String(rows[k] ?? '')) === canon);
     if (clash) {
         hotkeyClash.value = {combo, owner: clash};
         return false;
@@ -1655,7 +1661,7 @@ const onPortInput = (e: Event) => {
                         form as a row of that kind rather than written around it (see
                         `extraRows`); its name rides the label column like the other rows'. -->
                     <JsonForm v-for="g in startupRows" :key="g.title"
-                              :model-value="g.value" :cols="g.cols" :full-row="g.fullRow"
+                              :model-value="g.value" :full-row="g.fullRow"
                               grouped
                               :frames="{text: t('kind.startup.text'), switch: t('kind.startup.switch')}"
                               :accept-hotkey="acceptHotkey"
@@ -1828,7 +1834,7 @@ const onPortInput = (e: Event) => {
                             rows above a frame of them. They are read from the app rather than
                             from the settings file: see where coreRows is built. -->
                         <JsonForm v-if="g.title === 'settings.group.core'"
-                                  :model-value="g.value" :cols="g.cols" :full-row="g.fullRow"
+                                  :model-value="g.value" :full-row="g.fullRow"
                                   grouped
                                   :frames="framesOf(g.title)"
                                   :accept-hotkey="acceptHotkey"
@@ -1868,7 +1874,7 @@ const onPortInput = (e: Event) => {
                             </template>
                         </JsonForm>
                         <JsonForm v-else-if="g.title === 'settings.group.test'"
-                                  :model-value="g.value" :cols="g.cols" :full-row="g.fullRow"
+                                  :model-value="g.value" :full-row="g.fullRow"
                                   grouped
                                   :frames="framesOf(g.title)"
                                   :accept-hotkey="acceptHotkey"
@@ -1907,7 +1913,7 @@ const onPortInput = (e: Event) => {
                             </template>
                         </JsonForm>
                         <JsonForm v-else
-                                  :model-value="g.value" :cols="g.cols" :full-row="g.fullRow"
+                                  :model-value="g.value" :full-row="g.fullRow"
                                   grouped
                                   :frames="framesOf(g.title)"
                                   :accept-hotkey="acceptHotkey"

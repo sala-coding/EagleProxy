@@ -76,6 +76,13 @@ var (
 	stateCurrent string
 	stateProxy   bool
 	stateTun     bool
+	// stateEgress is the outbound mode last asked for. Kept for the same reason
+	// the two above are: the first refresh lands before Setup has published the
+	// menu (main() calls it the moment Setup returns, and Setup returns at
+	// once), so the tick has to be remembered and painted when the items
+	// appear — the egress submenu used to open with no tick at all until the
+	// first node start or mode change.
+	stateEgress string
 
 	// trayMu guards the four items: Setup builds them on its own goroutine
 	// while SetModes/SetCurrent read from any goroutine the backend calls
@@ -128,26 +135,38 @@ func SetModes(systemProxy, tun bool, egress string) {
 	// check-then-act pairs, leaving a tick on the state the older of the two believed.
 	trayMu.Lock()
 	defer trayMu.Unlock()
+	// Normalised and recorded before the nil check: Setup publishes the menu on
+	// its own goroutine, so a refresh landing first found no items and used to
+	// drop the mode entirely — the submenu then opened with nothing ticked.
+	// A legacy "block" or an empty field reads as "rule", the word the config
+	// builder reads them as.
+	egress = egressMode(egress)
+	stateEgress = egress
+	stateProxy, stateTun = systemProxy, tun
 	if itemEgress == nil {
 		setChecked(itemProxy, systemProxy)
 		setChecked(itemTun, tun)
 		// The tooltip wants the facts even before the menu exists: the first
 		// refresh can land here, and a tooltip that stays "未代理" over a TUN
 		// icon is the one line in this package that would lie.
-		stateProxy, stateTun = systemProxy, tun
 		refreshTooltipLocked()
 		return
 	}
 	setChecked(itemProxy, systemProxy)
 	setChecked(itemTun, tun)
-	if egress != "direct" && egress != "global" {
-		egress = "rule"
-	}
 	for mode, item := range itemEgress {
 		setChecked(item, mode == egress)
 	}
-	stateProxy, stateTun = systemProxy, tun
 	refreshTooltipLocked()
+}
+
+// egressMode is the mode the menu can tick: the three it offers, with anything
+// else (a retired "block", an empty field) reading as "rule".
+func egressMode(egress string) string {
+	if egress == "direct" || egress == "global" {
+		return egress
+	}
+	return "rule"
 }
 
 // Setup registers the tray icon and menu.
@@ -243,6 +262,15 @@ func Setup(icon []byte, cb Callbacks) {
 			itemProxy = icProxy
 			itemTun = icTun
 			itemEgress = egress
+			// Painted from what was already asked for: the first refresh almost
+			// always lands before this line (Setup returns immediately), and until
+			// now that meant the menu opened with every tick missing.
+			setChecked(icProxy, stateProxy)
+			setChecked(icTun, stateTun)
+			want := egressMode(stateEgress)
+			for mode, item := range egress {
+				setChecked(item, mode == want)
+			}
 			trayMu.Unlock()
 		}, func() {
 			go call(cb.OnQuit)

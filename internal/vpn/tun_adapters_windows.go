@@ -17,7 +17,16 @@ import (
 // Only adapters whose status is not OK are touched: a healthy wintun adapter
 // belongs to whichever VPN is using it, and removing that would break a program
 // that is working fine.
-const staleAdapterScript = `$bad = @(Get-PnpDevice -Class Net -ErrorAction SilentlyContinue | Where-Object { ($_.FriendlyName -match 'wintun|sing-tun') -and ($_.Status -ne 'OK') })
+//
+// The three names are the FriendlyName a broken adapter of this family answers
+// with. 'wintun' is the driver's own entry (Wintun Userspace Tunnel);
+// 'sing-tun' is the tunnel type this app's core creates the adapter with; and
+// 'eagletun' is the connection name THIS app gives its adapter — the name the
+// reader sees in 网络连接 — which a script matching only the two above would
+// have left in place: the leftover's symptom ("Cannot create a file when that
+// file already exists") is exactly what this sweep exists to clear, and this
+// app's own adapter is the likeliest one to be found broken.
+const staleAdapterScript = `$bad = @(Get-PnpDevice -Class Net -ErrorAction SilentlyContinue | Where-Object { ($_.FriendlyName -match 'wintun|sing-tun|eagletun') -and ($_.Status -ne 'OK') })
 foreach ($d in $bad) { pnputil /remove-device "$($d.InstanceId)" | Out-Null }
 $bad.Count`
 

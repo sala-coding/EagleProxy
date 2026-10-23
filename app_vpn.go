@@ -5,6 +5,7 @@ import (
 	"eagle/internal/core"
 	"eagle/internal/crashlog"
 	"eagle/internal/netx"
+	"eagle/internal/setting"
 	"eagle/internal/sysproxy"
 	"fmt"
 	"path/filepath"
@@ -157,7 +158,10 @@ func (a *App) SetVPNMode(on bool) error {
 		// The config moved, so the core is rebuilt on the plain port. The
 		// front-end goes with it: a capture with nothing behind it is a
 		// machine whose traffic enters a tunnel that leads nowhere.
-		if err := a.stopProfileLocked(); err != nil {
+		//
+		// The switch's form: the node is restarted below, so this is a step in
+		// the mode change rather than a stop (see stopForSwitchLocked).
+		if err := a.stopForSwitchLocked(); err != nil {
 			// The core is still running, so the node is still serving — and the
 			// capture is already down, which is what the flag says. Nothing to
 			// undo here: the off path never took the system proxy away.
@@ -180,8 +184,28 @@ func (a *App) SetVPNMode(on bool) error {
 	// the front-end that holds the adapter and the routes that point the
 	// machine at it — and the node behind it is never interrupted.
 	if a.coreServesCurrentMode(running) {
+		// The same shape the restart path below keeps (see tunFrontSwitchWait):
+		// the capture's completion can sit behind the reader's own answer to a
+		// UAC prompt, and past this switch's window it is carried out by a
+		// background goroutine — this hook is that switch's bookkeeping taken
+		// there. The core never stopped, so the undo is the proxy pointer alone;
+		// that is true whichever way the answer arrived.
+		settled := func(ferr error) {
+			if ferr == nil {
+				a.notifyMessage("TUN 模式已开启")
+				return
+			}
+			a.curSetting().SetVPNMode(false)
+			if hadSystemProxy {
+				a.curSetting().SetSPModeSystemProxy(true)
+				if err2 := a.applySystemProxy(true); err2 != nil {
+					a.logf("[system proxy] TUN 开启失败后的回退也未完成: " + err2.Error())
+				}
+			}
+			a.notifyMessage("TUN 开启失败: "+ferr.Error(), true)
+		}
 		a.notifyMessage("正在启动 TUN 节点…")
-		if err := a.startCapture(); err != nil {
+		if err := a.startCapture(settled); err != nil {
 			// The capture did not come up (a declined prompt, a missing
 			// wintun.dll, a broken adapter). The flag goes back off, and the
 			// system proxy it took away goes back on: the core never stopped,
@@ -197,10 +221,20 @@ func (a *App) SetVPNMode(on bool) error {
 			a.notifyMessage("TUN 开启失败: "+err.Error(), true)
 			return fmt.Errorf("TUN 开启失败: %w", err)
 		}
+		// A start that handed its front-end completion to the background — the
+		// prompt still open — has not captured anything yet: said as the wait
+		// it is, and the completion's own message follows when the reader
+		// answers.
+		if a.tunFrontAwaiting.Swap(false) {
+			a.notifyMessage("TUN 正在等待管理员授权，确认弹窗后自动接管")
+			return nil
+		}
 		a.notifyMessage("TUN 模式已开启")
 		return nil
 	}
-	if err := a.stopProfileLocked(); err != nil {
+	// The switch's form: both directions below start a core again (see
+	// stopForSwitchLocked).
+	if err := a.stopForSwitchLocked(); err != nil {
 		// The stop failed, so the old core is still sitting on its inbound —
 		// and which flag tells the truth depends on the way the switch was
 		// headed. A switch that was coming on finds the plain core it was
@@ -226,8 +260,30 @@ func (a *App) SetVPNMode(on bool) error {
 	// a switch that restarts the node has to say so from this side or the press
 	// answers with nothing. applyPendingTun uses these same words for the
 	// relaunched case, so both routes into "TUN is on" read alike.
-	err := a.startProfileLocked(running)
+	//
+	// The front-end's answer can sit behind the UAC prompt itself, and past
+	// this switch's window (see tunFrontSwitchWait) the completion is carried
+	// out by a background goroutine — this hook is that switch's bookkeeping
+	// taken there: the success line when the prompt was answered and the
+	// capture came up, and the rollback below when it was not.
+	settled := func(ferr error) {
+		if ferr == nil {
+			a.notifyMessage("TUN 模式已开启（已重启节点生效）")
+			return
+		}
+		a.rollbackTunSwitchOn(running, hadSystemProxy)
+		a.notifyMessage("TUN 开启失败: "+ferr.Error(), true)
+	}
+	err := a.startProfileLockedOn(running, settled)
 	if err == nil {
+		// A start that handed its front-end completion to the background — the
+		// prompt still open (see tunFrontSwitchWait) — has not captured
+		// anything yet: said as the wait it is, and the completion's own
+		// message follows when the reader answers the dialog.
+		if a.tunFrontAwaiting.Swap(false) {
+			a.notifyMessage("TUN 正在等待管理员授权，确认弹窗后自动接管")
+			return nil
+		}
 		a.notifyMessage("TUN 模式已开启（已重启节点生效）")
 		return nil
 	}
@@ -240,9 +296,29 @@ func (a *App) SetVPNMode(on bool) error {
 	// causes apply; if even that fails, the flags stay consistent and the
 	// reader is told, instead of the machine silently pointing at a port
 	// nobody listens on.
+	a.rollbackTunSwitchOn(running, hadSystemProxy)
+	return fmt.Errorf("TUN 开启失败: %w", err)
+}
+
+// rollbackTunSwitchOn undoes a TUN switch-on whose start failed after the
+// teardown had already run — the Windows proxy cleared, the old core stopped,
+// the TUN start refused (a declined UAC prompt, a missing wintun.dll…). TUN
+// did not come up, so the flag stands down, and the machine goes back to the
+// system-proxy state it was in. The restart runs on the plain path, where none
+// of the TUN failure causes apply; if even that fails, the flags stay
+// consistent and the reader is told, instead of the machine silently pointing
+// at a port nobody listens on.
+//
+// Shared by the switch's own failure path and the background completion of a
+// front-end that answered past the switch's window (see finishTunFrontPending)
+// — the two must leave the same machine behind, so they are the one body.
+// The seats are held by the caller in both cases. The remembered mode and the
+// tray follow from the caller (SetVPNMode's defers, or the completion's own
+// re-record), so they are not touched here.
+func (a *App) rollbackTunSwitchOn(running int, hadSystemProxy bool) {
 	a.curSetting().SetVPNMode(false)
 	if !hadSystemProxy {
-		return err
+		return
 	}
 	a.curSetting().SetSPModeSystemProxy(true)
 	if err2 := a.startProfileLocked(running); err2 == nil {
@@ -255,7 +331,6 @@ func (a *App) SetVPNMode(on bool) error {
 		a.curSetting().SetSPModeSystemProxy(false)
 		a.notifyMessage("TUN 开启失败，节点未能启动，当前为直连状态", true)
 	}
-	return fmt.Errorf("TUN 开启失败: %w", err)
 }
 
 // SetSystemProxyMode toggles system proxy mode. Turning it on clears TUN mode
@@ -584,18 +659,20 @@ func (a *App) rememberSpmode() {
 	if s == nil {
 		return
 	}
-	modes := []string{}
-	if s.SPModeSystemProxy() {
-		modes = append(modes, "system_proxy")
-	}
-	if s.VPNMode() {
-		modes = append(modes, "vpn")
-	}
-	// A copy through applySetting rather than a field write: the settings pointer is
-	// swapped by other paths (a node start remembers its id, the settings panel replaces
-	// the whole struct), and a write into the copy this call happens to hold is an update
-	// nobody reads — the remembered mode the next launch restores would be a stale one.
-	if err := a.applySetting(s.WithRememberSpmode(modes)); err != nil {
+	// Read and written inside applyMu (see mutateSetting): the flags come from
+	// the object that is live under the lock, not from a copy an intervening
+	// save may have replaced.
+	if err := a.mutateSetting(func(next *setting.Setting) error {
+		modes := []string{}
+		if next.SPModeSystemProxy() {
+			modes = append(modes, "system_proxy")
+		}
+		if next.VPNMode() {
+			modes = append(modes, "vpn")
+		}
+		next.RememberSpmode = modes
+		return nil
+	}); err != nil {
 		a.logf("[settings] 无法记录本次模式: " + err.Error())
 	}
 	// The mode is a fact of the backend, not of the window: the tray's two
@@ -661,7 +738,25 @@ func (a *App) applyRememberedSpmode() {
 				// elevated side has to be told that the takeover is wanted.
 				a.reconcileSystemDNS(false)
 			}
-			if err := a.StartProfile(id); err != nil {
+			// The seat and the locked form, the way StartProfile takes them,
+			// with the restore's own settlement hook: a TUN start whose
+			// front-end answer sits behind the reader's answer to a UAC prompt
+			// hands the rest to a background goroutine (see
+			// tunFrontSwitchWait), and the flag set above stands down with a
+			// start that never landed — from that goroutine, through this hook.
+			a.startStopMu.Lock()
+			settled := func(ferr error) {
+				if ferr == nil {
+					a.notifyMessage("TUN 模式已恢复")
+					return
+				}
+				a.curSetting().SetVPNMode(false)
+				a.refreshTrayStatus()
+				a.logf("[vpn] " + ferr.Error())
+			}
+			err := a.startProfileLockedOn(id, settled)
+			a.startStopMu.Unlock()
+			if err != nil {
 				if wantVPN {
 					// The flag stands down with the node that never came up.
 					a.curSetting().SetVPNMode(false)

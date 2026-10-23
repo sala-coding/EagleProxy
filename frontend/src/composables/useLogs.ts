@@ -15,6 +15,13 @@ type Notify = (text: string, kind?: 'ok' | 'err') => void;
 
 export function useLogs(notify: Notify) {
     const logs = ref<LogLine[]>([]);
+    // The window's own notices: lines this side raised (a copy that landed, an
+    // update answer, a mode switched on the bar's press). They live apart from
+    // `logs` because that half is replaced on every panel open — loadAllLogs
+    // re-reads the backend's buffer, which knows nothing of them. Here they
+    // stand for the session's life, and the clear button takes them with the
+    // rest of what is on screen.
+    const appLogs = ref<LogLine[]>([]);
     const showLogs = ref<boolean>(false);
     // The log panel's filter. "all" is the panel as it was: every category, every
     // line. The choices are a column beside the log rather than a menu over it, so
@@ -46,7 +53,8 @@ export function useLogs(notify: Notify) {
     // to the top, and the sort is stable, so the order the backend wrote two lines in
     // survives even when their stamps match to the millisecond.
     const mergedLogs = computed<ShownLine[]>(() => {
-        const all: LogLine[] = [...logs.value, ...FILE_CATS.flatMap(c => catLogs.value[c] ?? [])];
+        const all: LogLine[] = [...logs.value, ...appLogs.value,
+            ...FILE_CATS.flatMap(c => catLogs.value[c] ?? [])];
         all.sort((a, b) => {
             const ta = tsOf(a.line);
             const tb = tsOf(b.line);
@@ -191,6 +199,9 @@ export function useLogs(notify: Notify) {
             ...FILE_CATS.map(c => API.ClearCategoryLogs(c)),
         ]).catch(e => notify(errText(e), 'err'));
         logs.value = [];
+        // The window's own lines go with the view: the clear button claims to
+        // remove what is on screen, and these are on it too.
+        appLogs.value = [];
         catLogs.value = {};
     };
 
@@ -421,6 +432,14 @@ export function useLogs(notify: Notify) {
         logTimer = window.setTimeout(drainLogs, 120);
     };
 
+    // One line the window itself raised (see notify in App.vue). No batching:
+    // these are the app's sentences, not the core's stream, and a dozen across
+    // a session is a lot. They join the panel through appLogs and survive the
+    // re-read that opens it — which is why they are not pushed into `logs`.
+    const queueAppLine = (line: string) => {
+        appLogs.value = [...appLogs.value.slice(-299), {line, cat: 'core'}];
+    };
+
     // The teardown of the event wiring in App.vue: the lines still in the batch
     // belong to the stream and are handed over rather than dropped.
     const flushPendingLogs = () => {
@@ -489,7 +508,7 @@ export function useLogs(notify: Notify) {
         mergedLogs, shownLogs, catLive,
         logRef, onLogScroll, rollToEnd,
         clearLogs, copyLogs, addLogLineToRoute, exportLogs,
-        queueLogLine, drainLogs, flushPendingLogs,
+        queueLogLine, queueAppLine, drainLogs, flushPendingLogs,
         loadFileCats, loadAllLogs, toggleLogs,
         // logCtx is shared with App.vue's context-menu plumbing (see below).
         logCtx,

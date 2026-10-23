@@ -3,6 +3,7 @@ package main
 import (
 	"eagle/internal/clash"
 	"eagle/internal/core"
+	"eagle/internal/crashlog"
 	"eagle/internal/db"
 	"fmt"
 	"time"
@@ -105,7 +106,28 @@ func (a *App) trafficLoop() {
 		// the state file written while it was between ticks — is noticed and made good. The
 		// work is idempotent and reads live state, so most ticks it is one file read.
 		if ticks++; ticks%2 == 0 {
-			a.reconcileSystemDNS(false)
+			// Off this goroutine, and one at a time. The reconcile can walk into
+			// ensureTunServer, whose install path is ShellExecuteExW("runas") —
+			// a call that does not return until the reader answers the prompt.
+			// Parked here it froze the poll for as long as the dialog was up:
+			// the status bar's rates stopped, and every byte moved during that
+			// stretch was attributed to no node at all. The flag is what keeps
+			// a second tick from stacking another wait behind the first.
+			if a.dnsReconcileBusy.CompareAndSwap(false, true) {
+				go crashlog.Guard("reconcileSystemDNS", func() {
+					defer a.dnsReconcileBusy.Store(false)
+					// The loop has already checked this for the tick that
+					// spawned this goroutine, but the goroutine can outlive
+					// the wait: the exit path releases the takeover and this
+					// would walk into ensureTunServer (a UAC prompt after the
+					// window has gone) or write the takeover state back over
+					// the cleanup.
+					if a.quitting.Load() || a.curCtx() == nil {
+						return
+					}
+					a.reconcileSystemDNS(false)
+				})
+			}
 		}
 		s = a.curSetting()
 		if s == nil || s.CoreBoxClashAPI <= 0 {
@@ -217,12 +239,14 @@ func (a *App) trafficLoop() {
 }
 
 // flushTraffic persists the counters of the profile that is about to stop, so
-// the last interval is not lost.
+// the last interval is not lost. Through the manager's own check-and-write
+// rather than GetProfile + SaveProfile: two lock holds left a window in which a
+// delete could land between them, and the save then either brought a removed
+// node's file back or — its id being recycled by the next add — wrote the old
+// node's counters over the new one's file (see FlushTrafficCounter).
 func (a *App) flushTraffic() {
 	if a.curMgr() == nil || a.curController() == nil {
 		return
 	}
-	if ent := a.curMgr().GetProfile(a.curController().RunningID()); ent != nil {
-		_ = a.curMgr().SaveProfile(ent)
-	}
+	_ = a.curMgr().FlushTrafficCounter(a.curController().RunningID())
 }

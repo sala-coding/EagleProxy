@@ -3,6 +3,7 @@ package main
 import (
 	"eagle/internal/core"
 	"eagle/internal/hotkey"
+	"eagle/internal/setting"
 	"fmt"
 	"strings"
 
@@ -183,11 +184,13 @@ func (a *App) setEgress(mode string) {
 	// the copy it left behind loses the change — the tray said 直连 and the bar showed
 	// 规则 again a moment later, with nothing in the log. applySetting is what makes the
 	// save and the swap one step.
-	cur := a.curSetting()
-	if cur == nil {
-		return
-	}
-	if err := a.applySetting(cur.WithEgressMode(mode)); err != nil {
+	// Through mutateSetting: the copy has to be taken inside the same lock the
+	// save takes, or a node start's rememberStarted (which copies the setting
+	// too) can land in between and each carries the other's field back.
+	if err := a.mutateSetting(func(s *setting.Setting) error {
+		s.EgressMode = mode
+		return nil
+	}); err != nil {
 		a.notifyMessage("保存出站模式失败: "+err.Error(), true)
 		return
 	}

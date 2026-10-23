@@ -395,6 +395,11 @@ func Update(mgr *db.Manager, s *setting.Setting, startedID int, ref string, gid 
 			group.Order = append(group.Order, p.ID)
 			keepKeys[BeanKey(p, false)] = true
 		}
+		// Twins are collected, not deleted here: the order below is the write the
+		// deletions depend on, and a delete that lands before a failed order save
+		// leaves the old order naming files that are gone (the next start then
+		// reads an empty group). They go once the order is on disk.
+		var twins []int
 		for _, e := range outAll {
 			// outAll is a query of what the group holds now, so the kept nodes are
 			// in it; the exempt ones are already in the order above (or belong to
@@ -405,20 +410,30 @@ func Update(mgr *db.Manager, s *setting.Setting, startedID int, ref string, gid 
 			if keepKeys[BeanKey(e, false)] {
 				// Its fresh twin: the node is already listed above, with what the
 				// reader measured on it.
-				_ = mgr.DeleteProfile(e.ID)
+				twins = append(twins, e.ID)
 				continue
 			}
 			group.Order = append(group.Order, e.ID)
 			res.Added = append(res.Added, e.DisplayType()+" "+e.DisplayName())
 		}
-		_ = mgr.UpdateGroup(gid, true, func(g *db.Group) {
+		// Same rule as the merge branch below: the order has to be on disk
+		// before anything is deleted on the strength of it. A failure here is
+		// not fatal to the parse (the nodes are imported), but the report has to
+		// carry it rather than the next start discovering an order that names
+		// files which are gone.
+		if err := mgr.UpdateGroup(gid, true, func(g *db.Group) {
 			g.Order = group.Order
 			g.SubLastUpdate = time.Now().Unix()
 			g.Info = subUserInfo
 			if renamed {
 				g.Name = group.Name
 			}
-		})
+		}); err != nil {
+			return nil, fmt.Errorf("保存分组顺序失败: %w", err)
+		}
+		for _, id := range twins {
+			_ = mgr.DeleteProfile(id)
+		}
 	} else {
 		// Which parsed node each existing node is a re-statement of, matched by
 		// content (BeanKey — the bean with its empty fields dropped and the two
@@ -501,14 +516,23 @@ func Update(mgr *db.Manager, s *setting.Setting, startedID int, ref string, gid 
 				res.Deleted = append(res.Deleted, p.DisplayType()+" "+p.DisplayName())
 			}
 		}
-		_ = mgr.UpdateGroup(gid, true, func(g *db.Group) {
+		// The order is the last write that has to land before the cleanup: it is
+		// what says which nodes are still in the subscription, and the deletions
+		// below act on it. Swallowing this error meant the disk kept the old
+		// order while the removed nodes' files went anyway — the next start read
+		// an order naming files that were no longer there, and the whole group
+		// came up empty with the nodes only findable through the cross-group
+		// search.
+		if err := mgr.UpdateGroup(gid, true, func(g *db.Group) {
 			g.Order = group.Order
 			g.SubLastUpdate = time.Now().Unix()
 			g.Info = subUserInfo
 			if renamed {
 				g.Name = group.Name
 			}
-		})
+		}); err != nil {
+			return nil, fmt.Errorf("保存分组顺序失败，本次未删除任何节点: %w", err)
+		}
 
 		// cleanup profiles no longer referenced
 		for _, ent := range outAll {

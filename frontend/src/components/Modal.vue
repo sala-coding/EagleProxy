@@ -179,10 +179,17 @@ let opener: HTMLElement | null = null;
 onMounted(() => {
     opener = document.activeElement as HTMLElement | null;
     const el = maskRef.value;
-    // The first thing inside that can take focus, or the card itself when there
-    // is nothing: a dialog with no controls (a plain notice) still has to hold
-    // the focus, or the next Tab walks out of it.
-    const first = el?.querySelector<HTMLElement>(FOCUSABLE) ?? null;
+    // An EDITABLE control before the rest — a form the card opens for is opened
+    // to be typed into, and an autofocus the card asks for is where the reader's
+    // hand already is (see the country field of the rule-set import). The
+    // document order the plain query follows put the heading bar's ✕ first, and
+    // the focus then sat on a closer nobody asked to press — the next Tab went
+    // to the second control rather than to the field the dialog was about.
+    // The card itself when there is nothing: a dialog with no controls (a plain
+    // notice) still has to hold the focus, or the next Tab walks out of it.
+    const first = el?.querySelector<HTMLElement>(EDITABLE)
+        ?? el?.querySelector<HTMLElement>(FOCUSABLE)
+        ?? null;
     (first ?? el)?.focus();
 });
 onBeforeUnmount(() => {
@@ -195,6 +202,10 @@ onBeforeUnmount(() => {
 // focusable is what the keyboard can reach inside a dialog: the tab order the
 // browser would walk by itself, spelled out so the trap above can walk it too.
 const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+// editable is what a dialog is opened TO BE TYPED INTO, ahead of the buttons:
+// autofocus on the card means the field, not the ✕ in the heading bar.
+const EDITABLE = 'input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea, select';
 
 // Escape, and the tab loop, handled here rather than on the window: the settings
 // panel behind this dialog listens on the window for its own Escape, and a press

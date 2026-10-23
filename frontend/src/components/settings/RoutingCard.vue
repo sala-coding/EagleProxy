@@ -149,6 +149,32 @@ const onAppend = (k: string, v: string) => emit('append', k, v);
                                  @update:model-value="v => emit('edit', 'outbound_domain_strategy', v)"/>
             </div>
         </div>
+        <!-- The two DNS sides' own strategies: the address family a name is
+            allowed to resolve into on each of the two paths — the foreign
+            answer (dns-remote) and the domestic one (dns-direct). Written by
+            the builder into the DNS rules that pick those two servers (see
+            addRuleDNS in the Go side); profile-wide like the three above,
+            with the empty value meaning "let the core decide". The SegmentedSwitch
+            the cells above use is a run of five once the two are added — a
+            select keeps the row to two cells. -->
+        <div class="rt-wide">
+            <div class="rt-cell">
+                <label :title="t('cfg.remote_dns_strategy')">{{ t('cfg.remote_dns_strategy') }}</label>
+                <select class="rt-input" :value="form.remote_dns_strategy ?? ''"
+                        :aria-label="t('cfg.remote_dns_strategy')"
+                        @change="emit('edit', 'remote_dns_strategy', ($event.target as HTMLSelectElement).value)">
+                    <option v-for="o in STRATEGY_OPTIONS" :key="o.value" :value="o.value">{{ t(o.label) }}</option>
+                </select>
+            </div>
+            <div class="rt-cell">
+                <label :title="t('cfg.direct_dns_strategy')">{{ t('cfg.direct_dns_strategy') }}</label>
+                <select class="rt-input" :value="form.direct_dns_strategy ?? ''"
+                        :aria-label="t('cfg.direct_dns_strategy')"
+                        @change="emit('edit', 'direct_dns_strategy', ($event.target as HTMLSelectElement).value)">
+                    <option v-for="o in STRATEGY_OPTIONS" :key="o.value" :value="o.value">{{ t(o.label) }}</option>
+                </select>
+            </div>
+        </div>
         <template v-if="focus === 'block'">
             <div class="hint">{{ t('routing.blockHint') }}</div>
             <RouteLists :form="form" :keys="['block_domain', 'block_ip']"

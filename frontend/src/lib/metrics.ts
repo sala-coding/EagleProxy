@@ -110,17 +110,24 @@ export const TEXT_COLS = new Set([1, 2, 9]);
 // settings sheet's seat and the DNS list's page size all wait behind this.
 export const RESIZE_SETTLE_MS = 140;
 
-// The name of a country, in the reader's own language. Intl.DisplayNames carries the
-// whole ISO table inside the engine, so a flag's tooltip needs no data of its own — and
-// it comes out translated, which a table shipped with the app would not: fa/flag carries
-// the flags themselves and no words.
-export const regionNames = (() => {
+// The name of a country, in the language the window is wearing. Intl.DisplayNames
+// carries the whole ISO table inside the engine, so a flag's tooltip needs no data of
+// its own — and it comes out translated, which a table shipped with the app would not:
+// fa/flag carries the flags themselves and no words.
+//
+// The locale follows the window's own language (setLang, see App.vue) rather than the
+// host's: built once with no locale named, the engine used the OS's language — a
+// Chinese-locale Windows running this app in English answered 中国 for CN on an
+// English interface.
+let regionNames: Intl.DisplayNames | null = null;
+
+export function setRegionLocale(lang: string): void {
     try {
-        return new Intl.DisplayNames(undefined, {type: 'region'});
+        regionNames = new Intl.DisplayNames([lang], {type: 'region'});
     } catch {
-        return null;
+        regionNames = null;
     }
-})();
+}
 
 export const countryName = (cc: string): string => {
     const code = (cc || '').toUpperCase();

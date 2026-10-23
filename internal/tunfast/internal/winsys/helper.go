@@ -42,8 +42,6 @@ func GetCurrentProcessAppID() (*FWP_BYTE_BLOB, error) {
 		return nil, err
 	}
 
-	windows.GetCurrentProcessId()
-
 	var appID *FWP_BYTE_BLOB
 	err = FwpmGetAppIdFromFileName0(curFilePtr, unsafe.Pointer(&appID))
 	if err != nil {

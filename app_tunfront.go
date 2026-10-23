@@ -59,6 +59,22 @@ const tunRouteSoftWait = 30 * time.Second
 // all, which is worth saying out loud rather than waiting on forever.
 const tunRouteWait = 5 * time.Second
 
+// tunFrontSwitchWait is how long a TUN start waits for the front-end's own
+// answer before it stops parking the seats on it.
+//
+// The front-end's start can sit behind a UAC prompt — the resident task's one
+// install, or the legacy ShellExecute fallback — and a prompt is answered at
+// the speed of a human, which no bounded wait can cover. Inside that window
+// every caller holds the switch seats (startStopMu + modeMu), and every other
+// start, stop, switch, hotkey and tray press queues behind the dialog with
+// nothing on screen to say why. A prompt-free start answers within about ten
+// seconds (the resident server's own readiness wait is the ceiling), so this
+// ceiling sits above every machine-speed start: reaching it means a prompt is
+// open, and the rest of the machine must not stand still for one. The wait
+// moves to the background (see finishTunFrontPending) and the start answers at
+// once; the reader's answer to the prompt decides the rest either way.
+const tunFrontSwitchWait = 20 * time.Second
+
 // startVPN dispatches to the tun implementation the user picked.
 //
 // NekoRay carries the same pair: "Internal Tun" puts the tun inbound into the
@@ -66,7 +82,7 @@ const tunRouteWait = 5 * time.Second
 // second, elevated core that only owns the tun and hands traffic back to the
 // main core's mixed inbound. The internal one is the default there and here —
 // it has one core to reason about and no cross-process hop.
-func (a *App) startVPN(id int) error {
+func (a *App) startVPN(id int, frontSettled func(error)) error {
 	// The leftovers this used to clear here unconditionally — a broken wintun adapter
 	// from a core killed part-way through creating it, and a front-end process nobody
 	// is tracking — are now cleared from ensureTunFront, and only when there is a
@@ -77,7 +93,7 @@ func (a *App) startVPN(id int) error {
 	// runs the plain config behind it. The old single-core shape (tun inbound inside the
 	// main config) is gone — it could not survive a mode change without rebuilding the
 	// adapter, which is the cost this split exists to avoid.
-	return a.startVPNExternal(id)
+	return a.startVPNExternal(id, frontSettled)
 }
 
 // startVPNExternal runs the two-process TUN setup: a fixed, elevated front-end that
@@ -88,13 +104,17 @@ func (a *App) startVPN(id int) error {
 // afterwards — nodes, routing profiles and outbound modes all change on the main-core
 // side, and each of those changes costs a core restart but no adapter. That asymmetry is
 // the whole reason this process split exists.
-func (a *App) startVPNExternal(id int) error {
+func (a *App) startVPNExternal(id int, frontSettled func(error)) error {
 	// The whole path below can wait for an administrator prompt, a warm-up and
 	// the core's start-up sequence, and runningID only moves late in it. The
 	// idle-reclaim timer that a previous stop armed fires inside that window
 	// otherwise, and takes apart the front-end this start is about to use.
 	a.tunWake.Store(true)
 	defer a.tunWake.Store(false)
+	// A start answers for its own window: a previous start's pending completion
+	// may have left the flag standing (its goroutine clears it, but a stop and
+	// a fresh start can outrun that answer), and this start is not pending yet.
+	a.tunFrontAwaiting.Store(false)
 	a.cancelTunIdleReclaim()
 	ent := a.curMgr().SnapshotProfile(id)
 	if ent == nil {
@@ -144,29 +164,134 @@ func (a *App) startVPNExternal(id int) error {
 		}()
 		return err
 	}
-	if ferr := <-frontCh; ferr != nil {
-		// The front-end did not come up — a declined prompt, a missing wintun.dll, a
-		// broken adapter that could not be rebuilt. The core is up on a port nothing
-		// points at; stopping it keeps "TUN failed" from leaving a core nobody asked
-		// for, and the node-first flow can put it back with one press.
-		// The locked form: this runs inside startProfileLocked's hold of
-		// startStopMu, and the wrapper would wait on the lock this goroutine
-		// already holds.
-		_ = a.stopProfileLocked()
-		return ferr
+	// The front-end's answer decides the rest. Waited for with a ceiling: the
+	// answer can sit behind a UAC prompt — a human-speed event, and one every
+	// seat this call chain holds is parked behind (see tunFrontSwitchWait).
+	// An answer inside the window is handled here exactly as it always was; an
+	// answer after it is handled by the same rules from the background, and
+	// this start answers "under way" so the seats free up while the dialog is
+	// still open.
+	select {
+	case ferr := <-frontCh:
+		if ferr != nil {
+			// The front-end did not come up — a declined prompt, a missing
+			// wintun.dll, a broken adapter that could not be rebuilt. The core
+			// is up on a port nothing points at; stopping it keeps "TUN failed"
+			// from leaving a core nobody asked for, and the node-first flow can
+			// put it back with one press.
+			// The locked form: this runs inside startProfileLocked's hold of
+			// startStopMu, and the wrapper would wait on the lock this goroutine
+			// already holds. The switch's form: this stop is the start's own
+			// cleanup, not something the reader asked to stay stopped.
+			_ = a.stopForSwitchLocked()
+			return ferr
+		}
+		// The adapter has something behind it now, so the countdown that would
+		// have taken an idle one apart is no longer wanted.
+		a.cancelTunIdleReclaim()
+		if err := a.takeTunRoutes(); err != nil {
+			return a.handleTunCaptureFailure(err)
+		}
+		return nil
+	case <-time.After(tunFrontSwitchWait):
+		// The prompt is still open (or the front-end is still building). Hand
+		// the completion to the background and let the machine go: the reader's
+		// answer decides, and every seat this start held is released by the
+		// return below. The buffered channel means the goroutine cannot leak.
+		// The flag is what lets this start's caller say "waiting for
+		// authorization" rather than "on" over a capture that is not there yet.
+		a.tunFrontAwaiting.Store(true)
+		go crashlog.Guard("finishTunFrontPending", func() {
+			a.finishTunFrontPending(frontCh, frontSettled)
+		})
+		return nil
 	}
-	// The adapter has something behind it now, so the countdown that would have
-	// taken an idle one apart is no longer wanted.
-	a.cancelTunIdleReclaim()
-	// Only now does the capture go up: the routes are what make every packet
-	// take the adapter, and until this line there was no port behind it to
-	// take them anywhere. This is also the step that used to happen inside the
-	// core, at start-up, which put the machine behind a tunnel with nothing on
-	// the far side of it for as long as the warm-up lasted.
-	if err := a.takeTunRoutes(); err != nil {
-		return a.handleTunCaptureFailure(err)
+}
+
+// finishTunFrontPending completes a TUN start whose front-end answer arrived
+// after the switch's window (see tunFrontSwitchWait): the start has already
+// returned, the seats are free, and this — on a goroutine of its own, holding
+// nothing — is what the reader's answer to the prompt decides the outcome of.
+//
+// The rules are the ones the in-window path keeps, reached the way every
+// background actor here reaches them: a capture failure goes through the
+// watcher form (which takes the seats itself when it must stand the mode
+// down), and a front-end that never came up stops the core through the seats
+// before anything is said — so a stop, a switch or a hotkey pressing while the
+// prompt was open reads a settled machine, never one mid-teardown.
+//
+// frontSettled, when the caller is a mode switch, carries that switch's own
+// bookkeeping (the success line, the flag-and-proxy rollback); a plain start
+// passes nil and gets the plain answer: the node down and the failure said.
+func (a *App) finishTunFrontPending(frontCh chan error, frontSettled func(error)) {
+	defer a.tunFrontAwaiting.Store(false)
+	ferr := <-frontCh
+	if a.quitting.Load() {
+		// The exit path owns whatever is running; a teardown started here
+		// would race it for the same front-end.
+		return
 	}
-	return nil
+	if ferr == nil {
+		// The reader may have stopped the node or switched the mode off while
+		// the prompt sat open. The front-end that just came up is then
+		// nobody's to serve — no core to forward to, no routes to take — and
+		// is given the same answer a stop's own teardown gives the adapter:
+		// released now, taken apart once idle. The next TUN start warms it
+		// again; a dead adapter in the meantime is the one state this must
+		// not leave behind.
+		if a.curSetting() == nil || !a.curSetting().VPNMode() || a.runningID() == core.StoppedID {
+			// A TUN start may be in flight — the reader pressed again while
+			// the prompt sat open, and its own front-end path has adopted or
+			// is building the very front-end this answer describes. Its own
+			// bookkeeping owns the reclaim then; a release started here would
+			// take the capture back off it.
+			if !a.tunWake.Load() {
+				a.releaseTunRoutes()
+				a.armTunIdleReclaim()
+			}
+			return
+		}
+		if err := a.takeTunRoutes(); err != nil {
+			a.handleTunCaptureFailureFromWatcher(err)
+			return
+		}
+		if frontSettled != nil {
+			frontSettled(nil)
+		}
+		return
+	}
+	// The front-end did not come up — a declined prompt above all. The core it
+	// was meant to serve is up on a port nothing points at; the same stop the
+	// in-window path makes, taken through the seats this goroutine does not
+	// hold.
+	//
+	// What may be undone afterwards is only the switch's own doing: a stop or
+	// an off-switch pressed while the prompt sat open has already settled the
+	// machine, and re-running the rollback on top of it would restart a node
+	// the reader stopped.
+	a.startStopMu.Lock()
+	a.modeMu.Lock()
+	still := a.curSetting() != nil && a.curSetting().VPNMode() && a.runningID() != core.StoppedID
+	_ = a.stopForSwitchLocked()
+	a.modeMu.Unlock()
+	a.startStopMu.Unlock()
+	switch {
+	case !still:
+		a.notifyMessage("TUN 开启失败: "+ferr.Error(), true)
+	case frontSettled != nil:
+		frontSettled(ferr)
+	default:
+		a.notifyMessage("TUN 开启失败: "+ferr.Error(), true)
+	}
+	// The books follow the flags this failure just moved — and they have to be
+	// moved HERE, on this goroutine: the switch's own defers ran at its
+	// pending return, when the flag still stood for an attempt the reader has
+	// now seen refused. rememberSpmode re-records the settled flags and tells
+	// the window to re-read them (spmode:changed — the rail's switches were
+	// still saying TUN-on over a machine that just went direct); the tray
+	// follows the same flags.
+	a.rememberSpmode()
+	a.refreshTrayStatus()
 }
 
 // startCapture brings the capture up around a core that is already running: the
@@ -180,13 +305,24 @@ func (a *App) startVPNExternal(id int) error {
 // The front-end comes up alongside the routes rather than before them: the wait
 // for the adapter is inside takeTunRoutes, and the core behind it is already
 // serving, so there is nothing on this side to wait for.
-func (a *App) startCapture() error {
+//
+// The shape is the one startVPNExternal keeps (see tunFrontSwitchWait): the
+// front-end's answer is waited for with a ceiling, because it can sit behind a
+// UAC prompt — a human-speed event every seat this call chain holds is parked
+// behind. An answer inside the window is handled here exactly as it always
+// was; an answer after it is handled by the same rules from the background
+// (see finishTunCapturePending), and this start answers "under way". settled
+// carries the caller's own bookkeeping there, the way startVPNExternal's
+// frontSettled does; a plain caller passes nil.
+func (a *App) startCapture(settled func(error)) error {
 	// The whole path below can wait for an administrator prompt, a warm-up and
 	// the adapter's own start-up, and the idle-reclaim timer that a previous
 	// stop armed fires inside that window otherwise — and takes apart the
 	// front-end this start is about to use.
 	a.tunWake.Store(true)
 	defer a.tunWake.Store(false)
+	// A start answers for its own window, the way startVPNExternal's does.
+	a.tunFrontAwaiting.Store(false)
 	a.cancelTunIdleReclaim()
 	frontCh := make(chan error, 1)
 	go func() {
@@ -202,30 +338,128 @@ func (a *App) startCapture() error {
 		frontCh <- a.ensureTunFront()
 	}()
 	if err := a.takeTunRoutes(); err != nil {
-		// The front-end may still be behind a prompt; its answer is collected
-		// off this call so a declined prompt does not turn into an orphaned
-		// adapter — and the adapter itself stays, because it is the expensive
-		// half and the next start reuses it.
-		go func() {
-			if ferr := <-frontCh; ferr == nil {
+		// The same decision the node-start path makes for this same failure,
+		// which this path used to lack: a front-end that is ALIVE is the shape
+		// a slow adapter build has, and the background retry keeps after it —
+		// answered as success, the way the node-start path answers.
+		//
+		// A front-end that is not up yet is the shape a pending UAC prompt has,
+		// and standing the mode down over it — what the plain form did here —
+		// abandoned the attempt while the dialog was still open: the reader who
+		// answered a moment later found the switch reading off over a machine
+		// they had just authorised. The answer is waited for from the
+		// background instead (no seat held there), and this start answers
+		// "under way", the way the node-start path answers its own window.
+		//
+		// Along a retry the front-end's answer is left where it is: the retry
+		// owns the capture, and a release started here would take the routes
+		// back off it.
+		if pid, _ := a.vpnState(); pid > 0 && vpn.IsRunning(pid) {
+			return a.handleTunCaptureFailure(err)
+		}
+		a.tunFrontAwaiting.Store(true)
+		go crashlog.Guard("finishTunCapturePending", func() {
+			a.finishTunCapturePending(frontCh, settled, false)
+		})
+		return nil
+	}
+	// The front-end's answer decides the rest, with the same ceiling as the
+	// node-start path's (see tunFrontSwitchWait): the routes are up over an
+	// adapter the front-end built, so the launch is under way and its own
+	// machinery bounds what is left — the ceiling is for the shape that never
+	// answers at all.
+	select {
+	case ferr := <-frontCh:
+		if ferr != nil {
+			// The front-end did not come up — a declined prompt, a missing
+			// wintun.dll, a broken adapter that could not be rebuilt. The
+			// routes are up over an adapter nobody serves, so they come back
+			// down.
+			a.releaseTunRoutes()
+			a.armTunIdleReclaim()
+			return ferr
+		}
+		// The adapter has something behind it now, so the countdown that would
+		// have taken an idle one apart is no longer wanted.
+		a.cancelTunIdleReclaim()
+		return nil
+	case <-time.After(tunFrontSwitchWait):
+		// The prompt is still open. The routes are up and the core is serving;
+		// what the reader's answer decides is whether the front-end stands
+		// behind them. Handed to the background, the way the node-start path
+		// hands its own window's remainder on.
+		a.tunFrontAwaiting.Store(true)
+		go crashlog.Guard("finishTunCapturePending", func() {
+			a.finishTunCapturePending(frontCh, settled, true)
+		})
+		return nil
+	}
+}
+
+// finishTunCapturePending completes a capture whose front-end answer arrived
+// after the switch's window (see tunFrontSwitchWait): the start has returned,
+// the seats are free, and this — on a goroutine of its own, holding nothing —
+// is what the reader's answer to the prompt decides the outcome of.
+//
+// The rules are the ones the in-window path keeps, reached the way every
+// background actor here reaches them: a capture that fails goes through the
+// watcher form (which takes the seats itself when it must stand the mode
+// down), and a front-end that never came up is answered through the caller's
+// own hook — the switch that asked for the capture carries its own undo.
+//
+// routesTaken says whether the capture's routes are already up: the answer
+// that comes with them up needs only the front-end's confirmation, while the
+// answer that comes without them still has the capture to take.
+func (a *App) finishTunCapturePending(frontCh chan error, settled func(error), routesTaken bool) {
+	defer a.tunFrontAwaiting.Store(false)
+	ferr := <-frontCh
+	if a.quitting.Load() {
+		// The exit path owns whatever is running; a teardown started here
+		// would race it for the same front-end.
+		return
+	}
+	if ferr == nil {
+		// The reader may have stopped the node or switched the mode off while
+		// the prompt sat open. The front-end that just came up is then
+		// nobody's to serve, and is given the same answer a stop's own
+		// teardown gives: released now, taken apart once idle — unless another
+		// TUN start is in flight, whose own front-end path owns the reclaim.
+		if a.curSetting() == nil || !a.curSetting().VPNMode() || a.runningID() == core.StoppedID {
+			if !a.tunWake.Load() {
 				a.releaseTunRoutes()
 				a.armTunIdleReclaim()
 			}
-		}()
-		return err
+			return
+		}
+		if !routesTaken {
+			// The capture is still to take, the way the in-window path would
+			// have: the same decision, from a goroutine that holds no seat.
+			if err := a.takeTunRoutes(); err != nil {
+				a.handleTunCaptureFailureFromWatcher(err)
+				return
+			}
+		}
+		a.cancelTunIdleReclaim()
+		if settled != nil {
+			settled(nil)
+		}
+		return
 	}
-	if ferr := <-frontCh; ferr != nil {
-		// The front-end did not come up — a declined prompt, a missing
-		// wintun.dll, a broken adapter that could not be rebuilt. The routes
-		// are up over an adapter nobody serves, so they come back down.
+	// The front-end did not come up — a declined prompt above all. Along a
+	// capture whose routes are already up, the routes come back down: they are
+	// up over an adapter nobody serves.
+	if routesTaken {
 		a.releaseTunRoutes()
 		a.armTunIdleReclaim()
-		return ferr
 	}
-	// The adapter has something behind it now, so the countdown that would have
-	// taken an idle one apart is no longer wanted.
-	a.cancelTunIdleReclaim()
-	return nil
+	if settled != nil {
+		settled(ferr)
+		return
+	}
+	a.notifyMessage("TUN 开启失败: "+ferr.Error(), true)
+	// The books follow the flags nothing moved — a plain caller's failure says
+	// itself, and the switch's hook carries its own; neither re-records here,
+	// because for this caller nothing was recorded pending in the first place.
 }
 
 // ensureTunFront starts the standalone tun front-end when it is not already running, and
@@ -758,6 +992,29 @@ func (a *App) ensureTunServer() bool {
 	// and a session that has already watched the task not start knows what the next ten
 	// seconds would say. Both shapes are in the log as identical detours a second apart,
 	// in front of an adapter that is otherwise ready in under half a second.
+	//
+	// A probe in flight is JOINED rather than detoured around. The caller that
+	// loses the race used to answer "no server" at once, and the front-end's
+	// launch fell back to the direct path — its own UAC prompt, stacked on the
+	// install prompt the winner was still sitting behind. Two dialogs for one
+	// first enable. Nothing here holds a seat, so the wait is free; the prober
+	// always finishes (its paths all return), and a server the install did
+	// bring up is answered by the re-check inside the loop.
+	if a.tunServerProbe.Load() {
+		for a.tunServerProbe.Load() {
+			if a.quitting.Load() {
+				return false
+			}
+			if tunserv.ServerAlive(a.curDataDir()) {
+				a.logf("[tunserv] 常驻服务已就绪（等在途探测时出现）")
+				return true
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		// The prober is done; fall through to the ordinary path below. Its
+		// verdict — a task installed and a server running, or the one-per-
+		// session "gone" — is what the checks there re-read from disk.
+	}
 	if a.tunServerGone.Load() || !a.tunServerProbe.CompareAndSwap(false, true) {
 		return false
 	}
@@ -990,7 +1247,6 @@ func (a *App) stopTunFrontViaServer(pid int) error {
 	for time.Now().Before(deadline) {
 		info := tunserv.FrontPIDOf(a.curDataDir())
 		if info == nil || info.PID != pid || !vpn.IsRunning(info.PID) {
-			a.setVPNState(0, 0)
 			return nil
 		}
 		time.Sleep(200 * time.Millisecond)

@@ -13,9 +13,10 @@ import (
 // of the fix here: this runs from the single-instance processor, which Wails starts
 // before OnStartup, so a second launch inside the first second or two of this one —
 // exactly the interval a double-click on the desktop icon produces — arrived while
-// the context was still nil. Both the log line and the event were then dropped on the floor:
-// the window came up, or did not, and nothing said why. notifyMessage holds the
-// message until the frontend is listening (see pendingNotice).
+// the context was still nil, and the log line then was dropped on the floor: the
+// window came up, or did not, and nothing said why. notifyMessage now carries the
+// words into the console's stream, where the "core" log file is written at the
+// moment the line is raised, listener or no listener.
 func (a *App) notifySecondInstance() {
 	a.emitLog("core", logstore.Stamp(">>> 检测到重复启动，已切换到正在运行的实例"))
 	a.notifyMessage("检测到重复启动，已切换到正在运行的实例")

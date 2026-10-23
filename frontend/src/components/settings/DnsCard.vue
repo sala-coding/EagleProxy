@@ -59,13 +59,13 @@ const dnsTestingRef: Record<Side, boolean> = {remote: false, direct: false};
 // comma reads as "my DNS settings stopped working". Parse it as it is typed
 // and say so here, and keep a formatter beside it, because an object this
 // size pasted in one line is unreadable.
-const dnsObjectError = computed<string>(() => {
+const dnsObjectProblem = computed<{kind: 'shape' | 'missing' | ''; text: string}>(() => {
     const v = String(props.form?.dns_object ?? '').trim();
-    if (!props.form?.use_dns_object || v === '') return '';
+    if (!props.form?.use_dns_object || v === '') return {kind: '', text: ''};
     try {
         const obj = JSON.parse(v);
         if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
-            return t('routing.dnsObjNotObject');
+            return {kind: 'shape', text: t('routing.dnsObjNotObject')};
         }
         // The one thing about this section that can be checked without reading sing-box's
         // schema: the route's own fallback resolver points at a server tagged dns-direct
@@ -73,12 +73,19 @@ const dnsObjectError = computed<string>(() => {
         // replaces. A section without that tag is one the core refuses to start on, and it
         // refuses with a line about an unknown server rather than about the box.
         const tags = Array.isArray(obj.servers) ? obj.servers.map((s: any) => s?.tag) : [];
-        if (!tags.includes('dns-direct')) return t('dns.objNoDirect');
-        return '';
+        if (!tags.includes('dns-direct')) return {kind: 'missing', text: t('dns.objNoDirect')};
+        return {kind: '', text: ''};
     } catch (e: any) {
-        return `${t('routing.dnsObjBad')} (${String(e?.message ?? e)})`;
+        return {kind: 'shape', text: `${t('routing.dnsObjBad')} (${String(e?.message ?? e)})`};
     }
 });
+
+// The text the warn line shows. Split from the problem above because the add
+// button's seat is decided by the KIND: a section the JSON parser cannot read
+// has nothing a new row can fix, while the missing dns-direct tag is exactly
+// the thing a new row fixes — see addDnsServer.
+const dnsObjectError = computed(() => dnsObjectProblem.value.text);
+const dnsObjectShapeError = computed(() => dnsObjectProblem.value.kind === 'shape');
 
 // Whether the foreign half of the table has been measured at all. It is the half that is
 // measured through the tunnel, so an empty column there is a state to explain rather than
@@ -134,8 +141,15 @@ const patchDnsServer = (index: number, patch: Partial<DnsServerRow>) =>
 // A new row starts as the simplest server there is — plain UDP with nothing filled in —
 // because a row is also a statement about the type, and the type decides which of its
 // fields exist at all.
+//
+// When the box's own warning is the missing dns-direct tag, the row starts as the
+// row that warning is about: the tag the route's fallback resolver points at. The
+// one press that is the obvious answer to the warning is then the one that answers
+// it; the address is still the reader's to fill in.
 const addDnsServer = () => setDnsServers([...dnsServers.value, {
-    raw: {}, tag: '', type: 'udp', addr: '', path: '', detour: '', resolver: '',
+    raw: {},
+    tag: dnsObjectProblem.value.kind === 'missing' ? 'dns-direct' : '',
+    type: 'udp', addr: '', path: '', detour: '', resolver: '',
 }]);
 
 const removeDnsServer = (index: number) =>
@@ -362,7 +376,7 @@ const onSmartToggle = (key: 'select' | 'switch', on: boolean) => {
                         <div class="dns-obj-head">
                             <span>{{ t('dns.objServers') }}</span>
                             <button class="btn tiny" @click="addDnsServer"
-                                    :disabled="!!dnsObjectError">
+                                    :disabled="dnsObjectShapeError">
                                 <AddFilled class="ic"/>{{ t('dns.objAdd') }}
                             </button>
                         </div>

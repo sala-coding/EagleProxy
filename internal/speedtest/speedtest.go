@@ -113,26 +113,84 @@ func (r *Runner) reportCoreOutput(ent *db.ProxyEntity, output string) {
 }
 
 // RunTCPPing measures a direct TCP connection latency (no core required).
+//
+// The name of the server is resolved before the clock starts. DialContext resolves
+// inline, and while a node is running the machine's resolver is this app's own
+// forwarder — a path that answers in milliseconds when the split is healthy and in
+// seconds, or not at all, when it is broken. Charging that to the handshake reported
+// "latency" of a second for servers whose SYN-ACK came back in thirty milliseconds,
+// which is the opposite of what a diagnostic column is for. A name that resolves to
+// nothing still fails the measurement, and now it fails with the resolver's own
+// error rather than a dial timeout wearing the node's name.
 func (r *Runner) RunTCPPing(ent *db.ProxyEntity) (int, error) {
 	addr := ent.ServerAddress()
 	port := ent.ServerPort()
 	if addr == "" || port == 0 {
 		return 0, fmt.Errorf("invalid server address")
 	}
-	start := time.Now()
-	// DialContext rather than DialTimeout: a cancelled run stops waiting on a server
-	// that is not answering instead of holding the socket for its full five seconds.
-	d := &net.Dialer{Timeout: 5 * time.Second}
-	conn, err := d.DialContext(r.base(), "tcp", net.JoinHostPort(addr, strconv.Itoa(port)))
-	if err != nil {
-		return 0, err
+	targets := []string{net.JoinHostPort(addr, strconv.Itoa(port))}
+	if net.ParseIP(addr) == nil {
+		ips, err := net.DefaultResolver.LookupIPAddr(r.base(), addr)
+		if err != nil {
+			return 0, err
+		}
+		if len(ips) == 0 {
+			return 0, fmt.Errorf("no address for %s", addr)
+		}
+		targets = targets[:0]
+		for _, ip := range ips {
+			targets = append(targets, net.JoinHostPort(ip.String(), strconv.Itoa(port)))
+		}
 	}
-	_ = conn.Close()
-	ms := int(time.Since(start).Milliseconds())
-	if ms <= 0 {
-		ms = 1
+	// All candidates handshake in parallel behind one absolute deadline — the same
+	// contract the standard dialer keeps for a name with two families: a black-holed
+	// v6 answer must not spend the whole allowance while the still-reachable v4 waits
+	// its turn in a loop. The first handshake to complete is the measurement; the
+	// buffered channel is what lets the losers retire without a reader.
+	deadline := time.Now().Add(5 * time.Second)
+	results := make(chan pingResult, len(targets))
+	var wg sync.WaitGroup
+	for _, t := range targets {
+		wg.Add(1)
+		go func(t string) {
+			defer wg.Done()
+			// DialContext rather than DialTimeout: a cancelled run stops waiting on a
+			// server that is not answering instead of holding the socket for its whole
+			// allowance.
+			d := &net.Dialer{Deadline: deadline}
+			start := time.Now()
+			conn, err := d.DialContext(r.base(), "tcp", t)
+			if err != nil {
+				results <- pingResult{err: err}
+				return
+			}
+			ms := int(time.Since(start).Milliseconds())
+			_ = conn.Close()
+			results <- pingResult{ms: ms}
+		}(t)
 	}
-	return ms, nil
+	go func() { wg.Wait(); close(results) }()
+	var firstErr error
+	for res := range results {
+		if res.err == nil {
+			if res.ms <= 0 {
+				res.ms = 1
+			}
+			return res.ms, nil
+		}
+		if firstErr == nil {
+			// The first complaint stands: the quicker failure is the one the network
+			// actually answered with — a refusal over a timeout's silence.
+			firstErr = res.err
+		}
+	}
+	return 0, firstErr
+}
+
+// pingResult is one candidate handshake's answer.
+type pingResult struct {
+	ms  int
+	err error
 }
 
 // RunURLTest measures latency through a temporary instance of the profile.
@@ -187,7 +245,15 @@ func probeLatency(ctx context.Context, proxyPort int, testURL string, timeout ti
 		return 0, lastErr
 	}
 	sort.Ints(samples)
-	return samples[len(samples)/2], nil
+	// A real median, not just the middle element. When one of the three fails the
+	// count that survives is even, and the middle element of an even list is the
+	// upper of the two middles — every dropped sample would tilt the answer toward
+	// the slow side, which is the long tail the median was chosen to reject.
+	mid := len(samples) / 2
+	if len(samples)%2 == 0 {
+		return (samples[mid-1] + samples[mid]) / 2, nil
+	}
+	return samples[mid], nil
 }
 
 // RunFullTest measures latency, download speed and the outbound IP. The speed is
@@ -470,20 +536,38 @@ func proxyClient(proxyPort int, timeout time.Duration) *http.Client {
 	}
 }
 
+// urlTest times one cold request through the test core's node and reports the
+// time to the answer's head.
+//
+// The head is the whole measurement. client.Do comes back when the status line
+// and headers have arrived, and everything after them is somebody's page rather
+// than an answer to "what does this node cost" — timing the body turned the
+// latency column into a second speed column for every test URL that is not the
+// default 204, where the body is empty by design. Taking any status at all had
+// the other half of the same flaw: a portal or a hijacking middlebox answering
+// 302 into its login page made the node read as a fast, working connection,
+// because redirect-following ends in a 200 and the old code read none of it. So
+// redirects are not followed and a non-2xx is an error, the same insistence
+// downloadSpeed already has.
 func urlTest(ctx context.Context, proxyPort int, testURL string, timeout time.Duration) (int, error) {
 	client := proxyClient(proxyPort, timeout)
-	start := time.Now()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
 	if err != nil {
 		return 0, err
 	}
+	start := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
 	ms := int(time.Since(start).Milliseconds())
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
 	if ms <= 0 {
 		ms = 1
 	}

@@ -318,6 +318,7 @@ export const ru: Record<string, string> = {
     'cfg.conn_stat': 'Статистика соединений',
     'cfg.vpn_mtu': 'MTU туннеля',
     'cfg.ipv6_auto': 'Автоопределение IPv4/IPv6',
+    'cfg.keep_tun_front': 'Оставлять адаптер TUN при выходе',
     'cfg.vpn_ipv6': 'IPv6 туннеля',
     'cfg.vpn_hide_console': 'Скрыть консоль ядра',
     'cfg.vpn_strict_route': 'Строгий маршрут',

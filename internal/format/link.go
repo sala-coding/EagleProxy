@@ -53,6 +53,21 @@ func ParseLink(link string, s *setting.Setting) (string, bean.Bean, bool) {
 
 // --- v2ray scheme parsers ---
 
+// nekorayLinkTypes are the types this parser will hand back, and they are the
+// ones New builds an outbound for. The link names its own type and carries its
+// own bean, so without a list a subscription could put any protocol name into
+// the list — or worse, `custom`: builder.BuildConfig returns the bean's `cs` as
+// the whole sing-box configuration when core=internal-full, so one share link
+// inside a subscription replaced the running config (outbounds, DNS, routing)
+// with whatever the subscription's author wrote, and the window showed an
+// ordinary node. `chain` is out for the same kind of reason: it names other
+// entities and is a thing the reader builds in the window, not an import.
+var nekorayLinkTypes = map[string]bool{
+	"socks": true, "http": true, "shadowsocks": true, "vmess": true,
+	"trojan": true, "vless": true, "anytls": true, "hysteria2": true,
+	"hysteria": true, "snell": true, "tuic": true, "naive": true,
+}
+
 func parseNekorayLink(link string) (string, bean.Bean, bool) {
 	rest := link[len("nekoray://"):]
 	hash := strings.Index(rest, "#")
@@ -60,6 +75,9 @@ func parseNekorayLink(link string) (string, bean.Bean, bool) {
 		return "", nil, false
 	}
 	typ := rest[:hash]
+	if !nekorayLinkTypes[typ] {
+		return "", nil, false
+	}
 	payload := rest[hash+1:]
 	b, ok := util.DecodeB64(payload)
 	if !ok {
@@ -90,22 +108,23 @@ func parseSocksHTTP(link string) (string, bean.Bean, bool) {
 	b.Set("name", u.Fragment)
 	b.Set("addr", u.Hostname())
 
-	port := -1
-	if p := u.Port(); p != "" {
-		port, _ = strconv.Atoi(p)
+	def := 1080
+	switch {
+	case strings.HasPrefix(link, "https"):
+		def = 443
+	case kind == -80:
+		// http and https used to share the 443 default, so a plain
+		// `http://user:pass@host` link was imported as an https node on 443 — one
+		// that cannot answer. A scheme that says http means port 80.
+		def = 80
 	}
-	if port == -1 {
-		switch {
-		case strings.HasPrefix(link, "https"):
-			port = 443
-		case kind == -80:
-			// http and https used to share the 443 default, so a plain
-			// `http://user:pass@host` link was imported as an https node on 443 — one
-			// that cannot answer. A scheme that says http means port 80.
-			port = 80
-		default:
-			port = 1080
-		}
+	// Through linkPort, like every other parser: a port a socket cannot hold
+	// (99999) used to be taken as given, written as server_port, and refused by
+	// the core — which took the whole group down with it, because this node was
+	// in the selector with the rest.
+	port, ok := linkPort(u, def)
+	if !ok {
+		return "", nil, false
 	}
 	b.Set("port", port)
 
@@ -253,9 +272,9 @@ func parseAnyTLS(link string, s *setting.Setting) (string, bean.Bean, bool) {
 	b := NewTrojanVLESS()
 	b.Set("name", u.Fragment)
 	b.Set("addr", u.Hostname())
-	port, _ := strconv.Atoi(u.Port())
-	if port == 0 {
-		port = 443
+	port, ok := linkPort(u, 443)
+	if !ok {
+		return "", nil, false
 	}
 	b.Set("port", port)
 
@@ -314,9 +333,9 @@ func parseHysteria1(link string, s *setting.Setting) (string, bean.Bean, bool) {
 	b := NewHysteria1()
 	b.Set("name", u.Fragment)
 	b.Set("addr", u.Hostname())
-	port, _ := strconv.Atoi(u.Port())
-	if port == 0 {
-		port = 443
+	port, ok := linkPort(u, 443)
+	if !ok {
+		return "", nil, false
 	}
 	b.Set("port", port)
 	auth := q.Get("auth")
@@ -361,9 +380,9 @@ func parseSnell(link string, s *setting.Setting) (string, bean.Bean, bool) {
 	b := NewSnell()
 	b.Set("name", u.Fragment)
 	b.Set("addr", u.Hostname())
-	port, _ := strconv.Atoi(u.Port())
-	if port == 0 {
-		port = 443
+	port, ok := linkPort(u, 443)
+	if !ok {
+		return "", nil, false
 	}
 	b.Set("port", port)
 	psk := ""
@@ -614,7 +633,13 @@ func parseNaive(link string) (string, bean.Bean, bool) {
 	b.Set("protocol", protocol)
 	b.Set("name", u.Fragment)
 	b.Set("addr", u.Hostname())
-	port, _ := strconv.Atoi(u.Port())
+	// 443 when the link names none: naive is https/quic, and a port of zero is
+	// a node nothing can dial (it used to be written as given, so a link
+	// without a port imported as "complete" and then failed to start).
+	port, ok := linkPort(u, 443)
+	if !ok {
+		return "", nil, false
+	}
 	b.Set("port", port)
 	if u.User != nil {
 		b.Set("username", u.User.Username())

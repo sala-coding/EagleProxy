@@ -10,6 +10,7 @@ package logstore
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -316,13 +317,63 @@ func (s *Store) Read(category string, maxLines int) []string {
 	// the panel re-reads the moment a run ends, and the tail of that run would
 	// otherwise appear only on the read after it (see Flush).
 	s.Flush()
-	data, err := os.ReadFile(s.Path(category, time.Now()))
+	// The tail, read from the end: the panel asks for the last few hundred
+	// lines, and a whole-day file was held in memory in full for them — every
+	// open of the panel, and once a second while it is open.
+	lines, err := readTailLines(s.Path(category, time.Now()), maxLines)
 	if err != nil {
 		return nil
 	}
+	return lines
+}
+
+// readTailLines returns a file's last maxLines whole lines, read from the end
+// in growing chunks: a day-long log is not held in memory in full for the tail
+// the panel shows. The chunk's first line is whole only when the byte before it
+// is a newline (or the chunk is the file's beginning); a partial first line is
+// the middle of a line an earlier chunk holds, and is dropped rather than
+// shown cut in half. The file's trailing newline yields nothing: an absent
+// last line is how "nothing logged" reads, and callers use len == 0 for it.
+func readTailLines(path string, maxLines int) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := st.Size()
+	const first = 256 << 10
+	for chunk := int64(first); ; chunk *= 2 {
+		if chunk >= size {
+			data := make([]byte, size)
+			if _, err := io.ReadFull(f, data); err != nil {
+				return nil, err
+			}
+			return splitTailLines(data, maxLines, true), nil
+		}
+		// One byte before the chunk answers whether its first line arrived
+		// whole; the read starts there and the body is what follows it.
+		buf := make([]byte, chunk+1)
+		if _, err := f.ReadAt(buf, size-chunk-1); err != nil && err != io.EOF {
+			return nil, err
+		}
+		lines := splitTailLines(buf[1:], maxLines, buf[0] == '\n')
+		if len(lines) >= maxLines {
+			return lines, nil
+		}
+	}
+}
+
+// splitTailLines splits a chunk into at most the last maxLines whole lines.
+// firstWhole says whether the chunk's first line arrived whole.
+func splitTailLines(data []byte, maxLines int, firstWhole bool) []string {
 	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-	// a trailing newline yields one empty element; drop it so callers can use
-	// len(lines) == 0 to mean "nothing logged"
+	if !firstWhole && len(lines) > 0 {
+		lines = lines[1:]
+	}
 	if n := len(lines); n > 0 && lines[n-1] == "" {
 		lines = lines[:n-1]
 	}
@@ -336,6 +387,14 @@ func (s *Store) Read(category string, maxLines int) []string {
 // written next starts from an empty file. Use it for "latest run only" logs, as
 // opposed to the default append-only behaviour. The removal happens on the
 // writer goroutine, so it stays ordered with respect to queued lines.
+//
+// The entry goes through the queue for that ordering, but it is not allowed to
+// be dropped the way a plain line is: "latest run only" is a promise about what
+// the reader will find, and a truncate the queue refused left the previous
+// run's tail sitting in a file the next read presented as the latest run. The
+// queue is flushed first, which leaves it empty enough that the send lands;
+// only a queue that refilled in the microseconds between (writers that busy)
+// falls back to the dropped counter's notice.
 func (s *Store) Truncate(category string) {
 	s.wmu.RLock()
 	if s.closed {
@@ -343,12 +402,35 @@ func (s *Store) Truncate(category string) {
 		s.truncateDirect(category)
 		return
 	}
-	select {
-	case s.ch <- entry{category: category, truncate: true, at: time.Now()}:
-	default:
-		s.dropped.Add(1)
-	}
 	s.wmu.RUnlock()
+	e := entry{category: category, truncate: true, at: time.Now()}
+	s.Flush()
+	s.wmu.RLock()
+	// The check is made AGAIN under this hold: Close may have landed in the
+	// window the first check's release opened — and an entry sent past a
+	// writer that has already drained and stopped is received by nobody. It
+	// is not dropped (the counter never hears of it) and not fallen back
+	// (nothing reads the queue again): a truncate that silently never
+	// happened, which is exactly what this function exists to prevent.
+	if s.closed {
+		s.wmu.RUnlock()
+		s.truncateDirect(category)
+		return
+	}
+	defer s.wmu.RUnlock()
+	select {
+	case s.ch <- e:
+	default:
+		// The queue refilled between the flush and the send. One more flush;
+		// if even that is refused, the dropped counter's notice is the honest
+		// answer rather than a truncate that silently never happened.
+		s.Flush()
+		select {
+		case s.ch <- e:
+		default:
+			s.dropped.Add(1)
+		}
+	}
 }
 
 // truncateDirect is Truncate after the writer is gone: the queue it used to be

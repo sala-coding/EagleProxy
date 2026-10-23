@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -75,24 +76,63 @@ func defaultDataDir() string {
 	// launched from" named C:\Windows\config there — a data directory recreated empty
 	// on the next autostart, which is the one thing a data directory must never do.
 	//
-	// The working directory is kept when its own config folder is already there: that
-	// is the development shape (wails dev runs the binary out of build/bin while the
-	// data sits at the repository root), and following the executable there would
-	// present a full library as an empty one. Otherwise the default is the folder
-	// beside the executable, which is where an installed copy keeps its data.
+	// The working directory is kept when its own config folder is already there AND
+	// the executable sits inside the working directory: that is the development shape
+	// (wails dev runs the binary out of build/bin while the data sits at the
+	// repository root), and following the executable there would present a full
+	// library as an empty one. The second half is what keeps a stranger's config
+	// folder from hijacking an installed copy: a reader standing anywhere on the
+	// disk — a download folder, a mounted share — with a coincidental "config"
+	// subdirectory, launching the installed executable from it, would otherwise
+	// have that folder become their library for the session. Otherwise the default
+	// is the folder beside the executable, which is where an installed copy keeps
+	// its data.
 	if wd, err := os.Getwd(); err == nil {
 		cfg := filepath.Join(wd, "config")
 		if st, err := os.Stat(cfg); err == nil && st.IsDir() {
-			if rel := relToExec(cfg); rel != "" && !filepath.IsAbs(rel) {
-				return rel
+			// "The executable sits inside the working directory" is what
+			// filepath.Rel(exeDir, wd) spells as a walk of nothing but ".." —
+			// exeDir below the working directory, the way build/bin sits under
+			// the repository root — or as "." (the two are one folder, the
+			// portable copy launched from its own). A rel that climbs out and
+			// then walks back in anywhere else ("..\..\Users\me", the reader
+			// standing in their download folder) is the hijack shape, and the
+			// same walk says no. filepath.Rel answers case-insensitively on
+			// Windows and returns an error across drives, which is a no all
+			// the same.
+			if exeDir := execDir(); exeDir != "" {
+				if rel, err := filepath.Rel(exeDir, wd); err == nil && relWithin(rel) {
+					if rel2 := relToExec(cfg); rel2 != "" && !filepath.IsAbs(rel2) {
+						return rel2
+					}
+					return cfg
+				}
 			}
-			return cfg
 		}
 	}
 	if dir := execDir(); dir != "" {
 		return filepath.Join(dir, "config")
 	}
 	return "config"
+}
+
+// relWithin answers whether a Rel result is a walk that stays inside: "." (the
+// two paths are one) or a chain of nothing but ".." (the first path is below
+// the second — the walk goes up and arrives, never up and then sideways into
+// someone else's tree).
+func relWithin(rel string) bool {
+	if rel == "." {
+		return true
+	}
+	if rel == "" || !strings.HasPrefix(rel, "..") {
+		return false
+	}
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part != ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // execDir is the folder the running executable sits in. The two paths read it as their
@@ -140,24 +180,54 @@ func relToExec(abs string) string {
 	return rel
 }
 
-func (a *App) loadAppConfig() {
+// loadAppConfig reads the data/core paths out of app.json and reports whether
+// there was a usable file to read.
+//
+// A file that is there but will not parse is left exactly where it is: it is
+// the reader's only record of where their library lives, and the startup that
+// follows saves the defaults when this says "nothing was read" — so a torn file
+// stays torn rather than being replaced by a pointer to an empty default
+// folder (see startup).
+func (a *App) loadAppConfig() (read bool) {
 	dataDirRaw := defaultDataDir()
 	dataDir := resolveAppPath(dataDirRaw)
 	corePathRaw, corePath := "", ""
 	migrateAppConfig()
-	if data, err := os.ReadFile(appConfigPath()); err == nil {
-		var c appConfig
-		if json.Unmarshal(data, &c) == nil {
-			if c.DataDir != "" {
-				dataDirRaw = c.DataDir
-				dataDir = resolveAppPath(c.DataDir)
-			}
-			corePathRaw = c.CorePath
-			corePath = resolveAppPath(c.CorePath)
-		}
+	// The defaults are installed on every path, read or not: "nothing was read"
+	// and "there is nothing to install" are two different things. Returning
+	// before the setPaths left a first run — or a torn file — with an empty data
+	// directory, and then os.MkdirAll("") failed, the core controller was never
+	// created, and not one node could start ("backend not initialised"), with
+	// the stores building themselves in the process's working directory.
+	defer func() { a.setPaths(dataDir, dataDirRaw, corePath, corePathRaw) }()
+	data, err := os.ReadFile(appConfigPath())
+	if err != nil {
+		return false // no file yet: a first run, and the defaults are the config
 	}
-	a.setPaths(dataDir, dataDirRaw, corePath, corePathRaw)
+	var c appConfig
+	if json.Unmarshal(data, &c) != nil {
+		return false
+	}
+	if c.DataDir != "" {
+		dataDirRaw = c.DataDir
+		dataDir = resolveAppPath(c.DataDir)
+	}
+	corePathRaw = c.CorePath
+	corePath = resolveAppPath(c.CorePath)
+	return true
 }
+
+// saveAppConfig writes app.json through a sibling and a rename, the way every
+// other state file in this project is written. A bare WriteFile is a truncate
+// followed by a write, and this file is the only record of where the reader's
+// data lives: a write that fails half-way leaves nothing to read, and the next
+// launch then answers "default folder" — an empty library, with the real one
+// still on disk and nothing left pointing at it.
+// appConfigMu serialises the writers of app.json (the startup save, the path
+// setters and the settings dialog all reach it from their own goroutines), so
+// that the temp file below cannot be half-written by one and published by the
+// other.
+var appConfigMu sync.Mutex
 
 func (a *App) saveAppConfig() {
 	// As written, not as resolved: a path saved as an absolute one stops meaning
@@ -168,8 +238,21 @@ func (a *App) saveAppConfig() {
 		return
 	}
 	path := appConfigPath()
-	_ = os.MkdirAll(filepath.Dir(path), 0o755)
-	_ = os.WriteFile(path, data, 0o644)
+	appConfigMu.Lock()
+	defer appConfigMu.Unlock()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	// Unique name as well as the lock: a second process (the resident server
+	// does not write this file, but a second instance may) must not share it.
+	tmp := fmt.Sprintf("%s.tmp.%d", path, os.Getpid())
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		_ = os.Remove(tmp)
+		return
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+	}
 }
 
 // logDirName is the folder every log this app writes goes into.

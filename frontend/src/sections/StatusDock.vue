@@ -1,8 +1,14 @@
 <script setup lang="ts">
 // The bottom dock and the status bar, extracted from App.tsx (the
-// bottom-dock JSX block): the logo/settings button, the text slot with the
-// live rates and the run pill, the exit-details panel, the node search, the
-// batch and egress menus, the node chip and the run-state lamp.
+// bottom-dock JSX block): the logo/settings button, the live rates and the run
+// pill, the exit-details panel, the node search, the batch and egress menus,
+// the node chip and the run-state lamp.
+//
+// The bar's text slot is gone: what still spoke there — the run state on hover
+// over the lamp, the words for a mode switch in progress — is a line of the
+// console's stream now (see notify in App.vue). What remains here reads what
+// is moving (rates, the test pill), which is not a sentence and has nowhere
+// else to be said.
 import {type Ref} from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import {t} from '../i18n';
@@ -11,11 +17,9 @@ import {fmtRate} from '../lib/format';
 import {EGRESS_MODES} from '../lib/layout';
 import {STOPPED} from '../composables/shared-consts';
 import {CopyFilled, LoadingFilled, ServerFilled, StopFilled, CloseFilled} from '../lib/icons';
-import {type StatusNote} from '../composables/useStatusNote';
 
 const props = defineProps<{
     traffic: { up: number; down: number; upRate: number; downRate: number; count: number };
-    statusNote: StatusNote | null;
     testing: boolean;
     testingMode: number;
     testProgress: { done: number; total: number };
@@ -58,8 +62,11 @@ const emit = defineEmits<{
     copied: [ok: boolean];
     flagMissing: [];
     stopTest: [];
+    // The hover readout of the run state, now a line of the console's stream:
+    // the pointer entering the lamp asks the question, App.vue answers it (and
+    // gates the answer on what it last said — see sayLampState). Leaving needs
+    // no answer any more: a line of the log does not fade.
     stateEnter: [];
-    stateLeave: [];
 }>();
 
 // The exit panel's copy button: the clipboard write and the note ride one press,
@@ -130,35 +137,23 @@ const onSearchKey = (e: KeyboardEvent, query: string, subBusy: boolean) => {
                     sharp at any pixel ratio, identical in every language. -->
                 <img class="logo-eagle" src="/fa/icon/eagles.jpg" alt="">
             </button>
-            <!-- The bar's one text slot, hung off the rail's vertical line: every transient
-                word — run state on hover, "node connected" when a start lands —
-                grows out of that line and fades where it stands after three
-                seconds. The stylesheet anchors it to the line itself rather than
-                to the bar's left edge (see .status-note), so the two cannot come
-                apart; the controls keep the right edge. -->
-            <!-- The bar's left slot: everything that speaks while something is
-                happening — a notify toast, and the test in progress — in one place
-                rather than at two ends of the bar, because they answer the same
-                question and both grow out of the rail's own line. Standing side by
-                side is then possible: the run and the word for it are two things
-                said at once, not one written over the other.
+            <!-- The bar's left slot: what speaks while something is happening —
+                the test in progress. The transient WORDS that used to grow out
+                of the rail's line here (the run state on hover, the app's own
+                notices) are lines of the console's stream now; what remains is
+                the readouts of what is moving, which are not sentences and
+                have nowhere else to be said.
                 The slot is positioned and its contents are not, which is what keeps
                 the controls on the right: an in-flow child of the bar would be
                 carried to the right edge by the bar's own justify-content. -->
             <div class="status-left">
                 <!-- The live rates lead the slot: they sit against the rail's own
-                    line, the first thing after the divider, and the transient
-                    words (a hover hint, a test in progress) follow them. The
-                    block only exists while something is moving — with the node
-                    idle the slot is the note's alone, as it always was. -->
+                    line, the first thing after the divider. The block only
+                    exists while something is moving. -->
                 <div v-if="traffic.upRate > 0 || traffic.downRate > 0" class="traffic">
                     <span class="rate down" :title="t('status.rateHint')">↓ {{ fmtRate(traffic.downRate) }}</span>
                     <span class="rate up" :title="t('status.rateHint')">↑ {{ fmtRate(traffic.upRate) }}</span>
                 </div>
-                <span v-if="statusNote && statusNote.mode === 'bar'" :key="statusNote.seq" role="status"
-                      :class="`status-note${statusNote.leaving ? ' leaving' : ''}${statusNote.kind === 'err' ? ' err' : ''}`">
-                    {{ statusNote.text }}
-                </span>
                 <span v-if="testing" class="pill pill-live">
                     <LoadingFilled class="ic spin"/>
                     {{ t(SPEED_RUNNING_KEYS[testingMode] ?? SPEED_RUNNING_KEYS[0]) }}
@@ -373,8 +368,7 @@ const onSearchKey = (e: KeyboardEvent, query: string, subBusy: boolean) => {
                     character would bring a font's own proportions along to a thing
                     whose only property is its angle. -->
                 <span class="state-wrap"
-                      @mouseenter="emit('stateEnter')"
-                      @mouseleave="emit('stateLeave')">
+                      @mouseenter="emit('stateEnter')">
                     <span :class="`state-chip ${isRunning ? 'on' : 'off'}${proxyEngaged ? ' spinning' : ''}`">
                         <i v-if="proxyEngaged" class="state-spinner"/>
                         <i v-else class="state-dot"/>

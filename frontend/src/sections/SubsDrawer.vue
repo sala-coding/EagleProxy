@@ -59,6 +59,11 @@ const emit = defineEmits<{
 // (The per-card derivations the React version computed inline in its map are
 // worked out here, one decorated row per subscription.)
 const rows = computed(() => props.groups.map((g, gi) => {
+    // The drawer's own words ("未命名", the allowance figures' caption) are
+    // spoken by this computed, so the language change's tick is read here —
+    // the same idiom RoutingCard's warnings use for theirs (see langTick in
+    // SettingsDialog). Without it the tooltip kept the language it opened in.
+    void props.langTick;
     const usage = parseSubUsage(g.info);
     // Whether the panel said anything about the
     // account's allowance. Gates the single

@@ -77,6 +77,56 @@ export function heldModifiers(e: KeyboardEvent): string {
     return MODIFIERS.filter(([flag]) => e[flag]).map(([, name]) => name).join('+');
 }
 
+// canonicalHotkey reads a hotkey string the way the backend's Parse does (see
+// internal/hotkey), so two spellings of one combination compare equal here:
+// "ctrl+shift+x" and "Shift+Control+X" are the same registration to Windows,
+// and the clash check that compared the raw strings let the second one through
+// — both rows registered, Windows gave the combination to whichever bound last,
+// and the other row's action silently stopped answering.
+//
+// The aliases are Parse's own: Control is Ctrl; Meta, Win, Super and Cmd are
+// Win; Return is Enter; Escape is Esc. Modifier order is dropped (the backend
+// folds them into a bitmask); the key's case goes with it.
+//
+// A string Parse would REFUSE — a modifier where only the key belongs, an
+// unknown key name, a bare key that is not one of the F-keys — does not get a
+// comparable form: it comes back as the raw string under a marker, which
+// compares only to itself. Two rows holding the same bad string still clash
+// (they are the same registration attempt), two different ones do not, and
+// neither ever reaches a comparable form the backend would have rejected —
+// the check table and the registration now answer alike.
+export function canonicalHotkey(combo: string): string {
+    const raw = String(combo);
+    const parts = raw.split('+').map(p => p.trim()).filter(Boolean);
+    if (parts.length === 0) return '!' + raw;
+    const mods: string[] = [];
+    for (let i = 0; i < parts.length - 1; i++) {
+        switch (parts[i].toLowerCase()) {
+            case 'ctrl': case 'control': mods.push('ctrl'); continue;
+            case 'shift': mods.push('shift'); continue;
+            case 'alt': mods.push('alt'); continue;
+            case 'meta': case 'win': case 'super': case 'cmd': mods.push('win'); continue;
+        }
+        return '!' + raw; // Parse: "unknown hotkey modifier"
+    }
+    const key = parts[parts.length - 1].toUpperCase()
+        .replace(/^RETURN$/, 'ENTER')
+        .replace(/^ESCAPE$/, 'ESC');
+    if (MOD_NAMES.has(key.toLowerCase()) || !KNOWN_KEY.test(key)) {
+        return '!' + raw; // Parse: "unknown hotkey"
+    }
+    if (mods.length === 0 && !/^F(?:[1-9]|1[0-9]|2[0-4])$/.test(key)) {
+        return '!' + raw; // Parse: "hotkey needs a modifier"
+    }
+    mods.sort();
+    return [...mods, key].join('+');
+}
+
+// The modifier names the backend's Parse folds, and the key names its
+// keyCode answers — the shapes a comparable form exists for.
+const MOD_NAMES = new Set(['ctrl', 'control', 'shift', 'alt', 'meta', 'win', 'super', 'cmd']);
+const KNOWN_KEY = /^(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|SPACE|TAB|ENTER|ESC|HOME|END|LEFT|UP|RIGHT|DOWN)$/;
+
 export function isPlainObject(v: Json): v is Record<string, Json> {
     return v !== null && typeof v === 'object' && !Array.isArray(v);
 }

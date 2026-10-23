@@ -1,9 +1,3 @@
-// How long a status-bar note stays on screen (the retraction animation then plays
-// for a few hundred milliseconds before the element unmounts, and the note waiting
-// behind it takes the slot at the end of that — see runStatusNote).
-export const NOTE_MS = 4000;
-export const NOTE_RETRACT_MS = 400;
-
 // One line's height in the well, for reading a stretch of it as a number of rows rather
 // than a number of pixels. The follow measures its slack in the same line.
 export const LOG_ROW_PX = 24;

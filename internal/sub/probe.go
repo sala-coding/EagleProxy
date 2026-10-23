@@ -34,6 +34,16 @@ func probeDepth(str string, s *setting.Setting, depth int) (int, string) {
 	// base64 encoded subscription — the count lives in what it decodes to, and
 	// the shape follows the decoded body.
 	if decoded, ok := util.DecodeB64(str); ok && len(decoded) > 0 && string(decoded) != str {
+		// The same guard the real parse keeps (see parse.go): a decode that is
+		// not text is no subscription — any 4k-multiple of base64-alphabet
+		// characters decodes cleanly, and the parse refuses the binary garbage
+		// outright rather than walking it. The probe walks exactly the dispatch
+		// the parse takes, so the refusal is here too; without it the probe
+		// could report a shape (and a deeper walk) for a body the update would
+		// answer with "nothing there".
+		if !readableBody(decoded) {
+			return 0, ""
+		}
 		return probeDepth(string(decoded), s, depth+1)
 	}
 

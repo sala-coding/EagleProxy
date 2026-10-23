@@ -3,13 +3,14 @@
 // object App.vue hands in — the refs are read and written at call time, which is the
 // same "always current" guarantee the React version got from its ref mirrors.
 import type {Ref} from 'vue';
+import {watch} from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import {db, main, setting} from '../../wailsjs/go/models';
 import {t} from '../i18n';
 import {tip} from '../tips';
 import {errText} from '../lib/shared';
 import {hostFirstSegment} from '../lib/text';
-import {MODE_HAS_SPEED, type Dict} from '../lib/metrics';
+import {MODE_HAS_LATENCY, MODE_HAS_SPEED, type Dict} from '../lib/metrics';
 import {HOVER_SWITCH_DELAY} from '../lib/settings-meta';
 import {type PanelExit} from '../lib/subdraw';
 import {STOPPED} from './shared-consts';
@@ -39,6 +40,9 @@ export interface AppActionsDeps {
     setSpBusyBoth: (v: 'vpn' | 'systemProxy' | null) => void;
     egress: Ref<string>;
     setEgressOpen: (v: boolean) => void;
+    // The file's own answer for the egress mode, re-read from the settings:
+    // what a failed write is rolled back to (see setEgressMode's catch).
+    refreshEgress: () => Promise<void>;
     exitTick: Ref<number>;
     gConfirm: Ref<number | null>;
     importOpen: Ref<boolean>;
@@ -59,7 +63,6 @@ export interface AppActionsDeps {
     batchOpen: Ref<boolean>;
     editor: Ref<{ title: string; initial: Dict; onSave: (v: Dict) => Promise<void>; onDiscard?: () => Promise<void> } | null>;
     notify: (text: string, kind?: 'ok' | 'err') => void;
-    holdStatusNote: (text: string, kind?: 'ok' | 'err') => void;
     loadFileCats: () => Promise<void>;
     openSubs: () => void;
     closeSubs: () => void;
@@ -116,20 +119,29 @@ export function useActions(deps: AppActionsDeps) {
         }
     };
 
+    const groupSelectSeq = {current: 0};
+    let groupPersistTail: Promise<void> = Promise.resolve();
     const selectGroup = async (id: number) => {
+        const seq = ++groupSelectSeq.current;
         deps.gid.value = id;
         deps.selected.value = -1;
         // The list comes first: remembering the subscription writes the settings
         // file, and making the table wait on that disk round-trip is what made a
         // hover switch feel like it lagged by a second or two.
         await loadProfiles(id);
-        // remember the subscription so a restart reopens it
-        try {
-            await API.SetCurrentGroup(id);
-        } catch {
-            // persisting the view is a convenience; failing at it must not stop
-            // the list from having switched
-        }
+        // Remember the subscription so a restart reopens it. Writes are queued so
+        // an older request cannot finish after a newer selection and overwrite it.
+        const persist = groupPersistTail.then(async () => {
+            if (seq !== groupSelectSeq.current || deps.gid.value !== id) return;
+            try {
+                await API.SetCurrentGroup(id);
+            } catch {
+                // Persisting the view is a convenience; failing at it must not stop
+                // the list from having switched.
+            }
+        });
+        groupPersistTail = persist.catch(() => {});
+        await persist;
     };
 
     // Hover-to-switch. The pointer has to hold a card for the whole delay, and still be
@@ -297,6 +309,13 @@ export function useActions(deps: AppActionsDeps) {
         // One run at a time: a second trigger while one is going must not clear its
         // progress, transplant its counters or end the "testing" indicator early.
         if (deps.testingRef.value) return;
+        // A run takes minutes, and the reader may sort the list by hand while it
+        // runs. That sorting is theirs: the watch lives only for this run
+        // (nothing else writes sort — the column headers are the only other
+        // writer), and the order the run ends with is re-forced only when the
+        // run's own order is still what is on screen.
+        let handSorted = false;
+        let stopHandWatch: (() => void) | null = null;
         try {
             deps.setTesting(true);
             deps.testingMode.value = mode;
@@ -313,6 +332,7 @@ export function useActions(deps: AppActionsDeps) {
             // good end upwards instead of shuffling placeholders around.
             const speedMode = MODE_HAS_SPEED(mode);
             deps.sort.value = {key: speedMode ? 'speed' : 'latency', dir: speedMode ? -1 : 1};
+            stopHandWatch = watch(deps.sort, () => { handSorted = true; });
             // "Test current" means the node the mouse picked: the row whose menu
             // this is, or — for any caller that names no node — the row that is
             // selected. It deliberately ignores the node that happens to be
@@ -332,10 +352,20 @@ export function useActions(deps: AppActionsDeps) {
             // loadProfiles reads what the backend holds, and clearing here only
             // ever cleared the rows on screen.
             // Only the rows this run will test, though: "test current" must not
-            // wipe the rest of the list.
+            // wipe the rest of the list. And only the column it fills: clearing
+            // both showed the other one as "not tested yet" for the whole run —
+            // minutes of a column that had been measured and had not changed —
+            // and metricGroup(0) sorts those rows into the untested block, so
+            // one click on that column's header re-ordered the list by id.
+            const clearsLatency = MODE_HAS_LATENCY(mode);
+            const clearsSpeed = speedMode;
             deps.profiles.value = deps.profiles.value.map(p => {
                 if (!wholeGroup && p.id !== target) return p;
-                return {...p, latency: 0, speed: 0};
+                return {
+                    ...p,
+                    latency: clearsLatency ? 0 : p.latency,
+                    speed: clearsSpeed ? 0 : p.speed,
+                };
             });
             let res: main.SpeedTestResult[];
             if (wholeGroup) {
@@ -362,10 +392,13 @@ export function useActions(deps: AppActionsDeps) {
             // means there was nothing to test: a mistake, not a node condition.
             deps.notify(tip('metrics.speedDone'));
             // The order the run has been building up stays as it is; this is only
-            // here for the reader who re-sorted the list by hand while it ran, so
-            // that the results are still laid out with the usable end of the
-            // measured column on top when it finishes.
-            deps.sort.value = {key: speedMode ? 'speed' : 'latency', dir: speedMode ? -1 : 1};
+            // here for the reader who has not re-sorted the list by hand while it
+            // ran, so that the results are laid out with the usable end of the
+            // measured column on top when it finishes. A hand-sorted list is the
+            // reader's own.
+            if (!handSorted) {
+                deps.sort.value = {key: speedMode ? 'speed' : 'latency', dir: speedMode ? -1 : 1};
+            }
             // The run wrote a new file behind one of the test categories, and the
             // panel reads that file rather than watching it: re-read, so an open
             // log panel shows this run instead of the one before it.
@@ -373,6 +406,7 @@ export function useActions(deps: AppActionsDeps) {
         } catch (e) {
             deps.notify(errText(e), 'err');
         } finally {
+            stopHandWatch?.();
             deps.setTesting(false);
             deps.testProgress.value = {done: 0, total: 0};
         }
@@ -481,10 +515,10 @@ export function useActions(deps: AppActionsDeps) {
         deps.setSpBusyBoth(kind);
         // And the wait is said in words, not only in the icon's breathing: switching
         // TUN can take seconds, and someone who pressed the switch deserves to read
-        // what the app is doing rather than infer it from an animation. The message
-        // is held rather than timed — see holdStatusNote — and the outcome replaces
-        // it when it arrives.
-        deps.holdStatusNote(tip(on ? 'sp.turningOn' : 'sp.turningOff',
+        // what the app is doing rather than infer it from an animation. The words
+        // are a line of the console now (see notify in App.vue) — the bar's slot
+        // they used to hold is gone, and the outcome's own line follows below it.
+        deps.notify(tip(on ? 'sp.turningOn' : 'sp.turningOff',
             t(kind === 'vpn' ? 'sp.tun' : 'sp.systemProxy')));
         deps.spMode.value = on
             ? {vpn: kind === 'vpn', systemProxy: kind === 'systemProxy'}
@@ -521,7 +555,8 @@ export function useActions(deps: AppActionsDeps) {
     // profile: it decides what the configbuilder does with that profile — apply it,
     // or leave its rules out — rather than which profile is in use. So it is read
     // from the settings object, and refetched when the dialog saves one.
-    // (refreshEgress itself stays in App.vue, beside the state it feeds.)
+    // (refreshEgress itself stays in App.vue, beside the state it feeds, and is
+    // handed in as deps.refreshEgress for the rollback below.)
     const setEgressMode = async (mode: string) => {
         deps.setEgressOpen(false);
         if (mode === deps.egress.value) return;
@@ -555,6 +590,12 @@ export function useActions(deps: AppActionsDeps) {
             deps.notify(tip('egress.savedRunning', t(`egress.${mode}`)));
         } catch (e) {
             deps.notify(errText(e), 'err');
+            // The card kept the pressed value locally (the model's own
+            // fallback state): a write that failed has to put it back by hand,
+            // or the card stays lit over a file that still holds the old mode
+            // — and nothing else corrects it until the dialog is reopened.
+            // The re-read is the file's truth, not this handler's guess.
+            await deps.refreshEgress();
         } finally {
             // Quiet, so a failed re-read cannot leave the guard standing: this is the
             // only path that clears it.

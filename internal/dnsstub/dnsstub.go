@@ -429,7 +429,7 @@ func (s *Server) setSystem(w Wires) {
 	if w.Proxy == nil {
 		// No mixed inbound means no path to the core, which is the whole of what this side
 		// does: without it there is nothing to point the machine at.
-		return
+		w.System = false
 	}
 	s.mu.Lock()
 	bound := s.systemBoundLocked()
@@ -445,7 +445,7 @@ func (s *Server) setSystem(w Wires) {
 		s.bindSystem()
 	}
 	s.mu.Lock()
-	ok := s.systemServingLocked()
+	ok := s.systemBoundLocked()
 	old := s.sides[System]
 	unchanged := ok && old.upstream == systemHopUpstream
 	switch {
@@ -470,13 +470,6 @@ func (s *Server) setSystem(w Wires) {
 	}
 }
 
-// systemServingLocked reports whether anything is answering on port 53. Either family and
-// either transport counts: Windows asks over UDP first and only falls back to TCP after its
-// own timeout, so a TCP-only answer would turn every cold name into that wait. Lock-held.
-func (s *Server) systemServingLocked() bool {
-	return s.listens[System] != nil || s.sysV6 != nil || s.sysU4 != nil || s.sysU6 != nil
-}
-
 // systemBoundLocked reports whether every socket the takeover needs is up: both loopbacks,
 // over both UDP and TCP. A port half taken is not a takeover — the interface pointed at
 // it waits out a timeout on the half that answers, which is the whole reason the v6
@@ -496,7 +489,7 @@ func (s *Server) SystemReady() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sl := s.sides[System]
-	return !s.closed && sl != nil && sl.upstream != "" && s.systemServingLocked()
+	return !s.closed && sl != nil && sl.upstream != "" && s.systemBoundLocked()
 }
 
 // bindSystem takes port 53 on both loopbacks and starts answering on it.
