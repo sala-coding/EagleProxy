@@ -4,9 +4,10 @@
 //
 // One dictionary per file (see ./i18n/), the way the tips are one file per language: a
 // dictionary is a page of words, and seven of them in one file is a page nobody can read.
-export type Lang = 'zh' | 'en' | 'ru';
+export type Lang = 'zh' | 'en' | 'ru' | 'ko';
 
 import {ru} from './i18n/ru';
+import {ko} from './i18n/ko';
 
 const zh: Record<string, string> = {
 'sp.systemProxy': '系统代理',
@@ -347,6 +348,7 @@ const zh: Record<string, string> = {
     'lang.zh': '中文',
     'lang.en': 'English',
     'lang.ru': 'Русский',
+    'lang.ko': '한국어',
     'cfg.language': '语言',
     'cfg.spmode2': '上次的运行模式',
     'cfg.remember_spmode': '恢复上次模式',
@@ -867,6 +869,7 @@ const en: Record<string, string> = {
     'lang.zh': '中文',
     'lang.en': 'English',
     'lang.ru': 'Русский',
+    'lang.ko': '한국어',
     'cfg.language': 'Language',
     'cfg.spmode2': 'Mode last left in',
     'cfg.remember_spmode': 'Restore last mode',
@@ -1062,7 +1065,7 @@ const en: Record<string, string> = {
     'msg.cloned': 'Cloned',
 };
 
-const dicts: Record<Lang, Record<string, string>> = {zh, en, ru};
+const dicts: Record<Lang, Record<string, string>> = {zh, en, ru, ko};
 
 let current: Lang = 'zh';
 
@@ -1092,13 +1095,16 @@ export function t(key: string, ...args: (string | number)[]): string {
 // (0 Chinese, 1 English, 2 traditional Chinese, 3 Persian, 4 Russian); 2 and 3 are not
 // shipped here, so a file that carries either falls back to Chinese — 3 used to be
 // Persian, which is no longer offered, and an old file that carries it now lands on
-// Chinese the way 2 always did.
+// Chinese the way 2 always did. 5 is Korean, a language added here rather than
+// inherited from nekoray, so the number is ours to hand out.
 export function langFromCode(code: number): Lang {
     switch (code) {
         case 1:
             return 'en';
         case 4:
             return 'ru';
+        case 5:
+            return 'ko';
         default:
             return 'zh';
     }
@@ -1112,18 +1118,19 @@ export function codeOfLang(lang: Lang): number {
     switch (lang) {
         case 'en':
             return 1;
+        case 'ko':
+            return 5;
         case 'ru':
             return 4;
         default:
             return 0;
     }
 }
-
 // The languages shipped as a file each (see ./i18n/), in the order the settings
 // form lists them. One list rather than a repetition per language: it is what says
 // which codes are ours, and a language added as a file but missed here would be a
 // language the window can wear but never offer.
-const ALL: Lang[] = ['zh', 'en', 'ru'];
+const ALL: Lang[] = ['zh', 'en', 'ru', 'ko'];
 
 // SystemLang is the language the machine is speaking, as the web view reports it.
 // The web view takes its locale from the system on every desktop this app runs on,

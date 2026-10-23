@@ -57,7 +57,7 @@
     "log.copied": "已复制到剪贴板",
     "log.copyFailed": "复制失败，请检查剪贴板权限",
     "settings.saved": "设置已保存",
-    "settings.noUpdate": "没有找到可用版本",
+    "settings.noUpdate": "当前已是最新版本",
     "update.downloading": "正在下载更新…（完成后程序会自动重启）",
     "route.switched": "已切换路由",
     "route.switchedTo": "已切换路由: {0}",

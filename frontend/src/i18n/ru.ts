@@ -289,6 +289,7 @@ export const ru: Record<string, string> = {
     'lang.zh': '中文',
     'lang.en': 'English',
     'lang.ru': 'Русский',
+    'lang.ko': '한국어',
     'cfg.language': 'Язык',
     'cfg.spmode2': 'Режим, в котором его оставили',
     'cfg.remember_spmode': 'Возвращать при запуске режим прошлого сеанса',

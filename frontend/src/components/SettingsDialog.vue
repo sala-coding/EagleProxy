@@ -1676,8 +1676,8 @@ const onPortInput = (e: Event) => {
                                 <label :title="`${t('cfg.language')} · language`">
                                     {{ t('cfg.language') }}
                                 </label>
-                                <!-- Seven languages, each wearing its country's flag
-                                    (see LANGUAGES). One capsule of seven segments
+                                <!-- Four languages, each wearing its country's flag
+                                    (see LANGUAGES). One capsule of four segments
                                     would be wider than the row, so they stand as a
                                     row of capsules that wraps — the one in force
                                     filled with the accent, which is how every

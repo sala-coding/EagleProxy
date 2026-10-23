@@ -57,7 +57,7 @@
     "log.copied": "Copied to clipboard",
     "log.copyFailed": "Copy failed — check clipboard permission",
     "settings.saved": "Settings saved",
-    "settings.noUpdate": "No release found",
+    "settings.noUpdate": "This build is already the newest version",
     "update.downloading": "Downloading the update… (the app restarts when it is done)",
     "route.switched": "Routing switched",
     "route.switchedTo": "Routing switched: {0}",

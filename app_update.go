@@ -90,15 +90,24 @@ func (a *App) buildTime() time.Time {
 // cleanupUpdateTemps).
 // swapScriptArgs builds the command line that launches the update swap script.
 //
-// The empty title is the whole point of it. `start` takes its first quoted
-// argument as the window title, and Go quotes an argument that holds a space —
-// and the script's path is under the temp folder, which sits under the user's
-// name and holds a space on most machines. The path was then swallowed as a
-// title: `start` opened a console titled with it, ran nothing, and the app
-// quit with "the update is on its way" and never came back. The reader got the
-// old build and no word about why.
+// The empty title is the whole point of the first two of them. `start` takes
+// its first quoted argument as the window title, and Go quotes an argument
+// that holds a space — and the script's path is under the temp folder, which
+// sits under the user's name and holds a space on most machines. The path was
+// then swallowed as a title: `start` opened a console titled with it, ran
+// nothing, and the app quit with "the update is on its way" and never came
+// back. The reader got the old build and no word about why.
+//
+// The script itself is handed to an explicit `cmd /c`, not left for `start` to
+// resolve on its own: a standalone .bat target makes `start` spawn the
+// command processor with /K, which keeps the console (and its working
+// directory handle) alive after the swap has finished. That leftover console
+// went on holding the folder the running copy was started from, and the next
+// build or update failed with "the file is being used by another process".
+// With /c the console leaves when the script does, and nothing of this run
+// stays behind.
 func swapScriptArgs(script string) []string {
-	return []string{"/c", "start", "", "/min", script}
+	return []string{"/c", "start", "", "/min", "cmd", "/c", script}
 }
 
 // updateSwapScript builds the updater. The two paths are NOT written into it

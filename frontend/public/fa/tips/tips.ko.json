@@ -57,7 +57,7 @@
     "log.copied": "클립보드에 복사했습니다",
     "log.copyFailed": "복사 실패 — 클립보드 권한을 확인하세요",
     "settings.saved": "설정을 저장했습니다",
-    "settings.noUpdate": "쓸 수 있는 버전을 찾지 못했습니다",
+    "settings.noUpdate": "이미 최신 버전을 사용 중입니다",
     "update.downloading": "업데이트를 내려받는 중…(끝나면 프로그램이 다시 시작합니다)",
     "route.switched": "라우팅을 전환했습니다",
     "route.switchedTo": "라우팅을 전환했습니다: {0}",
