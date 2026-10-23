@@ -41,20 +41,6 @@ wails build
 
 产物在 `build/bin/Eagle.exe`。
 
-## 测试
-
-```cmd
-::: 后端与前端的 Go 测试
-go test ./...
-
-::: 前端的浏览器回归测试（真实界面 + 假后端 + 无头浏览器）
-cd frontend
-npm run test:harness
-```
-
-测试文件都放在 `tests/` 下：`tests/go/` 是 Go 的测试，`tests/browser/` 是前端的
-浏览器回归测试（见 [tests/README.md](tests/README.md)）。
-
 ## 目录结构
 
 ```
@@ -62,7 +48,6 @@ app_*.go          后端（Wails 绑定层）
 internal/         核心 Go 逻辑（配置生成、订阅解析、TUN、系统代理…）
 third_party/      energye/systray 的本地 fork（go.mod replace）
 frontend/         Vue 3 + Vite 前端
-tests/            测试（Go 的测试 + 前端的浏览器回归测试）
 build/            图标、安装器脚本、发布脚本
 log/              日志（与程序同级，程序自动创建——不提交）
 config*/          运行时数据目录（节点、订阅、设置——不提交）

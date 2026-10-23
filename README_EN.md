@@ -41,20 +41,6 @@ wails build
 
 The artefact lands in `build/bin/Eagle.exe`.
 
-## Tests
-
-```cmd
-::: the Go tests, backend and front end
-go test ./...
-
-::: the browser suite for the front end (the real UI, a fake backend, a headless browser)
-cd frontend
-npm run test:harness
-```
-
-The test files live under `tests/`: `tests/go/` holds the Go tests and
-`tests/browser/` the browser suite (see [tests/README.md](tests/README.md)).
-
 ## Directory layout
 
 ```
@@ -62,7 +48,6 @@ app_*.go          backend (the Wails binding layer)
 internal/         core Go logic (config generation, subscription parsing, TUN, system proxy…)
 third_party/      a local fork of energye/systray (go.mod replace)
 frontend/         Vue 3 + Vite front end
-tests/            the tests (the Go tests and the browser suite)
 build/            icons, installer scripts, release scripts
 log/              the logs (beside the program, created on launch — not committed)
 config*/          runtime data directories (nodes, subscriptions, settings — not committed)

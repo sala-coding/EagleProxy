@@ -15,6 +15,3 @@ node_modules
 /.codebuddy
 /.DS_Store
 /BUGS.md
-/tests/browser/.chrome-profile
-/tests/browser/out
-/tests/browser/*.png
