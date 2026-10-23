@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"time"
 
 	"eagle/internal/core"
@@ -111,7 +112,16 @@ func (a *App) reconcileSystemDNS(force bool) {
 	st := tunserv.State{
 		Adapter:   a.curSetting() != nil && a.curSetting().VPNMode(),
 		Resolvers: a.systemDNSWanted(),
-		Node:      a.nodeServing(),
+		// The adapter's own resolver is the tunnel's, not the node's: the address it
+		// names is answered through the capture, by the hijack behind the front-end's
+		// tun inbound. With TUN off and the node running on its local port — the exact
+		// state a TUN switch-off leaves behind — the kept adapter still advertises the
+		// address and Windows still asks it in the multi-homed race, but the path that
+		// answered it went with the capture; every such query waits out a timeout
+		// before the physical resolvers win. A node serving without the tunnel
+		// therefore does not get the adapter's resolver any more than a stopped one
+		// does.
+		Node: a.curSetting() != nil && a.curSetting().VPNMode() && a.nodeServing(),
 	}
 	// Written only when it says something new. This runs on a one-second tick, and a file
 	// rewritten every second is a file whose writes the server would sit and read for
@@ -170,9 +180,18 @@ func (a *App) reconcileSystemDNS(force bool) {
 }
 
 // releaseSystemDNS tells the elevated side to put the machine's resolvers back, for the exit
-// path. The server does the same on its own way out (see RunServer), so this is the
-// courteous half: whichever of the two notices first, the reader's machine ends up as it
-// was found.
+// path and for the start-up that follows a crash. The server does the same on its own way
+// out (see RunServer), so with one alive this is the courteous half: whichever of the two
+// notices first, the reader's machine ends up as it was found.
+//
+// But a state file is only a request, and it is read by a server. A session that crashed
+// with no server behind it — the task never installed, or pointing at an executable a
+// rebuild has moved — left the takeover's way-back record on disk and the interfaces
+// pointed at a forwarder nobody is running, and emptying the state file changes none of
+// that. Measured here: a record from six days before, and the machine's preferred resolver
+// still ::1 for every one of those days, through a dozen launches that each wrote the file
+// and each restored nothing. So the record itself is checked, and put back from whichever
+// side can write (see restoreLeftoverResolvers).
 func (a *App) releaseSystemDNS() {
 	if a == nil || a.curDataDir() == "" {
 		return
@@ -180,6 +199,45 @@ func (a *App) releaseSystemDNS() {
 	if err := tunserv.WriteState(a.curDataDir(), tunserv.State{}); err != nil {
 		a.logf("[dns] 退出时无法记录常驻服务状态: " + err.Error())
 	}
+	a.restoreLeftoverResolvers()
+}
+
+// restoreLeftoverResolvers puts the machine's resolvers back from a record a previous
+// session left behind, when there is one and no live server is about to do it. Safe to
+// call whenever: nothing was taken over and it does nothing at all.
+func (a *App) restoreLeftoverResolvers() {
+	dir := a.curDataDir()
+	if dir == "" || !tunserv.ResolversTakenOver(dir) {
+		return
+	}
+	// A beating server reads the emptied state on its own tick and restores within a
+	// breath of it (see ReconcileResolvers); racing it from here would only duplicate
+	// the writes.
+	if tunserv.ServerAlive(dir) {
+		return
+	}
+	// This process may well hold the rights itself — a dev console, a run as
+	// administrator — and the restore is the same idempotent write either way.
+	tunserv.RestoreResolvers(dir)
+	if !tunserv.ResolversTakenOver(dir) {
+		a.logf("[dns] 已收回上次会话遗留的解析器接管")
+		return
+	}
+	// It did not take: writing another interface's resolvers needs the token. An
+	// installed task is one /Run away from a server that restores on its first tick —
+	// no prompt, because creation is the only step that costs one and it is not taken
+	// here (see ensureTunServer, which owns it).
+	exe, err := os.Executable()
+	if err != nil {
+		a.logf("[dns] 解析器接管残留未能收回（无法确定程序路径）: " + err.Error())
+		return
+	}
+	if sits, terr := tunserv.TaskInstalled(exe); terr == nil && sits {
+		_ = tunserv.RunTask(exe)
+		a.logf("[dns] 解析器接管残留：已请求常驻服务收回")
+		return
+	}
+	a.logf("[dns] 解析器接管残留未能收回（本进程无权限且未安装常驻服务）——机器的 DNS 可能仍指向本程序")
 }
 
 // appHeartbeatPeriod is how often this process tells the resident server it is alive. Two

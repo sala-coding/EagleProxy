@@ -140,6 +140,14 @@ func ReconcileResolvers(dataDir string, want bool) {
 			log("resolvers: nothing to point (leaving them alone): %v", err)
 			return
 		}
+		// The record is "what to put back", and loopback is never that: an interface
+		// already carrying 127.0.0.1 or ::1 is carrying a takeover this machine never
+		// got back (a crashed session whose record is still on disk, another proxy
+		// tool's leftover), and recording it would make the restore put the poison
+		// back with the app's own blessing — a takeover that never really ends, one
+		// session after another. Dropped before the record is written, so the restore
+		// writes the resolvers the machine actually ought to have.
+		snapshot = withoutLoopback(snapshot)
 		if err := writeUndo(dataDir, snapshot); err != nil {
 			// Without the way back, the change does not happen at all. A leak is a smaller
 			// thing than a machine whose resolver list nobody can restore.
@@ -247,6 +255,42 @@ func restoreLocked(dataDir, why string) error {
 func undoExists(dataDir string) bool {
 	_, err := os.Stat(undoPath(dataDir))
 	return err == nil
+}
+
+// ResolversTakenOver answers whether a takeover's way-back record is sitting on
+// disk: a snapshot some process wrote and no process has restored. It is the app's
+// question, asked at start-up — a record left behind by a crashed session is the
+// only witness that the machine's resolvers may still be pointed at a port nobody
+// holds (see App.releaseSystemDNS, where the answer decides whether the restore
+// has to happen from there).
+func ResolversTakenOver(dataDir string) bool {
+	return dataDir != "" && undoExists(dataDir)
+}
+
+// withoutLoopback drops the loopback addresses from a snapshot's lists. The
+// takeover's own addresses are what it removes; see the caller for why they must
+// not survive into the record of what the machine had before.
+func withoutLoopback(snapshot []tunfast.AdapterResolvers) []tunfast.AdapterResolvers {
+	out := make([]tunfast.AdapterResolvers, 0, len(snapshot))
+	for _, e := range snapshot {
+		kept := e
+		kept.V4 = dropLoopback(e.V4)
+		kept.V6 = dropLoopback(e.V6)
+		out = append(out, kept)
+	}
+	return out
+}
+
+func dropLoopback(list []string) []string {
+	out := make([]string, 0, len(list))
+	for _, s := range list {
+		addr, err := netip.ParseAddr(s)
+		if err == nil && addr.IsLoopback() {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 func writeUndo(dataDir string, snapshot []tunfast.AdapterResolvers) error {

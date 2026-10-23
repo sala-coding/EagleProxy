@@ -775,6 +775,19 @@ func (a *App) subUpdateLoop() {
 			a.emitGroupsChanged(-1)
 			if err != nil {
 				a.logf("定时更新失败 (" + g.Name + "): " + err.Error())
+				// The failed attempt has still had its turn. SubLastUpdate is written by
+				// the update itself on every path that gets as far as parsing, but a
+				// request that never comes back (a 429, a dead URL) leaves it where it
+				// was — and a group whose last success is hours old is due again on the
+				// very next tick. That is a request a minute for as long as the provider
+				// keeps refusing, which is precisely the treatment a rate limit punishes
+				// hardest, and every failure re-fires emitGroupsChanged below besides.
+				// Recording the attempt is the whole backoff: the next try is a full
+				// interval away, the same as a successful one, and a manual update
+				// remains the reader's own way to try sooner.
+				_ = a.curMgr().UpdateGroup(gid, true, func(g *db.Group) {
+					g.SubLastUpdate = now
+				})
 				continue
 			}
 		}

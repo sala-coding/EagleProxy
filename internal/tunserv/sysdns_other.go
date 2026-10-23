@@ -28,3 +28,6 @@ func RestoreResolvers(dataDir string) {}
 // OriginalResolvers has no record to read off Windows: nothing was taken over, so there is
 // no "before" for the forwarder to bootstrap from.
 func OriginalResolvers(dataDir string) []string { return nil }
+
+// ResolversTakenOver answers no: with no takeover there is no leftover of one.
+func ResolversTakenOver(dataDir string) bool { return false }

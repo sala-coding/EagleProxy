@@ -893,7 +893,14 @@ func (a *App) ensureTunResolvers() {
 	// hands the resolver back: with the node gone the machine's names have to come
 	// from somewhere, and the adapter is not it.
 	name := configbuilder.TunAdapterName()
-	serving := a.nodeServing()
+	// Only while a node is serving AND the tunnel is the mode. The address written
+	// below is answered by the hijack behind the capture, not by the node itself: a
+	// node left running on its local port after a TUN switch-off keeps nodeServing
+	// true, but the kept adapter's resolver then names an address with no answer path
+	// left — Windows asks it in the multi-homed race and waits out a timeout per
+	// name, which is a slower fault than the cleartext the resolver exists to
+	// prevent. See the same condition on tunserv.State.Node.
+	serving := a.nodeServing() && a.curSetting() != nil && a.curSetting().VPNMode()
 	what := "写入"
 	note := ""
 	if serving {
