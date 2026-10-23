@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // CheckUpdate queries GitHub for the newest release, or nil when this build is it.
@@ -276,9 +278,29 @@ func (a *App) DownloadUpdate() error {
 	// script of that run and the build it had downloaded. This run's own files
 	// are written after this, so they are never caught by it.
 	cleanupUpdateTemps()
-	if err := update.Download(asset.URL, tmp, asset.Size); err != nil {
+	// The download is tens of megabytes over whatever link the reader has, and
+	// the one thing the reader was told about it used to be a single line said
+	// before it began. The window is told how it is going — throttled, because
+	// the events ride the same bridge as everything else and a bar redrawn per
+	// 64KB chunk is a bridge carrying nothing else. Four a second reads as live;
+	// the last chunk is always told regardless, so the bar is allowed to reach
+	// its end before the quit takes the window away.
+	lastEmit := time.Time{}
+	var lastDone int64
+	if err := update.Download(asset.URL, tmp, asset.Size, func(done, total int64) {
+		if done == lastDone && done != total {
+			return
+		}
+		if done != total && time.Since(lastEmit) < 250*time.Millisecond {
+			return
+		}
+		lastEmit, lastDone = time.Now(), done
+		runtime.EventsEmit(a.curCtx(), "update:progress", done, total)
+	}); err != nil {
+		runtime.EventsEmit(a.curCtx(), "update:progress", int64(-1), int64(0))
 		return err
 	}
+	runtime.EventsEmit(a.curCtx(), "update:progress", asset.Size, asset.Size)
 	// The flag goes up here, before anything is torn down: the exit path reads it
 	// to decide whether the front-end may be kept (see keepTunFront).
 	a.updating.Store(true)

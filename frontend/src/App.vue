@@ -965,6 +965,11 @@ const updateBusy = ref(false);
 // release page — and neither can be offered without knowing which release it
 // was.
 const updateRel = ref<{tag_name?: string; html_url?: string} | null>(null);
+// How far the install download has got, as the backend reports it: -1 is the
+// failed word (the bar goes away and the error is said), 0 total is "the size
+// is not known" and the bar wears its indeterminate look. The app restarts on
+// success, so nothing ever clears the pair the happy way.
+const updateProgress = ref<{done: number; total: number} | null>(null);
 const checkUpdate = async () => {
     if (updateBusy.value) return;
     updateBusy.value = true;
@@ -990,15 +995,37 @@ const checkUpdate = async () => {
 // new build is on disk and the swap is about to start, at which point the app
 // restarts itself and this promise never settles. So the button stays busy
 // from here on, and only a failure brings it back.
+// The bar's two answers, read from whatever the backend last said. The percent
+// is only drawn against a promised size — dividing by a total nobody named is
+// how a bar climbs to a lie — and the readout spells the bytes out beside it,
+// because twenty minutes at 61% and twenty seconds at 61% are different waits
+// the number alone cannot tell apart.
+const updateProgressPct = computed(() => {
+    const p = updateProgress.value;
+    if (!p || p.total <= 0) return 0;
+    return Math.min(100, Math.floor((p.done / p.total) * 100));
+});
+
+const updateProgressLabel = computed(() => {
+    const p = updateProgress.value;
+    if (!p) return '';
+    const mb = (n: number) => (n / 1048576).toFixed(1);
+    void langTick.value;
+    if (p.total > 0) return t('update.progress', updateProgressPct.value, mb(p.done), mb(p.total));
+    return t('update.progressUnknown', mb(p.done));
+});
+
 const installUpdate = async () => {
     if (updateBusy.value) return;
     updateBusy.value = true;
+    updateProgress.value = {done: 0, total: 0};
     try {
         notify(tip('update.downloading'));
         await API.DownloadUpdate();
     } catch (e) {
         notify(errText(e), 'err');
         updateBusy.value = false;
+        updateProgress.value = null;
     }
 };
 
@@ -1256,6 +1283,14 @@ onMounted(() => {
         // below adds the two halves together, and the streamed copy and the file
         // copy carry the very same stamped text.
         EventsOn("core:log", (line: string, cat: string) => queueLogLine(line, cat)),
+        // The install download's word about itself, throttled on the sending
+        // side (four a second, always the last one). -1 done is the failure
+        // word; a 0 total means no size was promised and the bar stays
+        // indeterminate rather than dividing by nothing.
+        EventsOn("update:progress", (done: number, total: number) => {
+            if (done < 0) { updateProgress.value = null; return; }
+            updateProgress.value = {done, total};
+        }),
         // The payload is the node the process was serving, read by the backend as
         // it exited — so a core that left after a hot switch names the node the
         // reader switched to. Only that node's exit means "nothing is running":
@@ -1800,14 +1835,30 @@ onBeforeUnmount(() => {
                 the page is there for the reader who would rather look first. -->
             <div v-if="updateRel" class="about-update">
                 <span class="about-update-text">{{ t('update.found', updateRel.tag_name ?? '') }}</span>
-                <button class="btn primary" :disabled="updateBusy" @click="installUpdate">
-                    {{ t('update.install') }}
-                </button>
-                <button class="btn ghost" :disabled="updateBusy" @click="() => {
-                    if (updateRel?.html_url) API.OpenURL(updateRel.html_url).catch(() => { /* the link is more decoration than a promise */ });
-                }">
-                    {{ t('update.open') }}
-                </button>
+                <!-- The install in progress: the two buttons give way to the bar,
+                    because while the download runs there is nothing either of
+                    them could honestly offer — install is already underway and
+                    the release page is what the wait is for. -->
+                <template v-if="updateBusy && updateProgress">
+                    <span class="update-progress-readout">{{ updateProgressLabel }}</span>
+                    <span class="update-progress-bar" role="progressbar"
+                          :aria-valuenow="updateProgress.total > 0 ? updateProgressPct : undefined"
+                          :aria-valuetext="updateProgressLabel">
+                        <span class="update-progress-fill"
+                              :class="{'no-size': updateProgress.total <= 0}"
+                              :style="{width: updateProgress.total > 0 ? updateProgressPct + '%' : '30%'}"></span>
+                    </span>
+                </template>
+                <template v-else>
+                    <button class="btn primary" :disabled="updateBusy" @click="installUpdate">
+                        {{ t('update.install') }}
+                    </button>
+                    <button class="btn ghost" :disabled="updateBusy" @click="() => {
+                        if (updateRel?.html_url) API.OpenURL(updateRel.html_url).catch(() => { /* the link is more decoration than a promise */ });
+                    }">
+                        {{ t('update.open') }}
+                    </button>
+                </template>
             </div>
             <div class="modal-foot">
                 <button class="btn ghost" @click="API.OpenDataDir().catch(e => notify(errText(e), 'err'))">

@@ -277,6 +277,12 @@ func otherPlatform(name string) bool {
 // release said it would be: wantSize bytes (0 skips the check) and a Windows
 // executable.
 //
+// progress, when not nil, is told how much has arrived (done) and how much the
+// response promised in total — the Content-Length, or the size the release
+// metadata named when the header carries nothing. total is 0 when neither is
+// known, and the reader's bar belongs in an indeterminate state rather than a
+// wrong percentage.
+//
 // The checks are not ceremony. This file is about to be moved over the running
 // build by the swap script, with no backup and no way back, and the one network
 // shape that answers a GitHub download is a captive portal: a hotel or office
@@ -286,7 +292,7 @@ func otherPlatform(name string) bool {
 //
 // The timeout is generous because these are whole applications — tens of
 // megabytes over whatever link the reader has.
-func Download(url, path string, wantSize int64) error {
+func Download(url, path string, wantSize int64, progress func(done, total int64)) error {
 	if url == "" {
 		return fmt.Errorf("no download url")
 	}
@@ -303,13 +309,38 @@ func Download(url, path string, wantSize int64) error {
 	if err != nil {
 		return err
 	}
-	n, err := io.Copy(f, resp.Body)
-	if err != nil {
-		// A half-written file is worse than none: it would be moved over the running
-		// build by the installer script.
-		_ = f.Close()
-		_ = os.Remove(path)
-		return err
+	// The total the bar is drawn against: what the server says it will send, and
+	// — for the servers that will not say — what the release's metadata recorded
+	// when the asset was listed. The two are the same thing on an honest link.
+	total := resp.ContentLength
+	if total <= 0 {
+		total = wantSize
+	}
+	buf := make([]byte, 64*1024)
+	var n int64
+	for {
+		r, rerr := resp.Body.Read(buf)
+		if r > 0 {
+			if _, werr := f.Write(buf[:r]); werr != nil {
+				_ = f.Close()
+				_ = os.Remove(path)
+				return werr
+			}
+			n += int64(r)
+			if progress != nil {
+				progress(n, total)
+			}
+		}
+		if rerr == io.EOF {
+			break
+		}
+		if rerr != nil {
+			// A half-written file is worse than none: it would be moved over the running
+			// build by the installer script.
+			_ = f.Close()
+			_ = os.Remove(path)
+			return rerr
+		}
 	}
 	if err := f.Sync(); err != nil {
 		_ = f.Close()

@@ -343,6 +343,8 @@ export const ko: Record<string, string> = {
     'update.found': '업데이트 {0} 사용 가능',
     'update.open': '다운로드 페이지 열기',
     'update.install': '다운로드하여 설치',
+    'update.progress': '업데이트 내려받는 중… {0}% ({1} / {2} MB)',
+    'update.progressUnknown': '업데이트 내려받는 중… {0} MB',
     'dlg.routing.title': '라우팅',
     'dlg.routing.new': '새 라우팅',
     'routing.tab.general': '일반',

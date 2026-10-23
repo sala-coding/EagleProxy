@@ -344,6 +344,8 @@ export const ru: Record<string, string> = {
     'update.found': 'Доступна версия {0}',
     'update.open': 'Открыть страницу загрузки',
     'update.install': 'Скачать и установить',
+    'update.progress': 'Загрузка обновления… {0}% ({1} / {2} МБ)',
+    'update.progressUnknown': 'Загрузка обновления… {0} МБ',
     'dlg.routing.title': 'Маршрутизация',
     'dlg.routing.new': 'Новая маршрутизация',
     'routing.tab.general': 'Общие',

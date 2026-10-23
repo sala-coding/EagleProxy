@@ -76,6 +76,36 @@
     overflow-wrap: anywhere;
 }
 
+/* The install download's answer to "how much longer". A hairline track the
+   accent fills, and the readout beside it names the bytes: the pair says both
+   where the download stands and how big it is, which is what turns "61%" from
+   a number into a wait the reader can judge. The no-size variant is a fixed
+   fill — no animation, no pretend percent — for the server that promised no
+   total; the readout's plain byte count is the honest answer there. */
+.update-progress-readout {
+    flex: none;
+    font-size: 0.71875rem;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.update-progress-bar {
+    flex: none;
+    width: 120px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line);
+    overflow: hidden;
+}
+
+.update-progress-fill {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+}
+
 /* --- rule sets ---
    The list is short and the card is narrow: each row is a tag, its state, and the one
    action that state implies. Three states, three colours — on disk (green: this is the
