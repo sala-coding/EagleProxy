@@ -123,7 +123,7 @@ const {
     logRef, onLogScroll,
     clearLogs, copyLogs, addLogLineToRoute, exportLogs,
     queueLogLine, drainLogs, flushPendingLogs,
-    loadFileCats, loadAllLogs, toggleLogs,
+    loadFileCats, loadAllLogs, toggleLogs, openLogsOnce,
 } = L;
 
 const C = useConsoleDrag(showLogs);
@@ -388,7 +388,7 @@ const A = useActions({
     refreshEgress: () => refreshEgress(),
     exitTick, gConfirm, importOpen, importText, scanErr, previewOpen, previewText,
     qrOpen, qrDataUrl, moveOpen, listKey, query, subBusy, subsDrop, connOpen, connExit,
-    showLogs, batchOpen, editor, notify, loadFileCats,
+    showLogs, openLogsOnce, batchOpen, editor, notify, loadFileCats,
     openSubs, closeSubs, hardCloseSubs,
 });
 const {

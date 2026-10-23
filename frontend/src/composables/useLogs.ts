@@ -499,6 +499,22 @@ export function useLogs(notify: Notify) {
             showLogs.value = false;
             return;
         }
+        logsOpenedByHandOrStart = true;
+        showLogs.value = true;
+        loadAllLogs();
+    };
+
+    // The one automatic opening the panel ever gets: the first node this window
+    // starts in a session (see useActions.start). The core's first seconds are
+    // where a start shows whether it worked, and a reader who has never opened
+    // the panel does not know the answer is sitting in it. Once is the whole
+    // budget: a reader who closes it after that has answered the question, and
+    // re-opening on every start would be a panel that will not stay dismissed.
+    let logsOpenedByHandOrStart = false;
+    const openLogsOnce = () => {
+        if (showLogs.value) { logsOpenedByHandOrStart = true; return; }
+        if (logsOpenedByHandOrStart) return;
+        logsOpenedByHandOrStart = true;
         showLogs.value = true;
         loadAllLogs();
     };
@@ -509,7 +525,7 @@ export function useLogs(notify: Notify) {
         logRef, onLogScroll, rollToEnd,
         clearLogs, copyLogs, addLogLineToRoute, exportLogs,
         queueLogLine, queueAppLine, drainLogs, flushPendingLogs,
-        loadFileCats, loadAllLogs, toggleLogs,
+        loadFileCats, loadAllLogs, toggleLogs, openLogsOnce,
         // logCtx is shared with App.vue's context-menu plumbing (see below).
         logCtx,
     };

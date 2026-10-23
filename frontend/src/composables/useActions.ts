@@ -60,6 +60,7 @@ export interface AppActionsDeps {
     connOpen: Ref<boolean>;
     connExit: Ref<PanelExit | null>;
     showLogs: Ref<boolean>;
+    openLogsOnce: () => void;
     batchOpen: Ref<boolean>;
     editor: Ref<{ title: string; initial: Dict; onSave: (v: Dict) => Promise<void>; onDiscard?: () => Promise<void> } | null>;
     notify: (text: string, kind?: 'ok' | 'err') => void;
@@ -194,6 +195,11 @@ export function useActions(deps: AppActionsDeps) {
             await API.StartProfile(id);
             deps.applyRunning(id);
             deps.notify(tip('core.started'));
+            // The panel's one automatic opening (see openLogsOnce): the first
+            // start of a session is where the core's own words are worth
+            // watching, and the reader who never opened the console does not
+            // know that is where they went.
+            deps.openLogsOnce();
         } catch (e) {
             deps.notify(tip('core.startFailed', errText(e)), 'err');
             // And the list this row came from is re-read. A start that failed because
