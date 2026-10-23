@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -131,6 +132,7 @@ func updateSwapScript() string {
 		"setlocal\r\n"+
 		"set \"NEW=%%EAGLE_NEW%%\"\r\n"+
 		"set \"SELF=%%EAGLE_SELF%%\"\r\n"+
+		"set \"OLDPID=%%EAGLE_OLDPID%%\"\r\n"+
 		"set /a TRIES=0\r\n"+
 		// The old build is copied aside before anything is moved over it. The
 		// move is the one step no code on this side can undo, and `move /y` on
@@ -149,9 +151,37 @@ func updateSwapScript() string {
 		// failed move left the path empty, and leave the line that says so.
 		"if not exist \"%%SELF%%\" copy /y \"%%SELF%%.old\" \"%%SELF%%\" > nul 2>&1\r\n"+
 		"echo %s update failed: could not replace the running build (tried %%TRIES%% times) >> \"%%SELF%%.update.log\"\r\n"+
-		"start \"\" \"%%SELF%%\"\r\n"+
-		"exit /b\r\n"+
+		"goto :launch\r\n"+
 		":done\r\n"+
+		// The old build's exit is waited for before the new one is started.
+		// Windows happily renames a running executable's image, so the move
+		// above can succeed while the old build is still in its shutdown
+		// stages — measured here: the move landed at 03:12:48, the shutdown
+		// ran to 03:13:03 — and the new build, started in that window, found
+		// the old instance still answering the single-instance handshake and
+		// politely deferred to it. The old build then finished dying, the
+		// deferral had already exited, and the reader was left with no app at
+		// all. Waiting for the pid to be gone closes the window; the bound
+		// (thirty seconds, the same budget the move gets) covers the slowest
+		// shutdown this app has, and a pid that outlives it is started past
+		// anyway — a deferral, again, is better than never coming back.
+		":launch\r\n"+
+		"set /a WAITS=0\r\n"+
+		":waitold\r\n"+
+		"if \"%%OLDPID%%\"==\"\" goto :startit\r\n"+
+		// find by its full path: a PATH with another find first (a shell's
+		// GNU find, a stray find.exe) answers the pipe with a usage error and
+		// an errorlevel, and the loop below reads that as "the old build is
+		// gone" — starting straight into the very race this wait exists to
+		// close. The System32 one is the only find this line can mean.
+		"tasklist /FI \"PID eq %%OLDPID%%\" 2>nul | \"%%SystemRoot%%\\System32\\find.exe\" \"%%OLDPID%%\" >nul\r\n"+
+		"if errorlevel 1 goto :startit\r\n"+
+		"set /a WAITS+=1\r\n"+
+		"if %%WAITS%% LSS 30 (\r\n"+
+		"  ping -n 2 127.0.0.1 > nul\r\n"+
+		"  goto :waitold\r\n"+
+		")\r\n"+
+		":startit\r\n"+
 		"start \"\" \"%%SELF%%\"\r\n"+
 		"exit /b\r\n",
 		time.Now().Format("2006-01-02 15:04:05"))
@@ -321,7 +351,10 @@ func (a *App) DownloadUpdate() error {
 	// The two paths ride the environment, not the file and not the command
 	// line: see updateSwapScript.
 	cmd := exec.Command("cmd", swapScriptArgs(script)...)
-	cmd.Env = append(os.Environ(), "EAGLE_NEW="+tmp, "EAGLE_SELF="+self)
+	// EAGLE_OLDPID names the instance that is quitting. The script waits for
+	// that pid to be gone before starting the replaced build — see the wait in
+	// updateSwapScript for the race it closes.
+	cmd.Env = append(os.Environ(), "EAGLE_NEW="+tmp, "EAGLE_SELF="+self, "EAGLE_OLDPID="+strconv.Itoa(os.Getpid()))
 	util.HideConsole(cmd)
 	if err := cmd.Start(); err != nil {
 		a.updating.Store(false)
