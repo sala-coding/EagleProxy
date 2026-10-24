@@ -420,11 +420,12 @@ export function useLogs(notify: Notify) {
         }
     };
 
-    // The core:log event handler (App.vue wires it): a line's category decides which
-    // half of the stream it belongs to, and it belongs to exactly one of them — the
-    // test categories live in catLogs, where the file re-read puts the same text once
-    // the run ends. Landing in `logs` as well was how an open panel showed every test
-    // line twice — the merge adds the two halves together, and the streamed copy and
+    // The core:log:batch event handler (App.vue wires it): the backend hands
+    // over a whole 120ms window's lines in one event, and each line's category
+    // decides which half of the stream it belongs to — the test categories live
+    // in catLogs, where the file re-read puts the same text once the run ends.
+    // Landing in `logs` as well was how an open panel showed every test line
+    // twice — the merge adds the two halves together, and the streamed copy and
     // the file copy carry the very same stamped text.
     const queueLogLine = (line: string, cat: string) => {
         pendingLogs.push({line, cat: cat || 'core'});

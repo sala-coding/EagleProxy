@@ -97,6 +97,10 @@ type App struct {
 
 	logs *logstore.Store
 
+	// The UI log stream's outbound batcher: lines queue up here and leave in
+	// one event per window instead of one event per line. See app_logs.go.
+	logBatch logBatcher
+
 	// One mode switch at a time. SetVPNMode and SetSystemProxyMode each stop the
 	// core, restart it under the new shape, write the registry and wait on
 	// elevation; four things can press them (the window's switch, the tray, a

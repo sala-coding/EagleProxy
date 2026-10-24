@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -59,12 +60,68 @@ func (a *App) ClearCategoryLogs(category string) {
 	a.logs.Truncate(category)
 }
 
-// emitLog pushes a line to the UI log panel, tagged with its category so the
-// panel can colour each category differently.
-func (a *App) emitLog(category, line string) {
-	if a.curCtx() != nil {
-		runtime.EventsEmit(a.curCtx(), "core:log", line, category)
+// The outbound log stream is batched. A busy core writes dozens of lines a
+// second — every proxied connection is three lines — and each one used to wake
+// the WebView with its own event, which is IPC churn the panel never needed:
+// the front end drains its own queue every 120ms anyway, so a window of the
+// same length on this side changes nothing the reader can see and replaces
+// hundreds of wake-ups a second with a handful. One event now carries an array
+// of {cat, line} pairs (see core:log:batch in App.vue).
+//
+// The batcher's own state is self-contained and touched only through its
+// methods, so it needs no lock of the App's own guards.
+type logEmitLine struct {
+	Cat  string `json:"cat"`
+	Line string `json:"line"`
+}
+
+const logFlushInterval = 120 * time.Millisecond
+
+type logBatcher struct {
+	mu    sync.Mutex
+	queue []logEmitLine
+	timer *time.Timer
+}
+
+// push queues one line and arms the flush timer if this is the window's first
+// line. flush is called back outside the lock.
+func (b *logBatcher) push(category, line string, flush func([]logEmitLine)) {
+	b.mu.Lock()
+	b.queue = append(b.queue, logEmitLine{Cat: category, Line: line})
+	if b.timer == nil {
+		b.timer = time.AfterFunc(logFlushInterval, func() {
+			b.mu.Lock()
+			batch := b.queue
+			b.queue = nil
+			b.timer = nil
+			b.mu.Unlock()
+			if len(batch) > 0 {
+				flush(batch)
+			}
+		})
 	}
+	b.mu.Unlock()
+}
+
+// emitLog pushes a line to the UI log panel, tagged with its category so the
+// panel can colour each category differently. The line joins the outbound
+// batch (see logBatcher) rather than waking the WebView on its own.
+func (a *App) emitLog(category, line string) {
+	if a.curCtx() == nil {
+		return
+	}
+	a.logBatch.push(category, line, a.sendLogBatch)
+}
+
+// sendLogBatch hands one drained batch to the front end. The context is read
+// again at flush time: the window may have been re-created while lines sat in
+// the queue, and a stale context would send them nowhere.
+func (a *App) sendLogBatch(batch []logEmitLine) {
+	ctx := a.curCtx()
+	if ctx == nil {
+		return
+	}
+	runtime.EventsEmit(ctx, "core:log:batch", batch)
 }
 
 // notifyMessage tells the user something in the app's own words — which step of

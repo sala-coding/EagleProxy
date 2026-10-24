@@ -1282,7 +1282,14 @@ onMounted(() => {
         // as well was how an open panel showed every test line twice — the merge
         // below adds the two halves together, and the streamed copy and the file
         // copy carry the very same stamped text.
-        EventsOn("core:log", (line: string, cat: string) => queueLogLine(line, cat)),
+        // Lines leave the backend as one batched event per 120ms window (an
+        // array of {cat, line} pairs) instead of one event per line: a busy
+        // core used to wake this window dozens of times a second. The same
+        // queue feeds both halves of the stream (see useLogs).
+        EventsOn("core:log:batch", (batch: Array<{cat: string, line: string}>) => {
+            if (!Array.isArray(batch)) return;
+            for (const l of batch) queueLogLine(l.line, l.cat);
+        }),
         // The install download's word about itself, throttled on the sending
         // side (four a second, always the last one). -1 done is the failure
         // word; a 0 total means no size was promised and the bar stays

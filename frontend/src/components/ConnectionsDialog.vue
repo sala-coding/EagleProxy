@@ -107,6 +107,14 @@ const closeConn = async (id: string) => {
 
 const conns = computed<any[]>(() => data.value?.connections ?? []);
 
+// The render cap. A busy node can hold thousands of live connections, and the
+// list re-lays all of them out every poll — that, not the fetch, is what makes
+// the panel expensive to keep open. The footer's count still names the real
+// total; the tail becomes one summary line instead of thousands of rows.
+const CONN_RENDER_CAP = 500;
+const shownConns = computed<any[]>(() => conns.value.slice(0, CONN_RENDER_CAP));
+const hiddenConns = computed(() => Math.max(0, conns.value.length - shownConns.value.length));
+
 const targetOf = (c: any) => `${c.metadata?.host || c.metadata?.destinationIP}:${c.metadata?.destinationPort}`;
 const chainOf = (c: any) => Array.isArray(c.chains) ? c.chains.join(' ← ') : '';
 </script>
@@ -136,7 +144,7 @@ const chainOf = (c: any) => Array.isArray(c.chains) ? c.chains.join(' ← ') : '
              were the thing that had to stay aligned between the header and the
              body, and there are no columns left to misalign. -->
         <div class="conn-list">
-            <div class="conn-row" v-for="c in conns" :key="c.id">
+            <div class="conn-row" v-for="c in shownConns" :key="c.id">
                 <div class="conn-row-head">
                     <span class="addr" :title="targetOf(c)">{{ targetOf(c) }}</span>
                     <button class="btn tiny danger" :title="t('btn.close')"
@@ -158,6 +166,7 @@ const chainOf = (c: any) => Array.isArray(c.chains) ? c.chains.join(' ← ') : '
                 </div>
             </div>
             <div v-if="conns.length === 0" class="conn-empty">{{ t('conn.empty') }}</div>
+            <div v-else-if="hiddenConns > 0" class="conn-empty dim">{{ t('conn.more', hiddenConns) }}</div>
         </div>
     </Modal>
 </template>

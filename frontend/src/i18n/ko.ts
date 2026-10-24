@@ -106,6 +106,7 @@ export const ko: Record<string, string> = {
     'traffic.upDown': '업 {0} · 다운 {1}',
     'conn.total': '연결 {0}개',
     'conn.empty': '연결 없음',
+    'conn.more': '나머지 연결 {0}개는 표시되지 않음',
     'btn.confirmDelete': '삭제 확인',
     'qr.decodeFailed': '이미지를 읽을 수 없습니다 — 다른 이미지로 시도하세요',
     'qr.notFound': 'QR 코드를 찾지 못했습니다',

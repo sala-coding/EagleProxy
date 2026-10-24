@@ -106,6 +106,7 @@ export const ru: Record<string, string> = {
     'traffic.upDown': 'Отдано {0} · Получено {1}',
     'conn.total': 'Соединений: {0}',
     'conn.empty': 'Соединений нет',
+    'conn.more': 'Ещё {0} соединений не показано',
     'btn.confirmDelete': 'Подтвердить удаление',
     'qr.decodeFailed': 'Не удалось прочитать изображение — попробуйте другое',
     'qr.notFound': 'QR-код не найден',
