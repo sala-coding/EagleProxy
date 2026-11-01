@@ -37,7 +37,7 @@ wails dev
 wails build
 
 :: official release (injects the version number and the update-check repository)
-.\build\release.ps1 -Version v1.0.11
+.\build\release.ps1 -Version v1.0.12
 ```
 
 The artefact lands in `build/bin/Eagle.exe`.

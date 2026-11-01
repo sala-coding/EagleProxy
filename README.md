@@ -37,7 +37,7 @@ wails dev
 wails build
 
 :: 正式发布（注入版本号与更新检查仓库）
-.\build\release.ps1 -Version v1.0.11
+.\build\release.ps1 -Version v1.0.12
 ```
 
 产物在 `build/bin/Eagle.exe`。
