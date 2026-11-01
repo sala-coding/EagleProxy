@@ -84,9 +84,6 @@ func (e *ProxyEntity) clone() *ProxyEntity {
 	return &out
 }
 
-// Clone is the exported deep copy (used by callers that need their own instance).
-func (e *ProxyEntity) Clone() *ProxyEntity { return e.clone() }
-
 // clone returns an independent copy of g, with its slices rebuilt.
 func (g *Group) clone() *Group {
 	if g == nil {

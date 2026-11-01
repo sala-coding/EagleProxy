@@ -75,7 +75,12 @@ func clearStaleCore(pid int, coreExe string) bool {
 	if exe == "" {
 		return false // gone already, or privileged beyond our reach: hands off
 	}
-	if !strings.EqualFold(filepath.Base(exe), filepath.Base(coreExe)) {
+	// The full path is compared, not the base name: the dev build and the
+	// packaged build share this pid file and both run a sing-box.exe, so a
+	// base-name match would let either copy kill the other's running core
+	// whenever the port was shared. Only a core at the exact path this app
+	// is configured to run is its own leftover to reap.
+	if !strings.EqualFold(filepath.Clean(exe), filepath.Clean(coreExe)) {
 		return false
 	}
 	p, err := os.FindProcess(pid)

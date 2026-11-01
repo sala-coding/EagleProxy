@@ -22,7 +22,7 @@ html {
 }
 
 /* --ui-scale is the reader's own offset on that curve, set from the settings dialog and
-   remembered in localStorage (see uiScale in App.tsx). It multiplies rather than
+   remembered in localStorage (see uiScale in App.vue). It multiplies rather than
    replaces, so the two halves of the earlier request hold at once: the type follows the
    window, and it follows the reader's eyes as well. */
 

@@ -202,6 +202,12 @@ export function useColumnWidths(deps: {
     // its columns — an address column above all — can be wider or narrower than the ones
     // measured. The poll never changes it, so it costs nothing on that path.
     onMounted(() => measureColumns());
+    // The gid watch runs on the switch itself, when the group's own list is still in
+    // flight — what it measures is the previous group's rows, correct for what is on
+    // screen. The arrival of the new list re-runs the measurement even when count and
+    // metric signature are identical: that is the same-node-count switch this used to
+    // freeze on (measuredForGid is what says the list on screen is the new group's).
+    let measuredForGid: number | null = null;
     watch([deps.listKey, () => deps.profiles.value.length, deps.gid], () => {
         measureColumns();
     }, {flush: 'post'});
@@ -222,6 +228,12 @@ export function useColumnWidths(deps: {
         for (const p of profiles) {
             const len = trafficCell(p.up, p.down).length + speedCell(p.speed).length;
             if (len > sig) sig = len;
+        }
+        if (measuredForGid !== deps.gid.value) {
+            measuredForGid = deps.gid.value;
+            metricSig.current = sig;
+            measureColumns();
+            return;
         }
         if (sig === metricSig.current) return;
         metricSig.current = sig;

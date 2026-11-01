@@ -2,111 +2,12 @@
    the node table: its ten columns and their widths, the rows and the zebra under them, the protocol tag, the latency grades, the address and the port.
    (Split out of App.css; the order of these files is the cascade.) */
 
-/* Ten columns, the main table's own and in its order: type, name, address, port, transport,
-   TLS, latency, speed, traffic, subscription. The last three have less to say here than they
-   do over there — one card is one subscription, so the name column repeats itself down the
-   card, and this list is fetched once rather than polled, so its two figures are the snapshot
-   taken when the drawer opened. They are here because the reader asked for the two tables to
-   hold the same thing: a face of the heap should be readable as the same table, not as a
-   summary of it.
-   Grid rather than the flex row of three this used to be: with this many columns the
-   flexible ones have to be told their proportions rather than left to fight over what is
-   left, and the skeleton rows below then line up with the real ones for free — a bar per
-   column, no widths written twice. The gap is tighter than the main table's 10px because
-   this box is 658px against that one's 1044. */
-.reel-row {
-    display: grid;
-    grid-template-columns: 50px minmax(0, 1.5fr) minmax(0, 1.2fr) 34px 34px 42px 44px 46px 62px minmax(0, .85fr);
-    align-items: baseline;
-    gap: 5px;
-    padding: 3px 10px;
-    font-size: 0.6875rem;
-    color: var(--text-dim);
-}
-
-.reel-row > span {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-/* The empty-subscription line is a sentence, not a row of columns. */
-.reel-row.dim {
-    display: block;
-}
-
-.reel-row.dim {
-    color: var(--text-dim);
-    opacity: .6;
-}
-
-/* A row standing in for a face that has not asked for its nodes yet (see ReelTable). Three
-   columns of flat bars at the widths those columns really are, so the rows arriving do not
-   change the table's shape under the reader — and a low opacity that puts them plainly below
-   the lit text they are standing in for. Not a shimmer: anything that moves here would be
-   animating inside the drawer's first half-second, which is the half-second this whole
-   arrangement exists to keep still. */
-.reel-row.skel span {
-    height: .62em;
-    border-radius: 3px;
-    background: currentColor;
-    opacity: .16;
-}
-
-/* The protocol wears the card's own subscription colour — the same --tab-hue the drawer's
-   card and the main table's type column carry (see hueFor). A card is one subscription, so
-   every row in it wears the same colour; that is the point rather than a shortcoming, and it
-   is what makes a face of the heap read as the same table rather than as another one. */
-.reel-ty {
-    color: hsl(var(--tab-hue, 212) 45% 50%);
-}
-
-[data-variant="light"] .reel-ty {
-    color: hsl(var(--tab-hue, 212) 60% 50%);
-}
-
-.reel-nm {
-    color: var(--text);
-}
-
-/* The address is read character by character like every other address in the app (see
-   the mono rule in the settings), and it is truncated from the left here: the tail of an
-   address is the host, which is the part worth having. */
-.reel-ad {
-    direction: rtl;
-    font-family: var(--font-mono);
-}
-
-/* Everything but the two columns holding text of unbounded length is centred, which is what
-   the main table does: the short values then read as columns, and a row of them does not
-   drift against its neighbours. */
-.reel-pt,
-.reel-nw,
-.reel-se,
-.reel-sp,
-.reel-tr,
-.reel-gp,
-.reel-lt {
-    text-align: center;
-}
-
-.reel-lt {
-    font-variant-numeric: tabular-nums;
-}
-
-/* Nothing here is reduced away. The ring this replaced had to be hidden from this setting
-   altogether — an endless orbit is exactly what it asks to be spared, and a stationary ring
-   would have been a heap of other people's tables where the reader's own belongs. The heap is
-   a layout rather than a turn, so there is nothing to spare it: the only motion left in the
-   layer is the drawer's own fade, and the breath on the front table's frame below. */
-
 /* --- no page turn ---
    The settings used to be uncovered by turning the node table away about its bottom
    edge — one page lifted off another, with the panel already lying in the same box
    underneath it. The table is not turned any more: it stays exactly where it is, at
    full height and at its own width, and the panel stands on it (see the seat in
-   App.tsx, which measures that box and puts the panel there).
+   App.vue, which measures that box and puts the panel there).
    Nothing is left of the turn here: no transform to carry, so no transition to time
    one and no will-change to hold a buffer for it; and no z-index lifting the table
    over the mask, which is the point — the mask is over the table now, which is where
@@ -126,25 +27,13 @@
     justify-content: flex-end;
     gap: 0;
     padding: 0;
-    /* Its top edge is a pseudo-element rather than a border so that it can begin at the
-       rail's right edge: the bar's surface runs the full width of the window and the
-       rail passes over it, so the line only exists where it stops being covered. Drawn
-       as a border it would be painted under the rail as well — invisible there, but two
-       drawings of one line instead of one. */
+    /* No top edge: the bar shares its surface with the window above it, and the only
+       lines drawn here are the vertical one carried down past the rail and the dividers
+       between the chips. Relative for that vertical edge (::after) alone. */
     position: relative;
     background: var(--bg-2);
     /* The bar drives its own height from the chips it holds; this is the floor. */
     min-height: 30px;
-}
-
-/* The divider, from the rail's edge to the window's right edge. */
-.statusbar::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: var(--rail-w, 40px);
-    right: 0;
-    border-top: 1px solid var(--line-strong, #46566e);
 }
 
 /* The rail's right border carried on down through the bar: the same line, at the same
@@ -265,7 +154,7 @@
 
 table.profiles {
     /* Fixed layout, at its own natural width, with the column widths frozen once
-       per data set (App.tsx measures the natural widths, writes them onto the header
+       per data set (App.vue measures the natural widths, writes them onto the header
        cells, and their sum as this table min-width).
 
        width auto rather than 100% is the load-bearing part. A panel taking the
@@ -306,7 +195,7 @@ table.profiles {
 
 /* The ten column widths, summing to the table's min-width above — ten again, now that
    the protocol has its column back (it spent a while as a tag on the name).
-   App.tsx overwrites
+   App.vue overwrites
    them with the measured natural widths once per data set; these are what the table
    renders with in the first frame, before that measurement.
    Under fixed layout only the first row's widths are consulted, so the `th` is what
@@ -352,7 +241,8 @@ table.profiles th {
 }
 
 /* The protocol column: what a node is, in the colour of the subscription it came from.
-   The hue is set per row by App.tsx (--tab-hue, see hueFor) and is the very value the
+   The hue is set per row by ProfileRow.vue (--tab-hue, see hueFor in lib/metrics.ts) and
+   is the very value the
    drawer's card wears, so a node and its card come out one colour in both places — and
    the column answers "whose node is this" without being asked.
    The two saturations are the card's own pair (see .type-tag): the light theme's badge
@@ -516,7 +406,7 @@ table.profiles tbody {
 /* The tag wears the colour of the subscription it belongs to, not a fixed
    per-protocol hue: the rail tab and every node row of that subscription then
    read as one family. The hue is published by the table container as
-   --tab-hue (hueFor(gid) in App.tsx), with the app accent as the fallback. */
+   --tab-hue (hueFor(gid) in lib/metrics.ts), with the app accent as the fallback. */
 .type-tag {
     font-size: 0.6875rem;
     padding: 2px 8px;

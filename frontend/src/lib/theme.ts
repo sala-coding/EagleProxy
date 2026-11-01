@@ -3,7 +3,7 @@
 // offset on the window's own curve rather than a replacement for it, which is what lets
 // "the text follows the window" and "the text suits my eyes" both be true at once.
 // The range the type scale is dragged over, and the step. The ends are the same ones a
-// stored value is clamped to when it is read back (see uiScale in App.tsx), so the
+// stored value is clamped to when it is read back (see uiScale in App.vue), so the
 // slider can never write a size the reader cannot return from; the step is fine enough
 // to land on a size that suits and coarse enough that every stop is visibly different.
 export const UI_SCALE_MIN = 0.7;

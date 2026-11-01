@@ -22,9 +22,6 @@ export function useExitIP(running: Ref<number>) {
     // change — a hot switch keeps the same core and the same config, so the id stays put
     // while the node behind it does not. The effect below listens for it.
     const exitTick = ref(0);
-    // Set when the flag file for that country is not on disk after all — a code the set
-    // does not carry, or a copy that did not finish. Reset with each answer.
-    const flagMissing = ref(false);
     // The exit-details panel, opened by pressing the address itself. The data is the
     // same answer the corner already holds (see exitIP) — the panel only lays it out
     // with the labels on.
@@ -64,8 +61,6 @@ export function useExitIP(running: Ref<number>) {
                 if (!alive) return;
                 if (r && r.ip) {
                     exitIP.value = r;
-                    // the previous node's missing flag says nothing about this one
-                    flagMissing.value = false;
                     return;
                 }
             } catch { /* the retry below is what a failure gets */ }
@@ -101,10 +96,16 @@ export function useExitIP(running: Ref<number>) {
     watch(running, (_, __, onCleanup) => {
         if (running.value === STOPPED) return;
         let alive = true;
+        let inFlight = false;
         // The address last seen by this loop, so a change can be told from the same answer
         // arriving again. Local to the effect: a new node starts a new comparison.
         const tick = async () => {
-            if (document.hidden) return;
+            // One ask at a time: the round trip goes through the tunnel and can
+            // outlast the 2s interval, and two overlapping asks let the older
+            // answer land after the newer one — overwriting it and bumping
+            // exitTick once more than the address actually moved.
+            if (inFlight || document.hidden) return;
+            inFlight = true;
             try {
                 const r = await API.ExitAddress();
                 if (!alive || !r || !r.ip) return;
@@ -114,15 +115,30 @@ export function useExitIP(running: Ref<number>) {
                 // previous answer of its own — dropped it. Everything read about the
                 // old address is about the old address, so the cheap answer stands on
                 // its own until the full reading lands on top of it.
-                if (exitIPRef.current?.ip === r.ip) return;
+                //
+                // The country is half of that comparison, not a detail of the address.
+                // A start's first answer is the one the warm-up kept, and the warm-up
+                // asks the address alone (see warmExitProbe on the Go side): comparing
+                // the address only meant that answer — and the flag-less corner it
+                // drew — stood until the address itself moved, which on a node that
+                // stays up is never. The bar showed an address with no flag for the
+                // whole session, and the flag had in fact been answered seconds later.
+                //
+                // The comparison is therefore one-sided: the same address is taken
+                // again when the answer has learned its country, and dropped when it
+                // has not. The cheap reading can arrive without a flag after a full one
+                // has already filled it in, and an even swap here would take the flag
+                // off the bar for a beat — the very thing this is here to stop.
+                const prev = exitIPRef.current;
+                const sameAddress = prev?.ip === r.ip;
+                const learnedCountry = (r.cc ?? '') !== '' && (prev?.cc ?? '') === '';
+                if (sameAddress && !learnedCountry) return;
                 exitIP.value = r;
-                // The flag that failed to load belonged to the previous address, and a
-                // country that has just changed says nothing about it. Left set, the rack
-                // icon stood in for a flag that exists, until some later full reading
-                // happened to succeed.
-                flagMissing.value = false;
                 exitTick.value++;
             } catch { /* a poll that fails is not news: the corner keeps what it has */ }
+            finally {
+                inFlight = false;
+            }
         };
         const timer = window.setInterval(tick, 2000);
         const onVisible = () => {
@@ -158,5 +174,5 @@ export function useExitIP(running: Ref<number>) {
         });
     });
 
-    return {exitIP, exitTick, flagMissing, infoOpen, infoRef, nodeIpRef};
+    return {exitIP, exitTick, infoOpen, infoRef, nodeIpRef};
 }

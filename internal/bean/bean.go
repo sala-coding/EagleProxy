@@ -11,15 +11,6 @@ type Bean map[string]interface{}
 // New returns an empty bean.
 func New() Bean { return Bean{} }
 
-// Have reports whether the key exists.
-func (b Bean) Have(key string) bool {
-	if b == nil {
-		return false
-	}
-	_, ok := b[key]
-	return ok
-}
-
 // Str returns the string value of key ("" if absent/not a string).
 func (b Bean) Str(key string) string {
 	if b == nil {
@@ -111,22 +102,6 @@ func (b Bean) StrList(key string) []string {
 		}
 	}
 	return out
-}
-
-// Sub returns the nested object at key as a Bean. If missing it is created.
-func (b Bean) Sub(key string) Bean {
-	if b == nil {
-		return nil
-	}
-	switch v := b[key].(type) {
-	case map[string]interface{}:
-		return Bean(v)
-	case Bean:
-		return v
-	}
-	nb := Bean{}
-	b[key] = map[string]interface{}(nb)
-	return nb
 }
 
 // Peek returns the nested object at key, or nil when absent.

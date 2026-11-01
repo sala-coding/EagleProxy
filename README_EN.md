@@ -9,11 +9,12 @@ A Windows desktop proxy client built on [Wails](https://wails.io) (Go + Vue 3): 
 - **Subscription management**: import subscription links or paste node share links, with traffic quota and expiry parsed automatically; scheduled refresh; the action buttons appear on card hover
 - **Node table**: latency / reference-speed columns are measured live and sortable; groups are colour-coded; nodes can be hot-swapped inside a group (selector, no core restart)
 - **One-click modes**: system proxy / TUN switches in the sidebar; turning TUN off falls the nodes back to the local port so they keep running; the last mode and node are remembered and restored on the next launch
-- **Connections and logs**: a live connection list (individual connections can be dropped), plus a core log panel (categorised colouring, pause, filter, export)
+- **Connections and logs**: a live connection list (individual connections can be dropped, long lists render on demand), plus a core log panel (categorised colouring, live stream, pause, filter, export) that opens itself once, on the session's first node start
 - **Rule sets**: download and manage sing-box rule-sets (.srs), organised into categories
 - **DNS card**: visual editing of two resolver lists, latency measurement, automatic pick of the fastest DNS
 - **Hotkeys and tray**: global hotkeys (main window, mode toggles, node switching…); the tray menu stays in sync with the window state
-- **Automatic updates**: detects the WebView2 runtime on startup (and offers to install it when missing); the About card checks GitHub for updates
+- **Interface languages**: 简体中文 / English / Русский / 한국어, applied the moment one is chosen
+- **Automatic updates**: detects the WebView2 runtime on startup (and offers to install it when missing); the About card checks GitHub for updates and shows the download's progress
 
 ## Requirements
 
@@ -36,16 +37,23 @@ wails dev
 wails build
 
 :: official release (injects the version number and the update-check repository)
-.\build\release.ps1 -Version v1.0.0
+.\build\release.ps1 -Version v1.0.11
 ```
 
 The artefact lands in `build/bin/Eagle.exe`.
+
+The version number is stamped into the program itself (`main.appVersion`): the About card reads it, and the update check compares it against the release tags on GitHub — which is why a real release has to go through `release.ps1`. Without `-Version` the script stamps the current commit as `0.0.0-dev+<sha>`, which sorts below every release and identifies a local build only.
 
 ## Directory layout
 
 ```
 app_*.go          backend (the Wails binding layer)
 internal/         core Go logic (config generation, subscription parsing, TUN, system proxy…)
+  core/             sing-box process lifetime, hot switch, crash supervision
+  configbuilder/    sing-box config generation
+  sub/ format/      subscription fetch and parse, share-link parsing
+  tunfast/ tunserv/ adapter preparation, route capture and the elevated service
+  dnsx/ dnsstub/    resolvers and the local DNS forwarder
 third_party/      a local fork of energye/systray (go.mod replace)
 frontend/         Vue 3 + Vite front end
 build/            icons, installer scripts, release scripts

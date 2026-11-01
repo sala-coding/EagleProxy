@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {ref} from 'vue';
-import {arrayToText, fieldHint, fieldLabel, HOTKEY_KEY, isPlainObject, LINE_LIST_KEYS, LONG_KEYS, textToArray, type Json} from './lib/jsonform';
+import {arrayToText, fieldHint, fieldLabel, fieldOptions, FIELD_OPTIONS, HOTKEY_KEY, isPlainObject, LINE_LIST_KEYS, LONG_KEYS, textToArray, type Json} from './lib/jsonform';
 import HotkeyInput from './HotkeyInput.vue';
 import LineListInput from './LineListInput.vue';
 import JsonForm from './JsonForm.vue';
@@ -116,6 +116,14 @@ const onNumBlur = () => {
                      @capture="emit('hotkeyCapture', $event)"
                      :hotkey-key="k"
                      :accept-hotkey="acceptHotkey"/>
+        <!-- A field with a preset vocabulary is a dropdown, not a text input: the
+             values are the config's own words (see FIELD_OPTIONS), and whatever is
+             set rides the list even when it is not one of them. -->
+        <select v-else-if="typeof v === 'string' && FIELD_OPTIONS[k]"
+                :value="(v as string) ?? ''"
+                @change="emit('set', k, ($event.target as HTMLSelectElement).value)">
+            <option v-for="o in fieldOptions(k, (v as string) ?? '')" :key="o" :value="o">{{ o }}</option>
+        </select>
         <input v-else
                :value="(v as string) ?? ''"
                @input="emit('set', k, ($event.target as HTMLInputElement).value)"/>

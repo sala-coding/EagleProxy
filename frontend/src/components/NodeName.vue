@@ -23,10 +23,6 @@ export function flagISOOf(name: string): string | null {
 export function nameWithoutFlag(name: string): string {
     return name.replace(FLAG_LEADING_RE, '').replace(/^[\s\-—|·・]+/, '');
 }
-
-// Flag lives in its own SFC now (./Flag.vue); re-exported here so callers of
-// the old NodeName.tsx keep one import site.
-export {default as Flag} from './Flag.vue';
 </script>
 
 <script setup lang="ts">

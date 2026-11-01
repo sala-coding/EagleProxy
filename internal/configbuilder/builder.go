@@ -160,7 +160,6 @@ type builder struct {
 
 	inbounds     []interface{}
 	outbounds    []interface{}
-	ignoreConn   []string
 	outboundTags []string
 	chainRules   []interface{}
 
@@ -584,9 +583,6 @@ func (b *builder) buildChainInternal(chainID int, ents []*db.ProxyEntity) (strin
 			if b.firstHopTag != "" {
 				tagOut = b.firstHopTag
 			}
-		}
-		if index != 0 && !skipBuild {
-			b.ignoreConn = append(b.ignoreConn, tagOut)
 		}
 
 		// The wiring reaches across a skipped build on purpose: the detour (or

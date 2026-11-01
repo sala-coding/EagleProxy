@@ -39,7 +39,7 @@ export function charCols(ch: string): number {
 
 // fitName cuts or pads a name to the column the list reserves for it. The column is a
 // count of display columns rather than a width in pixels, and the count comes from the
-// row itself — see nameCols in App.tsx.
+// row itself — see nameCols in useSubsPanel.ts.
 //
 // The two halves come back separately so the filler can be marked as decoration: it is
 // there to hold the column's width, and a screen reader reading out a row of hyphens

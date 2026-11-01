@@ -109,6 +109,15 @@ func (a *App) SetVPNMode(on bool) error {
 	// switch appeared to fail, and the pid was already dropped, so the running
 	// core could no longer be stopped at all.
 	a.curSetting().SetVPNMode(on)
+	if !on {
+		// The device is no longer wanted once the capture is down, so the prewarm that
+		// would have the resident server rebuild it is cleared with the mode — and
+		// cleared here, before the reconcile below reads it: a state file that still
+		// asks for an adapter is a device back within the server's ten-second tick,
+		// whatever the countdown does. Prewarm exists for the FIRST switch-on of a
+		// session; a reader switching TUN off is not waiting on the next one.
+		a.tunPrewarm.Store(false)
+	}
 	// Told to the elevated side here, now that the flag says the truth, rather
 	// than two seconds into it by the poll. The reconcile used to run above the
 	// flip, and a switch-on then wrote Adapter:false — the state it was leaving —
@@ -147,12 +156,21 @@ func (a *App) SetVPNMode(on bool) error {
 		// system-proxy switch finds a node that is already up, and the reader's
 		// traffic does not go through a stop and a start to get there.
 		//
-		// The front-end stays as it is. It holds the adapter and nothing else:
+		// The front-end stays for now. It holds the adapter and nothing else:
 		// the capture is gone, the device sits idle, and the next switch back
 		// to TUN is a matter of taking the routes again rather than of a fresh
-		// authorisation and a fresh device.
+		// authorisation and a fresh device — but only until the countdown below
+		// expires. Three seconds is as long as an idle device is worth keeping:
+		// after that the switch-off means what it says, and the adapter goes.
 		if a.coreServesCurrentMode(running) {
 			a.notifyMessage("TUN 模式已关闭，节点继续运行")
+			// The adapter is idle from this line on: the node listens on its local
+			// port, and nothing behind it needs a capture. It goes on the idle
+			// countdown rather than staying for the rest of the session — the test
+			// that used to hold it ("a node is running") read exactly this state as
+			// "in use", so the switch-off left a network connection behind that
+			// outlived the mode that made it (see tunDeviceWanted).
+			a.armTunIdleReclaim()
 			return nil
 		}
 		// The config moved, so the core is rebuilt on the plain port. The
@@ -167,7 +185,7 @@ func (a *App) SetVPNMode(on bool) error {
 			// undo here: the off path never took the system proxy away.
 			return err
 		}
-		if err2 := a.stopTunFront(); err2 != nil {
+		if err2 := a.stopTunFrontAndAdapter(); err2 != nil {
 			a.logf("TUN 网卡随手拆除未完成: " + err2.Error())
 		}
 		if err := a.startProfileLocked(running); err != nil {
@@ -246,7 +264,7 @@ func (a *App) SetVPNMode(on bool) error {
 		// leave behind. The flags go back and Windows is re-pointed at the
 		// proxy the surviving core serves (the on-path's hadSystemProxy
 		// rollback; the off-path never touched it).
-		a.curSetting().SetVPNMode(on)
+		a.curSetting().SetVPNMode(!on)
 		if hadSystemProxy {
 			a.curSetting().SetSPModeSystemProxy(true)
 			_ = a.applySystemProxy(true)
@@ -399,6 +417,13 @@ func (a *App) SetSystemProxyMode(on bool) error {
 		if !keepCore {
 			if err := a.stopProfileLocked(); err != nil {
 				a.curSetting().SetVPNMode(true)
+				// The routes went first (above), so the machine reads direct while
+				// the kill was attempted — and the flag stands back up here. Put the
+				// capture back so the state the flag describes is the state the
+				// machine is in; a core that refused to die is the one case the flag
+				// was kept for. Best effort: if even this fails the inconsistency is
+				// logged by the take itself.
+				a.takeTunRoutes()
 				return err
 			}
 		}
@@ -459,7 +484,7 @@ func (a *App) SetSystemProxyMode(on bool) error {
 		return err
 	}
 	// Announced from here rather than by the frontend, for the reason written on
-	// toggleSP in App.tsx: only this side knows whether a node had to be picked or
+	// toggleSP in useActions.ts: only this side knows whether a node had to be picked or
 	// was restarted under the new mode. "Nothing running yet" was answered above;
 	// this is the case where a node was already up, and it used to pass in
 	// silence — switching the proxy off said so, switching it back on said

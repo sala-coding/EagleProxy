@@ -124,7 +124,14 @@ func HttpGet(rawURL string, s *setting.Setting, startedID int, userAgent string)
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
+	// A subscription answer is a text document, not a file mirror: a redirected
+	// or hijacked URL pointing at something huge is cut off here rather than
+	// pulled whole into memory inside the client's timeout window.
+	const maxSubBody = 32 << 20 // 32 MiB
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxSubBody+1))
+	if err == nil && len(data) > maxSubBody {
+		return Response{Error: fmt.Sprintf("订阅响应超过 %d MiB 上限", maxSubBody>>20), Header: resp.Header}
+	}
 	if err != nil {
 		return Response{Error: err.Error(), Header: resp.Header}
 	}

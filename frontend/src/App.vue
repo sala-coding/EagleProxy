@@ -4,17 +4,16 @@
 // the logic is split into composables (src/composables) and template sections
 // (src/sections), each named after the block of App.tsx it came from. The
 // original comments are kept at their corresponding positions.
-import {computed, onBeforeUnmount, onMounted, ref, watch, type CSSProperties} from 'vue';
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties, type Ref} from 'vue';
 import './styles/index.ts';
 import * as API from "../wailsjs/go/main/App";
 import {main, setting} from "../wailsjs/go/models";
-import {EventsOn} from "../wailsjs/runtime/runtime";
+import {EventsOn, WindowHide, WindowIsMaximised, WindowMinimise, WindowToggleMaximise} from "../wailsjs/runtime/runtime";
 import {t, langFromCode, setLang} from "./i18n";
 import {loadTips, tip} from "./tips";
 import {errText} from "./lib/shared";
 import {FILTER_ICONS, nowStamp} from "./lib/logfilter";
-import {hueFor, metricGroup, MODE_HAS_LATENCY, MODE_HAS_SPEED, SPEED_MODE_KEYS, PROTOCOLS, setRegionLocale} from "./lib/metrics";
-import {STACK_DEPTH, STACK_STEP, STACK_TILT} from "./lib/stack";
+import {hueFor, metricGroup, MODE_HAS_LATENCY, MODE_HAS_SPEED, SPEED_MODES, PROTOCOLS, setRegionLocale} from "./lib/metrics";
 import {clampScale, CUSTOM_VARS, LIGHT_THEMES, THEMES, THEME_REMAP, UI_SCALE_MAX, UI_SCALE_MIN, wearCustom} from "./lib/theme";
 import {startLanguage} from "./lib/settings-meta";
 import {SMART_PICK_MINUTES, SMART_TICK_MS, pickFastestDNS, roundChoice} from "./lib/dns";
@@ -24,17 +23,17 @@ import Modal from "./components/Modal.vue";
 import EditorDialog from "./components/EditorDialog.vue";
 import ConnectionsDialog from "./components/ConnectionsDialog.vue";
 import {type Dict} from "./lib/metrics";
+import {EGRESS_MODES} from "./lib/layout";
 import {type PanelExit} from "./lib/subdraw";
 import {FolderFilled, AddFilled, RightFilled, PlayFilled, StopFilled, TransferHorizontalFilled,
     DashboardFilled, FlashFilled, FileImportFilled, Edit2Filled, CopyFilled, Link2Filled,
-    Link3Filled, CodeFilled, FileExportFilled, QrcodeFilled, EraserFilled, Delete2Filled,
-    Download3Filled} from "./lib/icons";
+    Link3Filled, CodeFilled, FileExportFilled, QrcodeFilled, Delete2Filled,
+    CloseFilled, Download3Filled} from "./lib/icons";
 import {STOPPED} from "./composables/shared-consts";
 import {useLogs} from "./composables/useLogs";
 import {useConsoleDrag} from "./composables/useConsoleDrag";
 import {useSubsPanel} from "./composables/useSubsPanel";
 import {useSubsDrawer} from "./composables/useSubsDrawer";
-import {useReelStack} from "./composables/useReelStack";
 import {useColumnWidths} from "./composables/useColumnWidths";
 import {useExitIP} from "./composables/useExitIP";
 import {useActions} from "./composables/useActions";
@@ -43,7 +42,70 @@ import NavRail from "./sections/NavRail.vue";
 import SubsDrawer from "./sections/SubsDrawer.vue";
 import LogPanel from "./sections/LogPanel.vue";
 import StatusDock from "./sections/StatusDock.vue";
-import ReelTable from "./components/ReelTable.vue";
+
+// --- custom titlebar (frameless window) ---
+// The system frame is gone (Frameless: true in main.go); the .titlebar strip in
+// the template replaces it. The strip itself is native drag surface: its
+// --wails-draggable: drag makes Wails answer HTCAPTION there, so dragging,
+// Aero Snap and double-click-to-maximise are the OS's own and cost no JS. The
+// maximised flag only feeds the button's glyph (window vs. restore pair);
+// resize is the moment the state can change behind our back (snap, the caption
+// double-click), so it is re-queried there rather than trusted from the click.
+// Close hides the window — the exact thing HideWindowOnClose does to the
+// system X on Windows — so the tray keeps owning the app's lifetime.
+const winMax = ref(false);
+const syncWinMax = () => { WindowIsMaximised().then(v => { winMax.value = v; }).catch(() => {}); };
+const winMinimise = () => { WindowMinimise(); };
+const winToggleMax = () => { WindowToggleMaximise(); window.setTimeout(syncWinMax, 80); };
+const winClose = () => { WindowHide(); };
+onMounted(() => {
+    syncWinMax();
+    window.addEventListener('resize', syncWinMax);
+});
+onBeforeUnmount(() => window.removeEventListener('resize', syncWinMax));
+
+// The node search, moved up from the bottom dock into this titlebar. Same two
+// jobs the old box had: narrow the list, and a link pasted + Enter becomes a
+// subscription (see addSubFromSearch). Esc clears; anything that is not a link on
+// Enter is ignored — the placeholder already tells the reader both jobs.
+//
+// Collapsed, the search is a magnifier button at the bar's left end, and the bar's
+// other entries are not rendered while it is open (see the template): the field is the
+// one thing a press can land on, which is what "searching" has to look like on a strip
+// this crowded. The window controls stay — they are the window, not the list.
+const searchOpen = ref(false);
+const searchInput = ref<HTMLInputElement | null>(null);
+
+function openSearch() {
+    // Every list on the bar closes with the entries it hangs off.
+    batchOpen.value = false;
+    egressOpen.value = false;
+    titleAddOpen.value = false;
+    titleTestOpen.value = false;
+    searchOpen.value = true;
+    nextTick(() => searchInput.value?.focus());
+}
+
+// Collapsing is allowed only with nothing typed: a query left behind a closed field is a
+// filter whose cause is not on screen — the list narrowed and nothing says why.
+function closeSearch() {
+    if (query.value.trim() !== '') return;
+    searchOpen.value = false;
+}
+
+const onTitleSearchKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+        // First press takes the query back, the second collapses the field: the key that
+        // used to only clear now also ends the mode it opened.
+        if (query.value !== '') { query.value = ''; return; }
+        searchOpen.value = false;
+        return;
+    }
+    if (e.key !== 'Enter' || subBusy.value) return;
+    if (!/^https?:\/\//i.test(query.value.trim())) return;
+    e.preventDefault();
+    addSubFromSearch(query.value);
+};
 
 // The bar's left text slot is gone with the useStatusNote machinery: what
 // still spoke there — the run-state readout on a hover over the state lamp,
@@ -166,24 +228,37 @@ const egressRef = ref<HTMLSpanElement | null>(null);
 // above the line that declares it.
 const batchOpen = ref(false);
 const batchRef = ref<HTMLSpanElement | null>(null);
+// The titlebar's own add-node entry, moved up out of the node context menu:
+// adding a node is about the list rather than about a row, and the bar on top
+// is where the whole-list controls live now. Declared here because the
+// settings-open watcher below closes it alongside the other menus.
+const titleAddOpen = ref(false);
+const titleAddRef = ref<HTMLSpanElement | null>(null);
+const titleMenuEl = ref<HTMLDivElement | null>(null);
+// The group test, moved up out of the same menu for the same reason: a sweep
+// over the subscription is a fact about the list rather than about the row the
+// right-click happened to land on, so it belongs beside the add entry. Its
+// modes are the submenu the menu used to hold, opened downwards like the add
+// list beside it — the bar is the window's top edge.
+const titleTestOpen = ref(false);
+const titleTestRef = ref<HTMLSpanElement | null>(null);
+const titleTestMenuEl = ref<HTMLDivElement | null>(null);
+// The batch sweeps and the outbound mode, moved up from the status bar: both
+// are whole-list controls — what may be done to every node, and how traffic
+// leaves — and the bar on top is where those live. Their open state is the
+// same refs the status-bar menus used; the clusters themselves are new, and
+// their lists dock under the buttons like the add and test lists beside them.
+const titleBatchRef = ref<HTMLSpanElement | null>(null);
+const titleBatchMenuEl = ref<HTMLDivElement | null>(null);
+const titleEgressRef = ref<HTMLSpanElement | null>(null);
+const titleEgressMenuEl = ref<HTMLDivElement | null>(null);
 
 const D = useSubsDrawer({connOpen, connExit, groups});
-const {subsDrop, subsClosing, reelReady, openSubs, closeSubs, hardCloseSubs, subsBtnRef} = D;
+const {subsDrop, subsClosing, openSubs, closeSubs, hardCloseSubs, subsBtnRef} = D;
 
 const P = useSubsPanel(subsDrop);
 const {panelWUser, panelW, panelResizing, panelRef, nameCols,
     onPanelGripDown, onPanelGripMove, onPanelGripUp, onPanelGripKey, resetPanelW} = P;
-
-const R = useReelStack({groups, gid, subsDrop, panelRef});
-const {stack, reelRef, stackRef, reelOn, dropReel, peekReel, trackReel} = R;
-
-// The current subscription's nodes are already in hand, and they are read through a ref
-// rather than depended on: the traffic poll rewrites `profiles` every second and a half,
-// and a seed that changed its identity every poll would remount the face it seeds.
-const profilesRef = ref(profiles.value);
-watch(profiles, v => {
-    profilesRef.value = v;
-});
 
 // Bumped only on a deliberate tab click. The tbody is keyed by this counter
 // rather than by gid, because gid also changes while the pointer merely
@@ -196,7 +271,7 @@ const W = useColumnWidths({tableRef, profiles, listKey, gid});
 void W;
 
 const E = useExitIP(running);
-const {exitIP, exitTick, flagMissing, infoOpen, infoRef, nodeIpRef} = E;
+const {exitIP, exitTick, infoOpen, infoRef, nodeIpRef} = E;
 
 // The reader's own offset on the type scale, remembered the way the drawer's width is
 // — localStorage, written and applied the moment it is chosen — rather than through
@@ -282,6 +357,8 @@ watch(settingsOpen, s => {
     if (subsDrop.value) subsClosing.value = 'flip';
     egressOpen.value = false;
     batchOpen.value = false;
+    titleAddOpen.value = false;
+    titleTestOpen.value = false;
     infoOpen.value = false;
     aboutOpen.value = false;
     importOpen.value = false;
@@ -314,6 +391,15 @@ const tableWrapRef = ref<HTMLDivElement | null>(null);
 // held from boot: the build info never changes, but the core path it reports can.
 const aboutOpen = ref(false);
 const about = ref<Record<string, string> | null>(null);
+// The kernel's own version, which is not a fact about this build and so is not in
+// the GetAbout answer: it is read by running the core, and it arrives after the
+// card is already on screen. Empty until then — and after, if there is no core to
+// ask — which is what the row draws as a dash rather than the word "unknown".
+const coreVer = ref('');
+// The build stamp is RFC3339 with its zone ("2026-10-27T14:55:53+08:00") and the
+// version row has one narrow column to hold it: the minute is what a reader wants
+// there, and the seconds and offset are what pushed the row onto a second line.
+const builtLabel = computed(() => (about.value?.built || '').replace('T', ' ').slice(0, 16));
 // group context menu; pinned to the window's left edge, vertically centred.
 // width is carried over so the popup matches the tab it was opened from.
 // x/y/h describe the tab the menu belongs to: its left edge, top edge and
@@ -340,7 +426,7 @@ const setTesting = (v: boolean) => {
     testingRef.value = v;
     testing.value = v;
 };
-// Which of the four runs is going, so the bar can name it (see SPEED_RUNNING_KEYS).
+// Which run is going, so the bar can name it (see SPEED_RUNNING_KEYS).
 // Only read while testing is true, so it needs no reset of its own.
 const testingMode = ref(0);
 const testProgress = ref<{ done: number; total: number }>({done: 0, total: 0});
@@ -495,14 +581,31 @@ onMounted(() => {
         void runSmartPick(false);
     }, SMART_TICK_MS);
 });
-onBeforeUnmount(() => window.clearInterval(smartInterval));
+onBeforeUnmount(() => {
+    window.clearInterval(smartInterval);
+    if (smartPickDelay) window.clearTimeout(smartPickDelay);
+});
 
-// And once whenever a node comes up, which is the moment the foreign side becomes
-// measurable at all — its resolvers are reached through the tunnel, so a round made
-// before it exists can only pick the domestic one. Forced, because the schedule has
-// nothing to do with it: a tunnel that has just appeared is a reason to look.
+// And once whenever a node comes up — the moment the foreign side becomes measurable
+// at all, its resolvers being reached through the tunnel. Not immediately, though:
+// ExitIP retries six times over twelve seconds because the core answers before its
+// tunnel carries anything, and this round has no retry — a probe landing in that
+// window records -1, and the merge stamps it over whatever earlier rounds had
+// measured. So the round runs once the window ExitIP waits out has passed.
+let smartPickDelay = 0;
 watch(running, r => {
-    if (r !== STOPPED) void runSmartPick(true);
+    if (r === STOPPED) {
+        if (smartPickDelay) {
+            window.clearTimeout(smartPickDelay);
+            smartPickDelay = 0;
+        }
+        return;
+    }
+    if (smartPickDelay) window.clearTimeout(smartPickDelay);
+    smartPickDelay = window.setTimeout(() => {
+        smartPickDelay = 0;
+        void runSmartPick(true);
+    }, 12_000);
 });
 
 // The language, worn the moment it is chosen rather than on 保存 — the one setting
@@ -744,6 +847,11 @@ watch([ctx, logCtx], (_, __, onCleanup) => {
     const close = () => {
         ctx.value = null;
         logCtx.value = null;
+        // The submenu rides the menu's teardown too: the pointer resting on the
+        // row fires no mouseleave when the DOM leaves, so its 160ms close timer
+        // is never armed — leaving `sub` set here would re-render the old
+        // submenu, unpositioned, over the next menu opened anywhere.
+        sub.value = null;
     };
     // Scroll is capture-phase, so it fires for every scrolling box in the
     // page — and the two menus scroll independently. A scroll inside the
@@ -777,42 +885,50 @@ watch([ctx, logCtx], (_, __, onCleanup) => {
     });
 });
 
-// Outside click and Escape put the mode list away — the same two the context menus
-// answer to. mousedown rather than click, so the list is gone before the press
-// lands on whatever is behind it.
-watch(egressOpen, (open, _, onCleanup) => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-        if (!egressRef.value?.contains(e.target as Node)) egressOpen.value = false;
-    };
-    const onKey = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') egressOpen.value = false;
-    };
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
-    onCleanup(() => {
-        window.removeEventListener('mousedown', onDown);
-        window.removeEventListener('keydown', onKey);
+// The titlebar's two lists answer the same two: a press outside the cluster, or
+// Escape, puts them away — the same courtesy every list on this window extends.
+// Written once for both, since the bar now holds two of them.
+const watchTitleMenu = (open: Ref<boolean>, cluster: Ref<HTMLSpanElement | null>, menu: Ref<HTMLDivElement | null>) => {
+    watch(open, (isOpen, _, onCleanup) => {
+        if (!isOpen) return;
+        const onDown = (e: MouseEvent) => {
+            if (!cluster.value?.contains(e.target as Node)) open.value = false;
+        };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') open.value = false;
+        };
+        window.addEventListener('mousedown', onDown);
+        window.addEventListener('keydown', onKey);
+        onCleanup(() => {
+            window.removeEventListener('mousedown', onDown);
+            window.removeEventListener('keydown', onKey);
+        });
     });
-});
 
-// The batch menu answers the same two, for the same reason: it is a menu of
-// destructive actions, and it should close when the reader looks away.
-watch(batchOpen, (open, _, onCleanup) => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-        if (!batchRef.value?.contains(e.target as Node)) batchOpen.value = false;
-    };
-    const onKey = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') batchOpen.value = false;
-    };
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
-    onCleanup(() => {
-        window.removeEventListener('mousedown', onDown);
-        window.removeEventListener('keydown', onKey);
-    });
-});
+    // Dock the list under the button, measured after mount — the same pass the
+    // submenu panel pays. Fixed rather than absolute on purpose: the table heap
+    // draws its cards with perspective and translate3d, and a 3D heap paints over
+    // absolutely-placed neighbours no matter their z-index — the node context menu
+    // only clears it because it is fixed. The anchor is the button's own rect, so
+    // the menu follows it wherever the entry sits on the bar.
+    watch(open, isOpen => {
+        if (!isOpen) return;
+        const btn = cluster.value?.querySelector('button');
+        const el = menu.value;
+        if (!btn || !el) return;
+        const r = btn.getBoundingClientRect();
+        el.style.left = `${r.left}px`;
+        el.style.top = `${r.bottom + 6}px`;
+    }, {flush: 'post'});
+};
+
+watchTitleMenu(titleAddOpen, titleAddRef, titleMenuEl);
+watchTitleMenu(titleTestOpen, titleTestRef, titleTestMenuEl);
+// The two that moved up from the status bar join the same machinery: outside
+// click, Escape, and the dock-under-the-button pass — one behaviour for every
+// list the bar holds.
+watchTitleMenu(batchOpen, titleBatchRef, titleBatchMenuEl);
+watchTitleMenu(egressOpen, titleEgressRef, titleEgressMenuEl);
 
 // Keep the node menu inside the window, measured after mount. It lists every
 // action a row has, which is tall enough to need this: the inline placement is
@@ -926,6 +1042,12 @@ const openGroup = (id: number) => {
 
 const onAbout = async () => {
     aboutOpen.value = true;
+    coreVer.value = '';
+    // Fired alongside the facts rather than after them: the probe runs the core,
+    // which can take a moment, and the card must not wait on it to paint.
+    void API.CoreVersion().then(v => {
+        if (aboutOpen.value) coreVer.value = v || '';
+    }).catch(() => { /* no core to ask: the row keeps its dash */ });
     try {
         about.value = await API.GetAbout();
     } catch {
@@ -1032,7 +1154,7 @@ const installUpdate = async () => {
 // What each submenu in the node menu holds. Written as data so the panel
 // below is a single piece of markup: a new submenu is a line here and a row
 // that hands over its key.
-const submenus = computed<Record<string, { items: { key: string; label: string; run: () => void }[] }>>(() => {
+const submenus = computed<Record<string, { items: { key: string; label: string; run: (id?: number) => void }[] }>>(() => {
     // The labels below are t() strings, and t() reads a module-level language:
     // no reactive read here means this computed never runs again after its
     // first evaluation, and the submenu went on speaking the language the
@@ -1041,26 +1163,15 @@ const submenus = computed<Record<string, { items: { key: string; label: string; 
     void langTick.value;
     return {
     testNode: {
-        items: SPEED_MODE_KEYS.map((key, mode) => ({
+        items: SPEED_MODES.map(({key, mode}) => ({
             key,
             label: t(key),
             // the row this menu was opened on — the right click that opened it
-            // also picked that row, so this is the node under the cursor
-            run: () => speedTest(mode, false, ctx.value?.id),
-        })),
-    },
-    testGroup: {
-        items: SPEED_MODE_KEYS.map((key, mode) => ({
-            key,
-            label: t(key),
-            run: () => speedTest(mode, true),
-        })),
-    },
-    new: {
-        items: PROTOCOLS.map(p => ({
-            key: p.id,
-            label: t(p.label),
-            run: () => addProfile(p.id),
+            // also picked that row, so this is the node under the cursor. The id
+            // arrives from the click handler, which captures it before closing
+            // the menu: reading ctx here would answer undefined, the handler
+            // having nulled it before the run.
+            run: (id?: number) => speedTest(mode, false, id),
         })),
     },
     };
@@ -1085,19 +1196,6 @@ const subRow = (key: string) => ({
 });
 
 const isRunning = computed(() => running.value !== STOPPED);
-
-// The state lamp's hover readout, now a line of the console. The gate holds
-// the last state it said: a lamp hovered twice in the same minute in the same
-// state is the same sentence, and re-saying it would fill the log with a
-// reader's mouse movements. The state flipping between hovers says itself on
-// the start and stop paths (the backend's own lines); this only answers the
-// pointer's question.
-let lampLast: boolean | null = null;
-const sayLampState = (on: boolean) => {
-    if (on === lampLast) return;
-    lampLast = on;
-    notify(on ? tip('core.running') : tip('core.stopped'));
-};
 
 // The row handlers ProfileRow receives. Under React they were read through a ref
 // and wrapped once in useCallback because `start` is redefined on every render and
@@ -1338,18 +1436,25 @@ onMounted(() => {
             count: tv.count ?? 0,
         }),
         EventsOn("profile:traffic", (r: { id: number; up: number; down: number }) => {
-            profiles.value = profiles.value.map(p => p.id === r.id ? {...p, up: r.up, down: r.down} : p);
+            // Both pools: with the search box up, rows from other subscriptions are
+            // on screen too, and a counter that only maps the current group's rows
+            // leaves those frozen.
+            const apply = (p: main.ProfileInfo) => p.id === r.id ? {...p, up: r.up, down: r.down} : p;
+            profiles.value = profiles.value.map(apply);
+            otherProfiles.value = otherProfiles.value.map(apply);
         }),
         EventsOn("speedtest:result", (r: { id: number; mode: number; latency: number; speed?: number }) => {
             if (testProgress.value.total > 0) testProgress.value = {...testProgress.value, done: Math.min(testProgress.value.done + 1, testProgress.value.total)};
-            profiles.value = profiles.value.map(p => {
+            const apply = (p: main.ProfileInfo) => {
                 if (p.id !== r.id) return p;
                 const next = {...p};
                 // refresh only the column this mode actually measured
                 if (MODE_HAS_LATENCY(r.mode)) next.latency = r.latency;
                 if (MODE_HAS_SPEED(r.mode)) next.speed = r.speed ?? 0;
                 return next;
-            });
+            };
+            profiles.value = profiles.value.map(apply);
+            otherProfiles.value = otherProfiles.value.map(apply);
         }),
         EventsOn("groups:changed", async (newGid: number) => {
             const seq = ++groupsChangedSeq.current;
@@ -1430,11 +1535,203 @@ onBeforeUnmount(() => {
 
 <template>
     <div :class="`app${panelResizing ? ' resizing' : ''}`" ref="appRef" :style="appStyle">
+        <!-- Custom titlebar for the frameless window: the strip is the drag
+             surface, the cluster on the right holds min / max / close. No
+             caption text on the left, matching the system frame's Title: "". -->
+        <div class="titlebar">
+            <!-- The node search, at the bar's left end and folded away until it is
+                asked for: a magnifier wearing the window controls' own button shape,
+                which is the whole of the search until a press opens the field. The
+                cluster opts out of the drag hit-test so typing and the clear button
+                stay live over a draggable strip. -->
+            <span :class="`status-search${searchOpen ? ' open' : ''}`">
+                <button v-if="!searchOpen" class="tb-btn search-open" type="button"
+                        :title="t('search.placeholder')"
+                        :aria-label="t('search.placeholder')"
+                        @click="openSearch">
+                    <!-- A bare magnifier, drawn here rather than glyphed: a library
+                        glyph would carry a baseline into a box whose only job is to
+                        sit on the bar's centre line. -->
+                    <svg class="search-glyph" viewBox="0 0 16 16" aria-hidden="true">
+                        <circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+                        <path d="M10.6 10.6L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <template v-else>
+                    <span class="search-field">
+                        <svg class="search-ic" viewBox="0 0 16 16" aria-hidden="true">
+                            <circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+                            <path d="M10.6 10.6L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                        </svg>
+                        <input ref="searchInput"
+                               :class="`node-search${subBusy ? ' busy' : ''}`"
+                               v-model="query"
+                               :placeholder="t('search.placeholder')"
+                               :aria-label="t('search.placeholder')"
+                               @keydown="onTitleSearchKey"
+                               @blur="closeSearch"/>
+                    </span>
+                    <template v-if="query.trim() !== ''">
+                        <span class="status-search-count" :title="t('search.scope')">
+                            {{ shownProfiles.length }}/{{ searchPool.length }}
+                        </span>
+                        <!-- The press is kept off the button so the field keeps the
+                            caret: clearing is followed by the next word, and a field
+                            that drops focus as it is emptied makes the reader click
+                            back into it for every correction. -->
+                        <button class="status-search-x"
+                                :title="t('search.clear')"
+                                :aria-label="t('search.clear')"
+                                @mousedown.prevent
+                                @click="query = ''">
+                            <CloseFilled class="ic"/>
+                        </button>
+                    </template>
+                </template>
+            </span>
+            <!-- About lives at the rail's foot now (see NavRail): a fact about the
+                program rather than about the list, and the bar's left end belongs to
+                what acts on the list. -->
+            <!-- The add-node entry, moved up from the node context menu: adding
+                is about the list rather than about a row, and the bar on top is
+                where the whole-list controls live. The list is the protocol
+                choice itself — the same one the old submenu held — opening
+                downwards, the bar being the window's top edge. -->
+            <span v-if="!searchOpen" class="titlebar-add" ref="titleAddRef">
+                <button class="tb-btn add" type="button"
+                        aria-haspopup="menu"
+                        :aria-expanded="titleAddOpen"
+                        :title="t('btn.add')"
+                        :aria-label="t('btn.add')"
+                        @click="titleAddOpen = !titleAddOpen">
+                    <AddFilled class="ic"/>
+                </button>
+                <div v-if="titleAddOpen" class="egress-menu titlebar-menu" role="menu"
+                     ref="titleMenuEl"
+                     :aria-label="t('btn.add')">
+                    <button v-for="p in PROTOCOLS" :key="p.id" role="menuitem"
+                            @click="() => {
+                                titleAddOpen = false;
+                                addProfile(p.id);
+                            }">
+                        {{ t(p.label) }}
+                    </button>
+                </div>
+            </span>
+            <!-- The group test, moved up from the node menu beside the add entry:
+                a sweep over the subscription is about the list rather than about
+                a row. Its three modes are the submenu the menu used to hold,
+                opened downwards for the same reason the add list is. Resident
+                only on a list with something in it — a sweep over nothing is a
+                button with no room behind it. -->
+            <span v-if="!searchOpen && profiles.length > 0" class="titlebar-test" ref="titleTestRef">
+                <button class="tb-btn" type="button"
+                        aria-haspopup="menu"
+                        :aria-expanded="titleTestOpen"
+                        :title="t('btn.testGroup')"
+                        :aria-label="t('btn.testGroup')"
+                        @click="titleTestOpen = !titleTestOpen">
+                    <FlashFilled class="ic"/>
+                </button>
+                <div v-if="titleTestOpen" class="egress-menu titlebar-menu" role="menu"
+                     ref="titleTestMenuEl"
+                     :aria-label="t('btn.testGroup')">
+                    <button v-for="m in SPEED_MODES" :key="m.key" role="menuitem"
+                            @click="() => {
+                                titleTestOpen = false;
+                                speedTest(m.mode, true);
+                            }">
+                        {{ t(m.key) }}
+                    </button>
+                </div>
+            </span>
+            <!-- The batch sweeps, moved up from the status bar: they are
+                sweeps over the list as a whole, which is what the bar on top
+                is for. Three of the four destroy nodes, so they stay behind a
+                list rather than bare buttons in the open — the same shape the
+                status-bar entry had, its list now opening downwards. The
+                fourth is the measurement reset, which used to stand beside
+                this entry as a button of its own: it clears what is KNOWN
+                about the nodes rather than the nodes, so it is the last item
+                of the same list — one place for everything done to the whole
+                list, and one fewer button on a bar that is short of room. -->
+            <span v-if="!searchOpen" class="titlebar-batch" ref="titleBatchRef">
+                <button class="egress-trigger" type="button"
+                        aria-haspopup="menu"
+                        :aria-expanded="batchOpen"
+                        :title="t('batch.title')"
+                        :aria-label="t('batch.title')"
+                        @click="batchOpen = !batchOpen">
+                    {{ t('batch.title') }}
+                </button>
+                <div v-if="batchOpen" class="egress-menu titlebar-menu" role="menu"
+                     ref="titleBatchMenuEl"
+                     :aria-label="t('batch.title')">
+                    <button role="menuitem" @click="() => { batchOpen = false; runBatch('dedupe'); }">
+                        {{ t('batch.dedupe') }}
+                    </button>
+                    <button role="menuitem" @click="() => { batchOpen = false; runBatch('failed'); }">
+                        {{ t('batch.removeFailed') }}
+                    </button>
+                    <button role="menuitem" @click="() => { batchOpen = false; runBatch('resolve'); }">
+                        {{ t('batch.resolve') }}
+                    </button>
+                    <!-- A rule, because the three above change which nodes exist
+                        and this one only changes what is known about them. -->
+                    <div v-if="profiles.length > 0" class="menu-sep"/>
+                    <button v-if="profiles.length > 0" role="menuitem"
+                            :title="t('btn.resetMetrics')"
+                            @click="() => { batchOpen = false; resetMetrics(); }">
+                        {{ t('btn.reset') }}
+                    </button>
+                </div>
+            </span>
+            <!-- The outbound mode, up beside the batch sweeps for the same
+                reason: how traffic leaves is a fact about the whole window,
+                not about the bar's floor. The list is the mode choice itself,
+                opening downwards like the other lists on this bar; the colour
+                carries the mode, as it did below. -->
+            <span v-if="!searchOpen" class="titlebar-egress" :data-mode="egress" ref="titleEgressRef">
+                <button class="egress-trigger" type="button"
+                        aria-haspopup="listbox"
+                        :aria-expanded="egressOpen"
+                        :title="t('egress.title')"
+                        :aria-label="t('egress.title')"
+                        @click="egressOpen = !egressOpen">
+                    {{ t(`egress.${egress}`) }}
+                </button>
+                <div v-if="egressOpen" class="egress-menu titlebar-menu" role="listbox"
+                     ref="titleEgressMenuEl"
+                     :aria-label="t('egress.title')">
+                    <button v-for="m in EGRESS_MODES" :key="m" role="option"
+                            :aria-selected="egress === m"
+                            :class="egress === m ? 'on' : ''"
+                            @click="() => { egressOpen = false; setEgressMode(m); }">
+                        {{ t(`egress.${m}`) }}
+                    </button>
+                </div>
+            </span>
+            <div class="titlebar-controls">
+                <button class="tb-btn" type="button" @click="winMinimise" aria-label="minimize">
+                    <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg>
+                </button>
+                <button class="tb-btn" type="button" @click="winToggleMax" aria-label="maximize">
+                    <svg v-if="!winMax" width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor"/></svg>
+                    <svg v-else width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor"/><path d="M2.5 2.5v-2h7v7h-2" fill="none" stroke="currentColor"/></svg>
+                </button>
+                <button class="tb-btn close" type="button" @click="winClose" aria-label="close">
+                    <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+                </button>
+            </div>
+        </div>
+
         <NavRail :sp-mode="spMode" :sp-busy="spBusy" :has-groups="groups.length > 0"
                  :subs-drop="subsDrop" :show-logs="showLogs" :conn-open="connOpen"
                  :proxy-engaged="proxyEngaged" :subs-btn-ref="fwd.subsBtnRef" :lang-tick="langTick"
+                 @open-settings="settingsOpen = settingsOpen ? null : 'plain'"
+                 @open-about="onAbout"
                  @toggleSP="toggleSP" @toggle-subs="subsDrop ? closeSubs() : openSubs()"
-                 @toggle-logs="toggleLogs" @open-conns="openConns" @about="onAbout"/>
+                 @toggle-logs="toggleLogs" @open-conns="openConns"/>
 
         <SubsDrawer v-if="subsDrop"
                     :groups="groups" :gid="gid" :busy="busy" :sub-busy="subBusy"
@@ -1443,8 +1740,8 @@ onBeforeUnmount(() => {
                     :panel-ref="fwd.panelRef" :edit-reload="onGroupEditReload" :lang-tick="langTick"
                     @grip-down="onPanelGripDown" @grip-move="onPanelGripMove" @grip-up="onPanelGripUp"
                     @grip-key="onPanelGripKey" @grip-dbl="resetPanelW"
-                    @open-group="openGroup" @hover-switch="hoverSwitch" @peek-reel="peekReel"
-                    @drop-reel="dropReel" @update-sub="updateSub" @delete-group="deleteGroup"
+                    @open-group="openGroup" @hover-switch="hoverSwitch"
+                    @update-sub="updateSub" @delete-group="deleteGroup"
                     @showUrlQR="showUrlQR" @toggle-edit="gid2 => groupEditGid = groupEditGid === gid2 ? null : gid2"
                     @edit-done="groupEditGid = null" @edit-notify="notify"/>
 
@@ -1517,68 +1814,6 @@ onBeforeUnmount(() => {
                     </table>
                 </div>
 
-                <!-- The yield, as a heap. The table slides right to let the
-                    subscriptions drawer into its seat, and while the drawer is
-                    out the tables of four subscriptions stand in a heap in the
-                    table's own box — each hinged on its own right border and
-                    turned away from the reader, the reader's own on top and the
-                    three after it behind it, each showing the strip of its right
-                    border that the table in front of it does not cover.
-
-                    A place rather than a flourish: mounted with the drawer and
-                    taken away with it, standing in the table's own box — the
-                    table itself stands aside for as long as the heap is up (see
-                    the rule under .reel.out), because the same nodes in the same
-                    columns a few rows out of step read as five tables rather than
-                    four, and neither of the two would line up with the other to
-                    be read. The pointer means one thing here and one thing only:
-                    pointing at a table — in the heap or at the drawer's card of a
-                    subscription — brings that subscription's table to the front
-                    (see paintStack), which is the only way to read a subscription
-                    that is not the current one without changing which one is
-                    current. A click still means nothing — it would land on nothing
-                    rather than on a scroller the reader cannot see — so the whole
-                    heap is aria-hidden because every table on it is a subscription
-                    the drawer beside it already lists and acts on, and a second
-                    reading of the same thing is not something to be read out. A heap
-                    needs two tables to be a heap, and with one subscription the
-                    table keeps its box. -->
-                <div v-if="subsDrop && groups.length > 1" :class="'reel' + (subsClosing ? ' out' : '')"
-                     ref="reelRef"
-                     aria-hidden="true"
-                     :style="{
-                         // How far each table's left border goes back behind its own
-                         // right one. The stylesheet applies the tilt as a negative
-                         // rotateY: a positive one would swing the left border towards
-                         // the reader, and the stack goes away from them. How far off
-                         // the eye the stack stands (--stack-p) is the observer's, too.
-                         '--stack-tilt': STACK_TILT + 'deg',
-                     }">
-                    <div class="reel-stack"
-                         ref="stackRef"
-                         @mousemove="trackReel"
-                         @mouseleave="dropReel('stack')"
-                         :style="{
-                             // --stack-w, --stack-h and --stack-p are written by the
-                             // observer rather than declared here; see the layout
-                             // effect above. --stack-step and --stack-depth are the
-                             // two constants that never change with the room.
-                             '--stack-step': STACK_STEP + 'px',
-                             '--stack-depth': STACK_DEPTH + 'px',
-                         }">
-                        <!-- Back to front, so the paint order alone would be right
-                            even if the depth sorting were not: layer 0 is the
-                            reader's own subscription and belongs on top. The
-                            current subscription's nodes are already in hand, so its
-                            face is handed them as a seed and never has to ask. -->
-                        <ReelTable v-for="(g, ri) in [...stack].reverse()" :key="g.id"
-                                   :g="g" :layer="stack.length - 1 - ri"
-                                   :total="stack.length"
-                                   :ready="reelReady"
-                                   :seed="g.id === gid ? profilesRef : undefined"
-                                   :epoch="g.id === gid ? 0 : profilesEpoch"/>
-                    </div>
-                </div>
             </main>
         </div>
 
@@ -1597,25 +1832,13 @@ onBeforeUnmount(() => {
 
         <StatusDock :traffic="traffic"
                     :testing="testing" :testing-mode="testingMode" :test-progress="testProgress"
-                    :egress="egress" :egress-open="egressOpen" :batch-open="batchOpen"
-                    :query="query" :sub-busy="subBusy"
-                    :shown-count="shownProfiles.length" :pool-count="searchPool.length"
-                    :running="running" :is-running="isRunning"
-                    :exit-ip="exitIP" :flag-missing="flagMissing" :info-open="infoOpen"
-                    :proxy-engaged="proxyEngaged" :settings-open="!!settingsOpen"
-                    :statusbar-ref="fwd.statusbarRef" :egress-ref="fwd.egressRef" :batch-ref="fwd.batchRef"
+                    :running="running"
+                    :exit-ip="exitIP" :info-open="infoOpen"
+                    :statusbar-ref="fwd.statusbarRef"
                     :node-ip-ref="fwd.nodeIpRef" :info-ref="fwd.infoRef" :lang-tick="langTick"
-                    @open-settings="settingsOpen = settingsOpen ? null : 'plain'"
-                    @set-query="v => query = v" @submit-sub="addSubFromSearch(query)"
-                    @toggle-batch="batchOpen = !batchOpen"
-                    @run-batch="kind => runBatch(kind)"
-                    @toggle-egress="egressOpen = !egressOpen"
-                    @set-egress="m => setEgressMode(m)"
                     @toggle-info="infoOpen = !infoOpen"
                     @copied="ok => notify(tip(ok ? 'copied' : 'log.copyFailed'), ok ? 'ok' : 'err')"
-                    @flag-missing="flagMissing = true"
-                    @stop-test="stopSpeedtest"
-                    @state-enter="sayLampState(isRunning)"/>
+                    @stop-test="stopSpeedtest"/>
 
         <!-- The bar's text slot and the floating message window are gone: the
             app's own words — notices, the wait of a mode switch, the run state
@@ -1642,10 +1865,12 @@ onBeforeUnmount(() => {
                     @click="closeCtxRun(start)">
                 <PlayFilled class="ic"/>{{ t('btn.start') }}
             </button>
-            <!-- Both test entries name a test type through a submenu, and both
-                used to lean on one select in the bottom bar: which type a
-                run uses is worth choosing where the run is, not in a
-                control that was hidden until the pointer came up for it. -->
+            <!-- The node's own test: a test type chosen through a submenu, which
+                used to lean on one select in the bottom bar — which type a run
+                uses is worth choosing where the run is, not in a control that
+                was hidden until the pointer came up for it. The group's sweep
+                is not here: it is about the list, and it lives on the bar on
+                top with the other whole-list controls (see .titlebar-test). -->
             <button class="ctx-item ctx-item-sub"
                     tabindex="0"
                     aria-haspopup
@@ -1654,26 +1879,7 @@ onBeforeUnmount(() => {
                 <DashboardFilled class="ic"/>{{ t('btn.testCurrent') }}
                 <RightFilled class="ic ctx-sub-caret"/>
             </button>
-            <button class="ctx-item ctx-item-sub"
-                    tabindex="0"
-                    aria-haspopup
-                    :aria-expanded="sub === 'testGroup'"
-                    v-on="subRow('testGroup')">
-                <FlashFilled class="ic"/>{{ t('btn.testGroup') }}
-                <RightFilled class="ic ctx-sub-caret"/>
-            </button>
             <div class="ctx-sep"/>
-            <!-- New node: the protocol list is the choice, and it was a
-                separate select in the bottom bar only because the bar had
-                room for a control that stands on its own. -->
-            <button class="ctx-item ctx-item-sub"
-                    tabindex="0"
-                    aria-haspopup
-                    :aria-expanded="sub === 'new'"
-                    v-on="subRow('new')">
-                <AddFilled class="ic"/>{{ t('btn.add') }}
-                <RightFilled class="ic ctx-sub-caret"/>
-            </button>
             <button class="ctx-item"
                     @click="() => {
                         ctx = null;
@@ -1712,16 +1918,6 @@ onBeforeUnmount(() => {
                 <QrcodeFilled class="ic"/>{{ t('btn.qr') }}
             </button>
             <div class="ctx-sep"/>
-            <!-- Clearing the measurements is a whole-window action, so it
-                lives here rather than on a bar that had to be summoned. -->
-            <button class="ctx-item"
-                    :title="t('btn.resetMetrics')"
-                    @click="() => {
-                        ctx = null;
-                        resetMetrics();
-                    }">
-                <EraserFilled class="ic"/>{{ t('btn.reset') }}
-            </button>
             <button class="ctx-item danger" @click="closeCtxRun(deleteProfile)">
                 <Delete2Filled class="ic"/>{{ t('btn.delete') }}
             </button>
@@ -1739,10 +1935,11 @@ onBeforeUnmount(() => {
             <button v-for="it in submenus[sub].items" :key="it.key"
                     class="ctx-item"
                     @click="() => {
-                        sub = null;
-                        ctx = null;
-                        it.run();
-                    }">
+                    const id = ctx?.id;
+                    sub = null;
+                    ctx = null;
+                    it.run(id);
+                }">
                 {{ it.label }}
             </button>
         </div>
@@ -1765,16 +1962,11 @@ onBeforeUnmount(() => {
                 </button>
                 <div class="ctx-sep"/>
             </template>
-            <button class="ctx-item" @click="copyLogs">
-                <CopyFilled class="ic"/>
-                <span class="ctx-vsep" aria-hidden="true"/>
-                {{ t('log.copy') }}
-            </button>
-            <!-- Saving the panel to a file. It sits with the copy: it is the same act —
-                taking a copy away — with a different destination. (The clear used to be
-                the third of these. It is on the panel's own title bar now, where the
-                thing it undoes — the panel filling up — is what the reader is looking
-                at, and where it takes one press instead of a right-click and a find.) -->
+            <!-- Saving the panel to a file. Copying the panel was this menu's
+                other item until the head's own copy button took the act over
+                (the button is one press, and the panel — not the line — is
+                what both of them copy); the menu keeps the export, whose
+                destination a clipboard cannot be. -->
             <button class="ctx-item" @click="exportLogs">
                 <Download3Filled class="ic"/>
                 <span class="ctx-vsep" aria-hidden="true"/>
@@ -1808,34 +2000,75 @@ onBeforeUnmount(() => {
         <EditorDialog v-if="editor" :title="editor.title" :initial="editor.initial"
                       :on-save="editor.onSave" :on-discard="editor.onDiscard" @close="editor = null"/>
 
-        <!-- About: the name, then the facts a bug report needs. Nothing here is
-            editable — it is a card to read and to copy from, which is why the
-            paths are in the monospace face rather than as truncated labels. They
-            are written the way the settings field writes them, relative to the
-            executable, and the full path waits in the tooltip (see relToExec in
-            the backend). -->
+        <!-- About: the name, the facts a bug report needs, the four actions as a
+            grid under them, and the author's QR card holding the right edge.
+            Nothing here is editable — it is a card to read and to copy from,
+            which is why the facts are in the monospace face rather than as
+            truncated labels. -->
         <Modal v-if="aboutOpen" :title="t('dlg.about.title')" @close="aboutOpen = false">
-            <div class="about-head">
-                <!-- The app's own mark, the same artwork the exe and the tray
-                    wear (see fa/icon) — this card is stamped with what the
-                    reader is running, not with the language it is in. -->
-                <img class="about-logo" src="/fa/icon/eagle_64.png"
-                     alt="" aria-hidden="true"/>
-                <div class="about-name">Eagle</div>
+            <div class="about-grid">
+                <div class="about-info">
+                    <div class="about-head">
+                        <!-- The app's own mark, the same artwork the exe and the tray
+                            wear (see fa/icon) — this card is stamped with what the
+                            reader is running, not with the language it is in. -->
+                        <img class="about-logo" src="/fa/icon/eagle_64.png"
+                             alt="" aria-hidden="true"/>
+                        <div class="about-name">Eagle</div>
+                    </div>
+                    <dl class="about-rows">
+                        <dt>{{ t('about.version') }}</dt>
+                        <dd>
+                            {{ about?.version || t('about.unknown') }}
+                            {{ builtLabel ? ` · ${builtLabel}` : '' }}
+                        </dd>
+                        <!-- What the bug report has to say before the report can be
+                            about anything else: which platform this binary was
+                            built for, and which kernel it drives. The core's
+                            version arrives a beat later (it is a process probe,
+                            see CoreVersion), so the row holds a dash until then. -->
+                        <dt>{{ t('about.arch') }}</dt>
+                        <dd>{{ about?.arch || t('about.unknown') }}</dd>
+                        <dt>{{ t('about.core') }}</dt>
+                        <dd>{{ coreVer || '—' }}</dd>
+                        <dt>{{ t('about.go') }}</dt>
+                        <dd>{{ about?.goVersion || t('about.unknown') }}</dd>
+                    </dl>
+                    <!-- The actions are the left column's floor: a grid rather than a
+                        footer bar, so the column answers the QR card's height instead
+                        of floating above an empty band. -->
+                    <div class="about-actions">
+                        <button class="btn ghost" @click="() => {
+                            API.OpenURL('https://space.bilibili.com/3493140031867261').catch(() => { /* the link is more decoration than a promise */ });
+                        }">
+                            {{ t('about.author') }}
+                        </button>
+                        <button class="btn ghost" :disabled="updateBusy" @click="checkUpdate">
+                            {{ t('about.checkUpdate') }}
+                        </button>
+                        <button class="btn ghost" @click="reportBug">
+                            {{ t('about.bug') }}
+                        </button>
+                        <button class="btn ghost" @click="() => {
+                            const repo = about?.repo;
+                            if (repo) API.OpenURL(`https://github.com/${repo}`).catch(() => { /* the link is more decoration than a promise */ });
+                        }">
+                            {{ t('about.repo') }}
+                        </button>
+                        <!-- The fifth cell spans the grid: the four above it are
+                            links out of the card, this one opens a folder on the
+                            machine, so it reads as a different kind of action and
+                            takes the full width of its own row. -->
+                        <button class="btn ghost wide" @click="() => { void API.OpenDataDir(); }">
+                            {{ t('about.openDataDir') }}
+                        </button>
+                    </div>
+                </div>
+                <figure class="about-qr-card">
+                    <img class="about-qr" src="/joinleft-qr.png" alt="Join_left"/>
+                    <figcaption class="about-qr-cap">Join_left</figcaption>
+                </figure>
             </div>
-            <dl class="about-rows">
-                <dt>{{ t('about.version') }}</dt>
-                <dd>
-                    {{ about?.version || t('about.unknown') }}
-                    {{ about?.built ? ` · ${about.built}` : '' }}
-                </dd>
-                <dt>{{ t('about.go') }}</dt>
-                <dd>{{ about?.goVersion || t('about.unknown') }}</dd>
-                <dt>{{ t('about.core') }}</dt>
-                <dd :title="about?.corePathAbs || ''">{{ about?.corePath || t('about.unknown') }}</dd>
-                <dt>{{ t('about.dataDir') }}</dt>
-                <dd :title="about?.dataDirAbs || ''">{{ about?.dataDir || t('about.unknown') }}</dd>
-            </dl>
             <!-- A release the check found: what it is, and the two things that
                 can be done about it. The install button is the one that matters
                 (the backend replaces the running build and restarts the app);
@@ -1866,23 +2099,6 @@ onBeforeUnmount(() => {
                         {{ t('update.open') }}
                     </button>
                 </template>
-            </div>
-            <div class="modal-foot">
-                <button class="btn ghost" @click="API.OpenDataDir().catch(e => notify(errText(e), 'err'))">
-                    {{ t('about.openDataDir') }}
-                </button>
-                <button class="btn ghost" :disabled="updateBusy" @click="checkUpdate">
-                    {{ t('about.checkUpdate') }}
-                </button>
-                <button class="btn ghost" @click="reportBug">
-                    {{ t('about.bug') }}
-                </button>
-                <button class="btn ghost" @click="() => {
-                    const repo = about?.repo;
-                    if (repo) API.OpenURL(`https://github.com/${repo}`).catch(() => { /* the link is more decoration than a promise */ });
-                }">
-                    {{ t('about.repo') }}
-                </button>
             </div>
         </Modal>
 

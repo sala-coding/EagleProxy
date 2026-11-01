@@ -97,6 +97,11 @@ type App struct {
 
 	logs *logstore.Store
 
+	// Guards the pointer swap side of a.logs: SetDir on a reload runs while
+	// logf/logSpeedtest write on other goroutines. Readers snapshot the
+	// pointer under it, so a swap never lands inside their hold.
+	logsMu sync.Mutex
+
 	// The UI log stream's outbound batcher: lines queue up here and leave in
 	// one event per window instead of one event per line. See app_logs.go.
 	logBatch logBatcher
@@ -189,6 +194,12 @@ type App struct {
 	// other route is used again without restarting the app.
 	tunServerProbe atomic.Bool
 	tunServerGone  atomic.Bool
+	// Set while the resident server is asked to keep a TUN adapter built ahead of the
+	// reader's first switch-on (see prewarmTunServer). It is separate from the setting's
+	// VPNMode because the two answer different questions — the flag here means "the
+	// device is wanted ready", the mode means "it is capturing" — and the server is told
+	// them as separate facts (tunserv.State.Adapter / Prewarm).
+	tunPrewarm atomic.Bool
 	// True while the app is deliberately taking the front-end down. The death watcher
 	// must not treat its own mangement as an accident: a stop that lands inside the
 	// watcher's 500ms window would otherwise read a recycled failure onto an intact
@@ -426,6 +437,16 @@ func (a *App) curCtx() context.Context {
 	return a.ctx
 }
 
+// logStore snapshots the log store pointer under its guard, so a SetDir swap
+// on the reload goroutine never lands while a writer holds the snapshot.
+// Writers and readers of a.logs all go through here instead of reading the
+// field bare.
+func (a *App) logStore() *logstore.Store {
+	a.logsMu.Lock()
+	defer a.logsMu.Unlock()
+	return a.logs
+}
+
 // setPaths swaps both paths in one write, for the load and the rollback that
 // move them together.
 func (a *App) setPaths(dataDir, dataDirRaw, corePath, corePathRaw string) {
@@ -564,8 +585,8 @@ func (a *App) startup(ctx context.Context) {
 	a.startDNSStub()
 	// Write a marker straight away so the log folder is created on every launch
 	// and it is obvious whether file logging works.
-	if a.logs != nil {
-		a.logs.Section("core", "启动 · "+time.Now().Format("2006-01-02 15:04:05")+" · "+a.logDir())
+	if logs := a.logStore(); logs != nil {
+		logs.Section("core", "启动 · "+time.Now().Format("2006-01-02 15:04:05")+" · "+a.logDir())
 	}
 	// A previous run can have left the adapter capturing. That is the shape after a
 	// kill: the stop path never ran, so the routes it took are still in the table,
@@ -826,7 +847,14 @@ func (a *App) runShutdown() {
 	// window is already closing.
 	a.logf("[shutdown] stage: prepare")
 	if a.curSetting() != nil && a.curSetting().SPModeSystemProxy() {
-		a.applySystemProxy(false)
+		if err := a.applySystemProxy(false); err != nil {
+			// Said, not swallowed: this is the hand-back of the machine's proxy
+			// on the way out, and a registry that refused the write leaves
+			// Windows pointing at a port this process is about to stop
+			// serving — the offline machine the exit exists to prevent. The
+			// breadcrumb is what tells the next session where to look.
+			a.logf("[shutdown] 系统代理清理失败: " + err.Error())
+		}
 	}
 	a.logf("[shutdown] stage: stop modes")
 	if pid, _ := a.vpnState(); pid > 0 {
@@ -851,7 +879,12 @@ func (a *App) runShutdown() {
 		}
 	} else if a.curController() != nil {
 		a.flushTraffic()
-		_ = a.curController().Stop()
+		if err := a.curController().Stop(); err != nil {
+			// Said, not swallowed: a core that outlived the kill is the one
+			// case the job object cannot paper over — the pid file it left
+			// behind is the next start's "port already in use".
+			a.logf("[shutdown] 核心停止未在限期内确认: " + err.Error())
+		}
 		a.logf("[shutdown] stage: main core stopped")
 	}
 	// The branch above only runs when the recorded pid says TUN was up — and it is
@@ -893,8 +926,8 @@ func (a *App) runShutdown() {
 	a.stopDNSStub()
 	a.logf("[shutdown] stage: dns forwarder stopped")
 	a.logf("[shutdown] stage: closing logs")
-	if a.logs != nil {
-		a.logs.Close()
+	if logs := a.logStore(); logs != nil {
+		logs.Close()
 	}
 	a.logf("[shutdown] stage: done")
 }

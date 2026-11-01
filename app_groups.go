@@ -362,16 +362,7 @@ func (a *App) SaveProfileJSON(id int, jsonStr string) error {
 	return nil
 }
 
-// ImportLink parses a share link and adds it to a group.
-func (a *App) ImportLink(link string, gid int) (int, error) {
-	if a.curMgr() == nil || a.curSetting() == nil {
-		return -1, fmt.Errorf("backend not initialised")
-	}
-	a.subMu.Lock()
-	defer a.subMu.Unlock()
-	return a.importLink(link, gid)
-}
-
+// importLink parses a share link and adds it to a group.
 func (a *App) importLink(link string, gid int) (int, error) {
 	typ, b, ok := format.ParseLink(strings.TrimSpace(link), a.curSetting())
 	if !ok {
@@ -600,20 +591,6 @@ func splitLines(text string) []string {
 			continue
 		}
 		out = append(out, line)
-	}
-	return out
-}
-
-// removeInt returns the list without v. The result is a copy: the list it is
-// given is not touched. Writing the answer over the caller's own slice
-// changed the caller's list under their feet, which is a different answer
-// from the one they asked for.
-func removeInt(list []int, v int) []int {
-	out := make([]int, 0, len(list))
-	for _, x := range list {
-		if x != v {
-			out = append(out, x)
-		}
 	}
 	return out
 }

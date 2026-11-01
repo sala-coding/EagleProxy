@@ -1,8 +1,8 @@
 // Package speedtest measures latency / download speed of profiles.
 //
-// UrlTest and FullTest spin up a temporary sing-box instance with the profile's
-// outbound and a local mixed inbound, then probe through it. TcpPing talks to
-// the server directly and needs no core.
+// Every mode spins up a temporary sing-box instance with the profile's outbound
+// and a local mixed inbound, then probes through it — the measurement is the
+// node's end-to-end answer, not the machine's bare reachability to the node.
 package speedtest
 
 import (
@@ -18,7 +18,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,13 +31,13 @@ import (
 
 // Test modes (kept stable for the frontend).
 //
-// What each mode produces: URLTest/FullTest measure through a temporary core,
-// TCPPing only does a raw TCP handshake. URLTest and TCPPing yield a latency,
-// FullTest yields latency + speed, SpeedTest yields a speed only — the frontend
-// uses that to decide which column of a result to refresh.
+// What each mode produces: URLTest and FullTest yield a latency, FullTest and
+// SpeedTest a speed — the frontend uses that to decide which column of a result
+// to refresh. Mode 1 is retired: it was the TCP ping, a raw handshake to the
+// node's port that a UDP-only node can never answer and that a TUN run dialed
+// through the current node — the numbers read as measurements and were neither.
 const (
 	ModeURLTest   = 0
-	ModeTCPPing   = 1
 	ModeFullTest  = 2
 	ModeSpeedTest = 3
 )
@@ -110,87 +109,6 @@ func (r *Runner) reportCoreOutput(ent *db.ProxyEntity, output string) {
 			r.logf("[test] " + line)
 		}
 	}
-}
-
-// RunTCPPing measures a direct TCP connection latency (no core required).
-//
-// The name of the server is resolved before the clock starts. DialContext resolves
-// inline, and while a node is running the machine's resolver is this app's own
-// forwarder — a path that answers in milliseconds when the split is healthy and in
-// seconds, or not at all, when it is broken. Charging that to the handshake reported
-// "latency" of a second for servers whose SYN-ACK came back in thirty milliseconds,
-// which is the opposite of what a diagnostic column is for. A name that resolves to
-// nothing still fails the measurement, and now it fails with the resolver's own
-// error rather than a dial timeout wearing the node's name.
-func (r *Runner) RunTCPPing(ent *db.ProxyEntity) (int, error) {
-	addr := ent.ServerAddress()
-	port := ent.ServerPort()
-	if addr == "" || port == 0 {
-		return 0, fmt.Errorf("invalid server address")
-	}
-	targets := []string{net.JoinHostPort(addr, strconv.Itoa(port))}
-	if net.ParseIP(addr) == nil {
-		ips, err := net.DefaultResolver.LookupIPAddr(r.base(), addr)
-		if err != nil {
-			return 0, err
-		}
-		if len(ips) == 0 {
-			return 0, fmt.Errorf("no address for %s", addr)
-		}
-		targets = targets[:0]
-		for _, ip := range ips {
-			targets = append(targets, net.JoinHostPort(ip.String(), strconv.Itoa(port)))
-		}
-	}
-	// All candidates handshake in parallel behind one absolute deadline — the same
-	// contract the standard dialer keeps for a name with two families: a black-holed
-	// v6 answer must not spend the whole allowance while the still-reachable v4 waits
-	// its turn in a loop. The first handshake to complete is the measurement; the
-	// buffered channel is what lets the losers retire without a reader.
-	deadline := time.Now().Add(5 * time.Second)
-	results := make(chan pingResult, len(targets))
-	var wg sync.WaitGroup
-	for _, t := range targets {
-		wg.Add(1)
-		go func(t string) {
-			defer wg.Done()
-			// DialContext rather than DialTimeout: a cancelled run stops waiting on a
-			// server that is not answering instead of holding the socket for its whole
-			// allowance.
-			d := &net.Dialer{Deadline: deadline}
-			start := time.Now()
-			conn, err := d.DialContext(r.base(), "tcp", t)
-			if err != nil {
-				results <- pingResult{err: err}
-				return
-			}
-			ms := int(time.Since(start).Milliseconds())
-			_ = conn.Close()
-			results <- pingResult{ms: ms}
-		}(t)
-	}
-	go func() { wg.Wait(); close(results) }()
-	var firstErr error
-	for res := range results {
-		if res.err == nil {
-			if res.ms <= 0 {
-				res.ms = 1
-			}
-			return res.ms, nil
-		}
-		if firstErr == nil {
-			// The first complaint stands: the quicker failure is the one the network
-			// actually answered with — a refusal over a timeout's silence.
-			firstErr = res.err
-		}
-	}
-	return 0, firstErr
-}
-
-// pingResult is one candidate handshake's answer.
-type pingResult struct {
-	ms  int
-	err error
 }
 
 // RunURLTest measures latency through a temporary instance of the profile.

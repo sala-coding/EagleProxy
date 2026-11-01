@@ -136,13 +136,29 @@ export function useLogs(notify: Notify) {
     watch(mergedLogs, (merged) => {
         const prev = prevLogLen.current;
         prevLogLen.current = merged.length;
-        // A shrink is a clear or a restart: nothing is fresh any more.
-        if (merged.length === 0 || merged.length <= prev) {
+        // A shrink to empty is a clear or a restart: nothing is fresh any more.
+        // A flat length is not one — at the cap (logs slices at 1000, appLogs at
+        // 300) every new line evicts an old one and the total never moves, so
+        // treating "not grown" as a clear reset the live dots on every arrival.
+        if (merged.length === 0) {
             if (Object.keys(catLive.value).length) catLive.value = {};
             return;
         }
+        if (merged.length <= prev) {
+            // At the cap the total is flat while lines still arrive: the fresh
+            // ones are the tail since the last batch, taken from the end.
+            if (merged.length === prev && merged.length > 0) {
+                lightCats(merged.slice(-1));
+            }
+            return;
+        }
+        lightCats(merged.slice(prev));
+    });
+    // Turns the arriving lines' categories' dots on and holds them there while
+    // the lines keep coming; shared by the grown and the at-cap paths.
+    function lightCats(lines: LogLine[]) {
         const cats = new Set<string>();
-        for (const l of merged.slice(prev)) cats.add(l.cat);
+        for (const l of lines) cats.add(l.cat);
         if (cats.size === 0) return;
         let changed = false;
         const next = {...catLive.value};
@@ -162,7 +178,7 @@ export function useLogs(notify: Notify) {
                 if (catLive.value[c]) catLive.value = {...catLive.value, [c]: false};
             }, 1500);
         }
-    });
+    }
     // The breaths are per category, and each one runs its own course: a
     // category whose lines stopped goes still on its own timer, whatever the
     // other categories are doing.
@@ -450,6 +466,11 @@ export function useLogs(notify: Notify) {
         }
     };
 
+    // Monotonic tag for the file-backed loads: a load asked for later wins, so a
+    // stale response that lands after a newer one never replaces its output
+    // (the open/close/open race that two rapid toggles produced).
+    let loadSeq = 0;
+
     // Re-read the test categories' files. Every speed test truncates and rewrites
     // them, so this is not a cache to be trusted between runs: a run that finished
     // a moment ago has to be able to replace the output of the one before it.
@@ -457,10 +478,12 @@ export function useLogs(notify: Notify) {
         // A stream that is being replaced is not a run of arrivals: the view goes to its
         // end at once rather than being glided through the whole of it. See logReloadRef.
         logReload = true;
+        const seq = ++loadSeq;
         try {
             const all = await Promise.all(FILE_CATS.map(async c =>
                 ((await API.GetCategoryLogs(c)) ?? []).map(l => ({line: l, cat: c}))
             ));
+            if (seq !== loadSeq) return; // a newer load owns the output now
             const next: Record<string, LogLine[]> = {};
             FILE_CATS.forEach((c, i) => {
                 next[c] = all[i];
@@ -471,6 +494,7 @@ export function useLogs(notify: Notify) {
             // panel until this read lands.
             catLogs.value = next;
         } catch (e) {
+            if (seq !== loadSeq) return;
             catLogs.value = {};
             notify(errText(e), 'err');
         }
@@ -480,8 +504,11 @@ export function useLogs(notify: Notify) {
     // never presents a stale snapshot of the part that does not stream.
     const loadAllLogs = async () => {
         logReload = true;
+        const seq = ++loadSeq;
         try {
-            logs.value = ((await API.GetLogs()) ?? []).map(l => ({line: l, cat: 'core'}));
+            const fresh = ((await API.GetLogs()) ?? []).map(l => ({line: l, cat: 'core'}));
+            if (seq !== loadSeq) return; // a newer load owns the output now
+            logs.value = fresh;
         } catch {
             // the live stream is still arriving, so there is nothing to report
         }

@@ -25,13 +25,16 @@
     left: calc(var(--rail-w, 40px) + var(--panel-gap, 8px));
     translate: calc(var(--seat-offset, 0px) - var(--panel-w, 430px) - var(--panel-gap, 8px));
     transition: translate var(--panel-lead, .44s) var(--door-ease, cubic-bezier(.4, 0, .2, 1));
-    /* Dropped from the window's own chrome by --chrome-inset, so the panel's outline —
-       its rounded corners and the lit top edge with them — does not touch the title
-       bar. The gap is the panel's offset rather than padding inside it, which puts the
-       frame itself in the right place instead of only its contents; the caption keeps
-       the distance it had, because the frame came down by exactly what the padding
-       used to push it. */
-    top: var(--chrome-inset, 8px);
+    /* Below the title bar, then dropped --chrome-inset further, so the panel's outline —
+       its rounded corners and the lit top edge with them — stands clear of the bar
+       rather than over it. The bar is the window's own chrome now (see .titlebar), and
+       the panel used to start at the bare inset: on a framed window that was the frame's
+       height, and without one it was eight pixels into the bar, which the panel then
+       covered — its drag surface included. The gap is the panel's offset rather than
+       padding inside it, which puts the frame itself in the right place instead of only
+       its contents; the caption keeps the distance it had, because the frame came down
+       by exactly what the padding used to push it. */
+    top: calc(var(--titlebar-h, 34px) + var(--chrome-inset, 8px));
     /* Standing above the status bar, not over it and not on it: the bar runs the full
        width of the window as the app's own floor, and a panel that reached the bottom
        edge would be sitting on top of it. It clears the bar by the same --panel-gap it
@@ -101,7 +104,7 @@
 
 /* The same swing played backwards on the way out, and with no lead: the table only
    takes its width back once this has finished and the panel is gone (see subsClosing
-   in App.tsx, which is what defers the unmount far enough for this to run at all).
+   in useSubsDrawer.ts, which is what defers the unmount far enough for this to run at all).
    The hinge is the table's edge, so the panel turns back into it and becomes edge-on
    there — a sliver on the line, then nothing.
 
@@ -229,7 +232,7 @@
        bar, which the tone alone already does. So the groove went the way of the seam, and
        what was four pixels is one. */
     --sep-fill: rgba(0, 0, 0, .3);
-    /* The allowance bar. The hue arrives from App.tsx, where it is worked out from
+    /* The allowance bar. The hue arrives from SubsDrawer.vue, where it is worked out from
        how much of the allowance is left; the other two parts of the colour live here,
        because they are the parts that have to change between the themes — the same
        hue reads as a deep colour on a white card and as a bright one on a dark.
@@ -718,7 +721,7 @@
        wears, so hovering a card's actions is answered in that card's colour instead of
        a neutral grey that would be the same under every card.
        Declared on the button and not on the table, because of where the hue lives:
-       --tab-hue is set on the row by App.tsx, and the var()s inside a custom property
+       --tab-hue is set on the row by SubsDrawer.vue, and the var()s inside a custom property
        are resolved on the element the property is declared on — on .subdrop-table this
        would resolve to the fallback and every card would hover in the same blue. */
     --act-hover: hsl(var(--tab-hue, 212) 45% 50% / .16);

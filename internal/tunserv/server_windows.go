@@ -95,12 +95,13 @@ func RunServer() {
 				log("adapter preparation panic: %v", r)
 			}
 		}()
-		// Only when TUN is what the reader is asking for. This process now also serves
-		// system-proxy mode (the machine's resolvers, see sysdns_windows.go), and an adapter
-		// prepared for a mode nobody is in is a network device that appears on the reader's
-		// list for nothing — with the app's own idle reclaim taking it apart again, on a
-		// ten-second cycle, for as long as the app stays in the other mode.
-		if ReadState(dataDir()).Adapter {
+		// Only when the device is wanted: a capture is up (Adapter), or the app asked for
+		// it to be built ahead of the reader's first switch-on (Prewarm, see the app's
+		// prewarmTunServer). This process now also serves system-proxy mode (the machine's
+		// resolvers, see sysdns_windows.go), and an adapter prepared for a mode nobody is
+		// in and nothing asked for is a network device that appears on the reader's list
+		// for nothing.
+		if st := ReadState(dataDir()); st.Adapter || st.Prewarm {
 			ensureAdapter()
 		}
 	}()
@@ -209,7 +210,7 @@ func RunServer() {
 		ticks++
 		if ticks >= adapterCheckTicks {
 			ticks = 0
-			if ReadState(dataDir()).Adapter {
+			if st := ReadState(dataDir()); st.Adapter || st.Prewarm {
 				ensureAdapter()
 			}
 		}
@@ -361,6 +362,53 @@ func RunServer() {
 					log("child stopped on command (pid %d)", pid)
 				}
 				child = nil
+
+			case ActionTeardown:
+				// Order matters: a device a live core holds open cannot be removed, so
+				// the child goes first and its exit is waited for. The book is read as
+				// well as the child, because a front-end this server never raised (an
+				// adopted one, or one the app started by hand) holds the device just as
+				// firmly and is not in `child`.
+				pid := childPID(child)
+				if pid <= 0 {
+					if info := FrontPIDOf(dataDir()); info != nil {
+						pid = info.PID
+					}
+				}
+				if pid > 0 {
+					kill(pid)
+					// taskkill is synchronous, but teardown lags it by a beat: the
+					// handles close as the process finishes dying, and the removal
+					// below is the one call that needs them closed.
+					for i := 0; i < 20 && vpn.IsRunning(pid); i++ {
+						time.Sleep(100 * time.Millisecond)
+					}
+					log("child stopped for teardown (pid %d)", pid)
+				}
+				child = nil
+				name := configbuilder.TunAdapterName()
+				removed, found, err := vpn.RemoveTunAdapter(name)
+				if err != nil {
+					log("adapter removal failed: %v", err)
+					found = 0 // the sweep below is the only remaining way in
+				} else {
+					log("adapter removal: %s (removed %d of %d)", name, removed, found)
+				}
+				if found == 0 {
+					// Nothing answered to the connection name. Either the device is
+					// already gone, or it is in the broken state where it no longer
+					// presents one — and that second shape is what makes every later
+					// start fail. The sweep removes it, and it belongs here rather than
+					// in the app: the call needs the token, which is this process's.
+					if n, sErr := vpn.CleanStaleTunAdapters(); sErr != nil {
+						log("adapter cleanup failed: %v", sErr)
+					} else if n > 0 {
+						log("cleared %d broken adapter(s) after teardown", n)
+					}
+				}
+				log("server exiting on command (teardown)")
+				ClearHeartbeat(dataDir())
+				return
 
 			case ActionExit:
 				if pid := childPID(child); pid > 0 {

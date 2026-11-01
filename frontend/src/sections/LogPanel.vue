@@ -6,7 +6,7 @@ import {computed, type Ref} from 'vue';
 import {t} from '../i18n';
 import {CONSOLE_MAX_SHARE, CONSOLE_MIN_H} from '../lib/layout';
 import {LOG_CATEGORIES, LOG_FILTERS, LOG_LEVELS, lineLevelOf, sectionText, splitStamp, type ShownLine} from '../lib/logfilter';
-import {CopyFilled, Delete3Filled, LayoutBottomCloseFilled, PauseFilled, PlayFilled} from '../lib/icons';
+import {CopyFilled, Delete3Filled, LayoutBottomLine, PauseFilled, PlayFilled} from '../lib/icons';
 
 // The aria-valuemax of the grip: the window's own answer, read per render
 // rather than once at mount. The panel is not remounted when the window is
@@ -97,11 +97,13 @@ const views = computed(() => props.shownLogs.map(l => {
                 is, and the one way out of it. Everything about the lines —
                 which of them are showing, and what their colours mean — is
                 down in the log itself, where the lines are. -->
-            <!-- Holding the stream still, at the head's left end where the
-                reading starts. The glyph is the state rather than the
-                action: a pause bar while the panel is following, a play
-                triangle while it is not, so what is on screen says which
-                it is doing without a tooltip. -->
+            <span class="console-title">{{ t('log.title') }}</span>
+            <!-- Holding the stream still, at the head of the right-hand
+                group. The glyph is the state rather than the action: a
+                pause bar while the panel is following, a play triangle
+                while it is not, so what is on screen says which it is
+                doing without a tooltip. The auto margin parks the whole
+                group at the strip's right end. -->
             <button :class="`btn tiny ghost icon-only log-pause${logPaused ? ' on' : ''}`"
                     :title="t(logPaused ? 'log.resume' : 'log.pause')"
                     :aria-label="t(logPaused ? 'log.resume' : 'log.pause')"
@@ -110,14 +112,13 @@ const views = computed(() => props.shownLogs.map(l => {
                 <PlayFilled v-if="logPaused" class="ic"/>
                 <PauseFilled v-else class="ic"/>
             </button>
-            <span class="console-title">{{ t('log.title') }}</span>
-            <!-- How loud a line has to be to be shown, beside the title because
-                it is a property of the whole panel rather than of a line.
-                One dropdown instead of the four icons: its options name each
-                level in words, the core's own keywords stay as the option
-                values, which is what a line is matched against (see
-                LOG_LEVELS and LINE_LEVEL). The chosen one wears the colour
-                its lines will wear below. -->
+            <!-- How loud a line has to be to be shown. A property of the
+                whole panel rather than of a line. One dropdown instead of
+                the four icons: its options name each level in words, the
+                core's own keywords stay as the option values, which is
+                what a line is matched against (see LOG_LEVELS and
+                LINE_LEVEL). The chosen one wears the colour its lines
+                will wear below. -->
             <select class="log-level" :value="logLevel"
                     :data-lvl="logLevel"
                     :title="t('log.levelHint')"
@@ -156,7 +157,7 @@ const views = computed(() => props.shownLogs.map(l => {
                     :title="t('log.collapse')"
                     :aria-label="t('log.collapse')"
                     @click="emit('collapse')">
-                <LayoutBottomCloseFilled class="ic"/>
+                <LayoutBottomLine class="ic"/>
             </button>
         </div>
         <!-- The filter and the log it filters, side by side: the choices are
@@ -188,14 +189,24 @@ const views = computed(() => props.shownLogs.map(l => {
                 waits on the far side of them — and stays put while the
                 lines scroll under it. -->
             <div class="console-log">
-                <div class="log-legend">
-                    <span v-for="c in LOG_CATEGORIES" :key="c.id" :class="`log-key cat-${c.id}${catLive[c.id] ? ' live' : ''}`">
-                        <i class="dot"/>{{ t(c.label) }}
-                    </span>
-                </div>
                 <div class="console-body" :ref="logRef"
                      @scroll="emit('scroll')"
                      @contextmenu.prevent="emit('bodyCtx', {x: $event.clientX, y: $event.clientY})">
+                    <!-- The table's header: the two column names, stuck to the
+                        well's top while the rows scroll beneath it. The cells
+                        reuse the rows' own classes, so the column rule and the
+                        insets line the header up with every row under it. The
+                        colour key rides the same row's right end, so the names
+                        and the legend read on one line. -->
+                    <div class="log-head">
+                        <span class="stamp">{{ t('log.colTime') }}</span>
+                        <span class="msg">{{ t('log.colMsg') }}</span>
+                        <div class="log-legend">
+                            <span v-for="c in LOG_CATEGORIES" :key="c.id" :class="`log-key cat-${c.id}${catLive[c.id] ? ' live' : ''}`">
+                                <i class="dot"/>{{ t(c.label) }}
+                            </span>
+                        </div>
+                    </div>
                     <div v-for="v in views" :key="v.l.key" :class="v.cls"
                          @contextmenu.prevent.stop="emit('lineCtx', {x: $event.clientX, y: $event.clientY, line: v.l.line})">
                         <!-- The line carries its own menu, over the panel's —

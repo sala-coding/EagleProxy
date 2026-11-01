@@ -2,6 +2,24 @@
    the app's layout: the buttons, the columns of the window, the side column of the node table, and the stack that holds the tables a reader has opened.
    (Split out of App.css; the order of these files is the cascade.) */
 
+/* The window's own edge. The window is frameless (see main.go), so the desktop draws
+   nothing around it: the app's background meets whatever is behind the window with no
+   line between, and over a wallpaper of a similar tone the window has no outline at all.
+   One hairline, in the same strong line colour the floating surfaces already use.
+   A fixed overlay rather than a border on .app: the rail and the status bar are
+   positioned over the layout and would paint on top of a border, which would leave three
+   edges drawn and a gap where they cross. Above every layer in the app — the menus reach
+   230 — and taking no pointer events, so it frames the window without standing in front
+   of it. */
+.app::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    border: 1px solid var(--line-strong, #46566e);
+    pointer-events: none;
+    z-index: 300;
+}
+
 /* layout */
 .body {
     flex: 1;
@@ -167,285 +185,155 @@
        reserved on the drawer: on the scroller it would be scrolled away and the sticky
        caption would jump up by that much on the first row of scrolling */
     padding-top: var(--chrome-inset, 8px);
-    /* The drum stands over the table, so this is the box it is positioned against — the
-       same inset .table-wrap keeps as margins, which is why the two numbers are the same
-       8px rather than one of them being a variable the other reads. */
+    /* The column is the containing block for anything laid over the table — the same
+       inset .table-wrap keeps as margins, which is why the two numbers are the same 8px
+       rather than one of them being a variable the other reads. */
     position: relative;
 }
 
-/* --- the stack ---
-   What the table becomes while the subscriptions drawer is out: four tables standing in a
-   heap, one per subscription, each of them hinged on its own right border and turned away
-   from the reader so that its left border stands back into the screen. The reader's own
-   subscription is the one on top; the three behind it are the ones after it in the list, and
-   each shows the strip of its right border that the table in front of it does not cover.
-
-   This replaced a ring — the same tables on a circle going round, with a frame-by-frame driver
-   for the turn. Nothing here moves: a heap of tables is a picture, not a turn, so the whole
-   of that arithmetic (the radius, the searched card size, the fog written per frame) went with
-   it. What is left is the one decision the picture rests on — which border is the axis, and how
-   far the other one goes back behind it — and the perspective that draws it.
-
-   Perspective on the layer and preserve-3d on the stack inside it, in that order and no further
-   up: an ancestor carrying either would flatten or re-seat the tables, and .content is already
-   the element that turns away under the settings, which must not also be re-parenting this.
-   The perspective is load-bearing rather than decorative: it is what draws the far end of a
-   table smaller than its hinge, and the depth ordering that comes with it is what puts the
-   table behind in front of the one in front. How far off the eye sits is set from App.tsx
-   (`--stack-p`, a share of the room). */
-.reel {
-    position: absolute;
-
-    /* The table's own box, except on the right: --chrome-inset above and below, the
-       table-wrap's 8px margin at the left, and at the right that same 8px plus whatever
-       the table has slid by. The table keeps its full width and only moves when the drawer
-       takes the seat, so most of the content box the layer sits in is off the window
-       altogether by then — and a ring centred on that box would be centred on the window's
-       right edge, half of it past it. What the reader can see of the table is the window,
-       so this is the window: the slide is taken back out of the right inset and the heap
-       stands in the middle of the space that is actually there.
-
-       The transition is the content's own, on the same clock, which is what keeps the
-       right edge pinned to the window edge while the table slides under it: the two are
-       one movement, not the table moving and the heap re-centring later. A drag of the
-       drawer's edge turns it off with the content's own — see .app.resizing. */
-    inset: var(--chrome-inset, 8px) calc(8px + var(--seat-offset, 0px)) var(--chrome-inset, 8px) 8px;
-    transition: right var(--door-dur, .44s) var(--door-ease, cubic-bezier(.4, 0, .2, 1));
-    perspective: var(--stack-p, 1500px);
-    /* The eye stands on the room's right border, not in the middle of it. A point at the
-       origin of a perspective does not move as it comes towards the eye — only what is
-       sideways of the origin slides — so putting the origin on that border pins the right
-       border of every table in the heap to the right border of the room, whatever depth it
-       stands at. It is what the reader asked for: the rearmost table's right border against
-       the edge of the frame. From the middle of the room instead, that table is drawn some
-       eight per cent smaller about its own middle and its right border falls some twenty-six
-       pixels short of the frame, which reads as the heap not having been pushed over far
-       enough. The cost is that the shrinking shows on one side only: each table behind is
-       narrower by its left border alone, and the room's left border is where the table on
-       top reaches to — see the width App.tsx solves for. */
-    perspective-origin: 100% 50%;
-    /* Visible rather than hidden, which is a small change of mind worth stating: this used to
-       clip, and nothing ever needed it to. Every table fits inside the room exactly — "the
-       table on top reaches the room's left border" is how the width is solved for — so the
-       only thing the clip ever cut was what a card reaches out with, which is its own shadow:
-       0 18px 40px, with the 40 sliced flat along the room's three edges. */
-    overflow: visible;
-    /* It takes the pointer although nothing in it is interactive, and that is the point: the
-       table is put away for as long as the stack is up (see the rule under .reel.out), so what
-       is under here is the box the table was in and a scroller with nothing in it — and a click
-       or a wheel landing there is one addressed to something the reader cannot see. The layer
-       answers for the space instead, which is what a gesture over the stack deserves. */
-    pointer-events: auto;
-    /* The way in, and it is a plain fade: the movement is the drum's own, below. The way
-       out is a class of its own after this one, on the drawer's clock. */
-    animation: reelIn .34s ease both;
-}
-
-
-@keyframes reelIn {
-    from {
-        opacity: 0;
-    }
-
-    to {
-        opacity: 1;
-    }
-}
-
-/* The way out, on the drawer's own clock (--door-dur, the swing doorFlipOut plays): the
-   table is already sliding back under the heap by then, so the two are one movement in two
-   parts rather than two movements — and the heap must not outlive the panel it was
-   standing in the seat of. */
-.reel.out {
-    animation: reelOut var(--door-dur, .44s) ease both;
-}
-
-@keyframes reelOut {
-    from {
-        opacity: 1;
-    }
-
-    to {
-        opacity: 0;
-    }
-}
-
-/* The table stands in the same box the heap does, and while the heap is up it is not
-   wanted there. It is the same nodes with the same columns, a few rows out of step
-   with the tables, so the two together read as five tables rather than four — and
-   neither of them lines up with the other well enough to be read. So the table goes
-   the moment the heap is called for, and comes back the moment it has gone: the layer
-   unmounts at the end of the drawer's exit (see .reel.out), so what is left after it
-   is one fade in rather than a wait and then a table.
-
-   Visibility rather than display, for two reasons: the table keeps its layout, so
-   nothing under the drawer's seat is re-measured when the heap comes and goes; and
-   the column widths are read off the header cells by App.tsx when the window resizes,
-   which a display: none table has none of. The box's own frame is left standing either
-   way — what the reader is looking at while the heap is up is the table's box with
-   the heap inside it. */
-.table-wrap table.profiles {
-    transition: opacity .18s linear;
-}
-
-.content:has(.reel) .table-wrap table.profiles {
-    visibility: hidden;
-    opacity: 0;
-    transition: none;
-}
-
-/* The box's own outline goes with it: the heap reads as the reader's floating
-   surface, and the frame beneath — the scroller's border and its lift shadow —
-   showing through behind four turned-away tables read as a fifth edge nobody
-   asked to read. The seat keeps its box; only the lines it draws go dark. */
-.content:has(.reel) .table-wrap {
-    border-color: transparent;
-    box-shadow: none;
-}
-
-/* The heap itself. Nothing turns here any more: the drum this replaced was the ring's single
-   moving part, and there is no moving part now. What is left is preserve-3d, which is what
-   keeps the four tables in one 3D space so that the perspective on .reel draws all of them —
-   the layer behind the one in front has to be a real depth, not a smaller copy painted later. */
-.reel-stack {
-    position: absolute;
-    inset: 0;
-    transform-style: preserve-3d;
-}
-
-/* One table in the heap. --i is its depth in the stack: nought is the reader's own
-   subscription and the one on top, and the rearmost table is --n less one. App.tsx hands each
-   one its own number and the depth, and the geometry below is three readings of --i.
-
-   The hinge is the right border, so the table is positioned by it (right: 0 rather than
-   left: 50%) and turns about 100% 50%. Its left border therefore goes back into the screen by
-   the tilt, which is why the tilt is applied as a negative rotateY: a positive one would swing
-   that border towards the reader, and the heap goes away from them.
-
-   The step to the left is what lets the table underneath be seen at all: (--i - --n + 1) is
-   zero for the rearmost table and one step less for each one in front of it, so every table's
-   hinge edge stands clear of the one it covers, and what the reader gets of a subscription
-   that is not the current one is that strip. The matching push back in Z is what gives the
-   heap depth rather than the look of cut paper; without it the perspective would have nothing
-   to draw and four tables at the same distance would be one table drawn four times. */
-.reel-card {
-    position: absolute;
-    top: 50%;
-    right: 0;
-    width: var(--stack-w, 300px);
-    height: var(--stack-h, 200px);
-    margin-top: calc(var(--stack-h, 200px) / -2);
-    transform-origin: 100% 50%;
-    transform: translate3d(calc((var(--i, 0) - var(--n, 1) + 1) * var(--stack-step, 18px)), 0,
-    calc(var(--i, 0) * -1 * var(--stack-depth, 34px)))
-    rotateY(calc(-1 * var(--stack-tilt, 0deg)));
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    border: 1px solid var(--line-strong);
-    border-radius: 12px;
-    background: var(--bg-2);
-    box-shadow: 0 18px 40px rgba(0, 0, 0, .45);
-    /* Short, and on the transform, because a lift re-ranks the heap and every table in it
-       changes place at once: without this the four of them jump in the same frame, which
-       reads as the picture flickering rather than as one table coming forward. A sixth of a
-       second is under the length of a flick of the wrist, so it is felt as immediate and
-       not as an animation. */
-    transition: transform .16s ease;
-}
-
-/* Where a card starts in the heap. --i is written inline from here on — a lift re-ranks
-   the heap by writing four numbers onto four elements, with no re-render (see paintStack
-   in App.tsx) — and an inline value wins over these rules, so what these are is the
-   starting position: the rank React can still state, and the one a card falls back to
-   before anything has been lifted.
-   Four rules rather than one, because the number is the rank itself, and a stylesheet
-   has no way to read a data attribute as a number. */
-.reel-card[data-layer="0"] { --i: 0; }
-.reel-card[data-layer="1"] { --i: 1; }
-.reel-card[data-layer="2"] { --i: 2; }
-.reel-card[data-layer="3"] { --i: 3; }
-
-/* Depth, paid for in light rather than in geometry, and paid as a veil rather than as a
-   filter on the table: the ring wrote a brightness per frame from the spin, and a heap that
-   does not move can be read off --i instead. It is a veil and not `filter: brightness` on
-   the card because a filter is a grouping property — it would flatten the card out of the
-   heap's 3D space, and a flattened card is not hit-tested where it is drawn. That cost
-   shows the moment the reader points at the heap: the strips of border the tables behind
-   show are visibly there, and the pointer would pass straight through them. The veil takes
-   no part in hit-testing either, and the tables stay where they are drawn. */
-.reel-card::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: #000;
-    opacity: calc(.085 * var(--i, 0));
-    pointer-events: none;
-}
-
-/* The table on top — the reader's own subscription, the one the heap is presenting. A lit
-   frame and a breath of glow, so the reader can tell which subscription that is without
-   reading it: the light swells and fades on a slow clock, which is all the "current" marker
-   needs to be noticed and all it should do.
-   The pulse used to move the card's own border-color and box-shadow — a repaint of the
-   whole card per frame, for as long as the heap is up. The strong half of the light now
-   lives on a ::before that breathes its opacity instead: the compositor runs the clock,
-   the card paints once. Same two seconds, same swell, nothing the eye can tell apart. */
-.reel-card.front {
-    border-color: rgba(122, 176, 255, .55);
-    box-shadow: 0 18px 40px rgba(0, 0, 0, .45), 0 0 22px rgba(96, 165, 250, .16);
-}
-
-.reel-card.front::before {
-    content: '';
-    position: absolute;
-    inset: -1px;
-    border-radius: inherit;
-    border: 1px solid rgba(122, 176, 255, .85);
-    box-shadow: 0 0 34px rgba(96, 165, 250, .3);
-    pointer-events: none;
-    animation: reelFront 2.6s ease-in-out infinite;
-    will-change: opacity;
-}
-
-@keyframes reelFront {
-    0%, 100% {
-        opacity: 0;
-    }
-    50% {
-        opacity: 1;
-    }
-}
-
-.reel-head {
+/* --- custom titlebar (frameless) ---
+   The system frame is gone (Frameless: true in main.go); this strip replaces
+   it. The bar itself is the drag surface — --wails-draggable: drag lets Wails
+   return HTCAPTION there, so dragging, Aero Snap and double-click-to-maximise
+   are the OS's own — while the control cluster opts back out so the buttons
+   stay clickable. No caption on the left, matching the system frame's
+   Title: "": the window is identified by its icon, and the tray spells the
+   name. --bg-2 over --line keeps it one shade off the content below it in
+   both palettes without a new variable. */
+.titlebar {
+    /* the one number the panel seat also reads, so the drawer's top edge and this bar
+       cannot drift apart (see --titlebar-h) */
+    height: var(--titlebar-h, 34px);
     flex: 0 0 auto;
     display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 8px 12px;
+    align-items: stretch;
+    /* Entries are laid out from the left end — the search, then About, then the
+       whole-list entries beside it — and the window controls are the one item that
+       carries the free space (see .titlebar-controls). */
+    justify-content: flex-start;
+    background: var(--bg-2);
     border-bottom: 1px solid var(--line);
+    --wails-draggable: drag;
+    /* anchor for the lists that open off the entries on this bar */
+    position: relative;
+    user-select: none;
 }
 
-.reel-name {
-    font-size: 0.75rem;
-    color: var(--text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.reel-count {
+.titlebar-controls {
+    display: flex;
+    align-items: stretch;
+    /* the one item on the bar that carries the free space: it parks the
+       min / max / close cluster at the window's right edge whatever the left
+       cluster holds (the group test is not always there) */
     margin-left: auto;
-    font-size: 0.6875rem;
-    color: var(--text-dim);
+    /* opt the buttons back out of the caption hit-test */
+    --wails-draggable: no-drag;
 }
 
-.reel-list {
-    flex: 1 1 auto;
-    min-height: 0;
-    /* Clipped rather than scrollable: a card on a drum is a glimpse, and a scrollbar on
-       twenty of them at an angle would be twenty of them asking to be read. */
-    overflow: hidden;
-    padding: 4px 0;
+.titlebar .tb-btn {
+    width: 46px;
+    border: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
 }
-
+
+.titlebar .tb-btn:hover {
+    background: var(--bg-3);
+    color: var(--text);
+}
+
+.titlebar .tb-btn.close:hover {
+    background: #e5484d;
+    color: #fff;
+}
+
+/* The add-node entry, at the bar's left end beside the search. The button borrows
+   the window controls' own look, one step narrower; the cluster opts out of
+   the drag hit-test like the controls beside it. The 6px left margin is only
+   the gap between the two buttons. */
+.titlebar-add {
+    position: relative;
+    display: inline-flex;
+    align-items: stretch;
+    margin-left: 6px;
+    --wails-draggable: no-drag;
+}
+
+.titlebar-add .tb-btn.add {
+    width: 34px;
+}
+
+/* The group test, beside the add entry: the whole-list sweep the node menu
+   used to hold. Same button look again, and the same 6px gap. The entry is
+   absent on an empty list (see the template), which is why the controls — not
+   the last entry here — are the item that carries the free space. */
+.titlebar-test {
+    position: relative;
+    display: inline-flex;
+    align-items: stretch;
+    margin-left: 6px;
+    --wails-draggable: no-drag;
+}
+
+.titlebar-test .tb-btn {
+    width: 34px;
+}
+
+/* A list on the bar opens downwards — the bar is the window's top edge. It is
+   fixed rather than absolute, anchored by App.vue to the button's own rect:
+   the table heap draws its cards with perspective and translate3d, and a 3D
+   heap paints over absolutely-placed neighbours no matter their z-index — the
+   node context menu only clears it because it is fixed. The panel and its
+   items are the egress menu's (see .egress-menu); the anchoring and the extra
+   lift are the only differences. */
+.titlebar .titlebar-menu {
+    position: fixed;
+    right: auto;
+    bottom: auto;
+    z-index: 230;
+    /* a floor for the protocol list, whose names are longer than the short ones the
+       test entry offers */
+    min-width: 130px;
+}
+
+/* The test list has no floor of its own: three words, and the box is the width of the
+   longest of them plus the padding (see .egress-menu) — a panel that carries a third
+   of its width in empty space reads as a panel with nothing in it. */
+.titlebar-test .titlebar-menu {
+    min-width: 0;
+}
+
+/* The batch sweeps and the outbound mode, moved up from the status bar: the
+   same word-and-list control (see .egress-trigger in 09-settings.css), seated
+   on the bar on top with the other whole-list entries. --wails-draggable keeps
+   the press from dragging the window, like every control up here. */
+.titlebar-batch,
+.titlebar-egress {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    margin-left: 10px;
+    color: var(--text-dim);
+    --wails-draggable: no-drag;
+}
+
+/* The lists open downwards — the bar is the window's top edge — so the
+   trigger's triangle flips to say which way the list will go. */
+.titlebar .titlebar-batch .egress-trigger::after,
+.titlebar .titlebar-egress .egress-trigger::after {
+    border-bottom: none;
+    border-top: 4px solid currentColor;
+}
+
+/* No floor of their own either: the batch words and the mode words are short,
+   and a half-empty panel beside the others would read as a different kind of
+   thing. */
+.titlebar-batch .titlebar-menu,
+.titlebar-egress .titlebar-menu {
+    min-width: 0;
+}

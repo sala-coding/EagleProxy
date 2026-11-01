@@ -35,13 +35,21 @@ watch(() => props.gid, (gid, _, onCleanup) => {
             const grp: any = await API.GetGroup(gid);
             if (!alive) return;
             g.value = grp;
-            const ps = await API.ListProfiles(gid);
-            if (!alive) return;
-            profiles.value = ps;
         } catch (e) {
             if (!alive) return;
+            // No group, no form: this failure is the dialog's reason to close.
             emit("notify", errText(e), "err");
             emit("done");
+            return;
+        }
+        try {
+            profiles.value = await API.ListProfiles(gid);
+        } catch (e) {
+            if (!alive) return;
+            // The form is already loaded and usable: the front-proxy dropdown
+            // just comes up empty. Collapsing the dialog here used to throw
+            // away everything the reader had typed over a dropdown's data.
+            emit("notify", errText(e), "err");
         }
     })();
 }, {immediate: true});

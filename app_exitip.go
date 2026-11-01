@@ -537,8 +537,9 @@ func asString(v interface{}) string {
 }
 
 // Country codes by address, so the status bar's lookup happens once per node rather than
-// once per render. Failures are cached too: a node is asked about once, and a bar that
-// retried on every render would spend the reader's quota on nothing.
+// once per render. A miss is cached as well, but only for a while: see ccMissTTL — a bar
+// that retried on every render would spend the reader's quota on nothing, and a bar that
+// never retried would go flagless over a lookup that happened to run a second too early.
 //
 // The cap is the one thing the map was missing: a long session switches many
 // nodes, and a cache nobody bounds keeps every address ever seen — for a
@@ -548,9 +549,28 @@ func asString(v interface{}) string {
 // only for an address that is being looked at.
 const ccCacheCap = 1024
 
+// ccMissTTL is how long an answer that found no country stands.
+//
+// A found code is a fact about an address and never goes stale, but a miss is
+// usually a fact about the moment: the first lookup after a start runs while the
+// tunnel has only just begun carrying, and every one of the three services can
+// fail there. Kept forever — which is what this cache did — that miss was a corner
+// with an address and no flag for as long as the node stayed up, and the address
+// only changes when the node does. Short enough that the flag arrives on its own
+// after a slow start, long enough that an address genuinely without a country is
+// not asked about on every two-second poll.
+const ccMissTTL = 30 * time.Second
+
+// ccHit is one entry of that cache, with the moment it was written — the moment is
+// what tells a code, which is kept, from a miss, which expires.
+type ccHit struct {
+	code string
+	at   time.Time
+}
+
 var (
 	ccMu    sync.Mutex
-	ccCache = map[string]string{}
+	ccCache = map[string]ccHit{}
 )
 
 // ipCountry reports the two-letter code of the country an address is registered in, or
@@ -578,8 +598,12 @@ func (a *App) ipCountry(client *http.Client, ip string) string {
 	}
 	ccMu.Lock()
 	if v, ok := ccCache[ip]; ok {
-		ccMu.Unlock()
-		return v
+		// A code stands; a miss stands only until it is old enough to be worth
+		// asking again (see ccMissTTL).
+		if v.code != "" || time.Since(v.at) < ccMissTTL {
+			ccMu.Unlock()
+			return v.code
+		}
 	}
 	ccMu.Unlock()
 
@@ -593,9 +617,9 @@ func (a *App) ipCountry(client *http.Client, ip string) string {
 
 	ccMu.Lock()
 	if len(ccCache) >= ccCacheCap {
-		ccCache = map[string]string{}
+		ccCache = map[string]ccHit{}
 	}
-	ccCache[ip] = cc
+	ccCache[ip] = ccHit{code: cc, at: time.Now()}
 	ccMu.Unlock()
 	return cc
 }

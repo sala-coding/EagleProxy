@@ -2,7 +2,8 @@
 // The navigation rail, extracted from App.tsx (the <nav class="appnav"> block).
 import {type Ref} from 'vue';
 import {t} from '../i18n';
-import {EarthFilled, ShieldFilled, Layout4Filled, TerminalBoxFilled, PluginFilled, InformationFilled} from '../lib/icons';
+import {EarthFilled, ShieldFilled, Layout4Filled, TerminalBoxFilled, PluginFilled,
+    Settings3Filled, InformationFilled} from '../lib/icons';
 
 defineProps<{
     spMode: { vpn: boolean; systemProxy: boolean };
@@ -25,23 +26,36 @@ const emit = defineEmits<{
     toggleSubs: [];
     toggleLogs: [];
     openConns: [];
-    about: [];
+    openSettings: [];
+    openAbout: [];
 }>();
 </script>
 
 <template>
     <!-- Navigation rail: the app's sections as one column of icon buttons
         down the window's left edge — the two system switches first, the
-        subscriptions entry after, panels after them, preferences last. It is
+        subscriptions entry after, the two panels after them. It is
         painted over the layout rather than laid out with it, so the strip
         stays put while the table scrolls; the rest of the window is offset by
         --rail-w, which is set here and read by .app and by the readout that
         centres itself on the content area rather than on the viewport. -->
     <nav class="appnav" :aria-label="t('nav.title')">
+        <!-- The settings opener, at the rail's head: the same panel the status
+            bar's mark at the window's corner used to open. A gear now — it was
+            a pane-shaped glyph drawn inline, which said "a panel" where the
+            button opens the preferences, and stood next to a layout glyph that
+            meant the other thing. -->
+        <button class="appnav-btn rail-expand"
+                :title="t('btn.settings')"
+                :aria-label="t('btn.settings')"
+                @click="$emit('openSettings')">
+            <Settings3Filled class="ic"/>
+        </button>
+        <span class="appnav-divider"/>
         <!-- The rail's groups, and the rules between them: the two system
             switches lead, the subscriptions entry follows when there is a
-            list to open, the two panels under those, preferences past the
-            next gap. The entry is resident only on a list that has
+            list to open, the two panels under those. The entry is resident
+            only on a list that has
             something in it: with no subscription there is no list to open,
             and a button that opens nothing is a promise with no room behind
             it — adding a subscription is the search box's job (a link
@@ -54,6 +68,9 @@ const emit = defineEmits<{
             status bar's chips already have, and the reason the lit one
             breathes. The capsule is what says the two of them are one thing: a
             pair of modes, mutually exclusive. -->
+        <!-- The icon group — everything the rail switches, About excepted — as
+            one block, centred in the column (see .appnav-main). -->
+        <div class="appnav-main">
         <div class="sp-capsule">
             <button :class="`appnav-btn switch${spMode.systemProxy ? ' active' : ''}${spBusy === 'systemProxy' ? ' busy' : ''}`"
                     :title="t('sp.systemProxy')"
@@ -131,17 +148,18 @@ const emit = defineEmits<{
                 @click="$emit('openConns')">
             <PluginFilled class="ic"/>
         </button>
-        <!-- eats the middle of the column: sections above, preferences below -->
-        <span class="appnav-gap"/>
+        </div><!-- /appnav-main -->
+        <!-- About, at the rail's foot: what this build is from and where it keeps
+            its things. It was on the titlebar's left end for a while, which put a
+            fact about the program among the controls for the list; the rail's
+            floor is where the rail's own referential entries live, and the strip
+            is a column of them from head to foot. The rule above says it is its
+            own group — the same rule the rail draws between every other pair. -->
         <span class="appnav-divider"/>
-        <!-- Where this build is from, and where it keeps its things — the two
-            questions a reader asks before reporting anything. It sits above
-            the gear because it is the less used of the two, and a rail reads
-            from the top down. -->
         <button class="appnav-btn"
                 :title="t('btn.about')"
                 :aria-label="t('btn.about')"
-                @click="$emit('about')">
+                @click="$emit('openAbout')">
             <InformationFilled class="ic"/>
         </button>
     </nav>

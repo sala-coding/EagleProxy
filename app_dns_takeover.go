@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"eagle/internal/core"
+	"eagle/internal/crashlog"
 	"eagle/internal/dnsstub"
 	"eagle/internal/tunserv"
 )
@@ -96,6 +97,35 @@ func (a *App) nodeServing() bool {
 	return ctrl.RunningID() != core.StoppedID && ctrl.InboundReady()
 }
 
+// tunServiceState is everything the elevated side is being asked for at this instant,
+// built in one place because two writers use it: the one-second reconcile below and the
+// start-up prewarm (see armTunPrewarm). Two constructions would be two chances to
+// disagree about a flag, and the state file is compared for equality against what this
+// side believes it wrote.
+func (a *App) tunServiceState() tunserv.State {
+	s := a.curSetting()
+	vpn := s != nil && s.VPNMode()
+	return tunserv.State{
+		Adapter:   vpn,
+		Resolvers: a.systemDNSWanted(),
+		// The adapter's own resolver is the tunnel's, not the node's: the address it
+		// names is answered through the capture, by the hijack behind the front-end's
+		// tun inbound. With TUN off and the node running on its local port — the exact
+		// state a TUN switch-off leaves behind — the kept adapter still advertises the
+		// address and Windows still asks it in the multi-homed race, but the path that
+		// answered it went with the capture; every such query waits out a timeout
+		// before the physical resolvers win. A node serving without the tunnel
+		// therefore does not get the adapter's resolver any more than a stopped one
+		// does.
+		Node: vpn && a.nodeServing(),
+		// The device built ahead of the reader's first switch-on. It stands only while
+		// TUN mode is off: with the mode on, Adapter already says the same thing to the
+		// server (build the device), and this flag says what it was for — so the moment
+		// the capture takes over the prewarm is not repeated as a second, phantom ask.
+		Prewarm: a.tunPrewarm.Load() && !vpn,
+	}
+}
+
 // reconcileSystemDNS brings both halves in line with that decision, and is safe to call
 // whenever anything about it may have changed: it is idempotent, and everything it does is
 // read from live state rather than remembered.
@@ -109,20 +139,7 @@ func (a *App) reconcileSystemDNS(force bool) {
 	if a == nil || a.curDataDir() == "" {
 		return
 	}
-	st := tunserv.State{
-		Adapter:   a.curSetting() != nil && a.curSetting().VPNMode(),
-		Resolvers: a.systemDNSWanted(),
-		// The adapter's own resolver is the tunnel's, not the node's: the address it
-		// names is answered through the capture, by the hijack behind the front-end's
-		// tun inbound. With TUN off and the node running on its local port — the exact
-		// state a TUN switch-off leaves behind — the kept adapter still advertises the
-		// address and Windows still asks it in the multi-homed race, but the path that
-		// answered it went with the capture; every such query waits out a timeout
-		// before the physical resolvers win. A node serving without the tunnel
-		// therefore does not get the adapter's resolver any more than a stopped one
-		// does.
-		Node: a.curSetting() != nil && a.curSetting().VPNMode() && a.nodeServing(),
-	}
+	st := a.tunServiceState()
 	// Written only when it says something new. This runs on a one-second tick, and a file
 	// rewritten every second is a file whose writes the server would sit and read for
 	// nothing — the reconcile on the other side exists to detect a change, not to be fed
@@ -138,25 +155,38 @@ func (a *App) reconcileSystemDNS(force bool) {
 		unchanged = tunserv.ReadState(a.curDataDir()) == st
 	}
 	first := !a.sysDNSStateSet
+	wasResolvers := a.sysDNSStateSet && a.sysDNSState.Resolvers
 	a.sysDNSState, a.sysDNSStateSet = st, true
 	a.sysDNSMu.Unlock()
+	// The forwarder's half of the same decision, before ANY exit below: the
+	// nothing-is-up case is exactly when Configure(System: false) has to reach
+	// dnsstub — it is the only call that closes port 53 (setSystem) — and a
+	// state write that failed must not keep it from running either. Node stopped
+	// under the system proxy, st is all-false, the return fired here, and this
+	// call never ran: the forwarder held 53 for the rest of the session while the
+	// interfaces kept their own resolvers behind it — the reader's local resolver
+	// could never bind the port again, against the very contract this side keeps
+	// (dnsstub.go: "only while asked for"). Both halves stay in one call, as
+	// the note on the old placement below asked for; only the position moved.
+	a.syncDNSStub()
 	if !unchanged {
 		if err := tunserv.WriteState(a.curDataDir(), st); err != nil {
 			a.logf("[dns] 无法记录常驻服务状态: " + err.Error())
 			return
 		}
 	}
-	// The forwarder's half of the same decision, BEFORE the early return below
-	// rather than after it: the return is the "nothing is up" case, and that is
-	// exactly when Configure(System: false) has to reach dnsstub — it is the
-	// only call that closes port 53 (setSystem). Node stopped under the system
-	// proxy, st is all-false, the return fired here, and this call never ran:
-	// the forwarder held 53 for the rest of the session while the interfaces
-	// kept their own resolvers behind it — the reader's local resolver could
-	// never bind the port again, against the very contract this side keeps
-	// (dnsstub.go: "only while asked for"). Both halves stay in one call, as
-	// the note on the old placement below asked for; only the position moved.
-	a.syncDNSStub()
+	if st.Resolvers && !wasResolvers {
+		// The takeover just armed. The undo record the bootstraps read appears when
+		// the server applies it — up to a tick after this — and Configure skips a
+		// sync whose inputs have not moved, so the bootstraps would otherwise lag
+		// a reconcile behind the takeover: a host-named DoH upstream resolved
+		// through the forwarder itself, waiting out one timeout per name. One late
+		// sync, once the record is on disk.
+		go crashlog.Guard("syncDNSStubAfterTakeover", func() {
+			time.Sleep(2 * time.Second)
+			a.syncDNSStub()
+		})
+	}
 	if !st.Adapter && !st.Resolvers {
 		return
 	}

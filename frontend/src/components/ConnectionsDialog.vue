@@ -122,7 +122,7 @@ const chainOf = (c: any) => Array.isArray(c.chains) ? c.chains.join(' ← ') : '
 <template>
     <Modal :title="t('dlg.conn.title')" @close="emit('close')" flip
            :exit="exiting ?? escExit ?? null" @closing="emit('closing', $event)"
-           extra-class="conn-modal" :body-scroll="false">
+           extra-class="conn-modal" :body-scroll="false" :closable="false">
         <template #bar>
             <div class="conn-foot">
                 <div class="conn-total dim">

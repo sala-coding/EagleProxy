@@ -59,7 +59,16 @@ var (
 const (
 	ActionStart = "start"
 	ActionStop  = "stop"
-	ActionExit  = "exit"
+	// ActionTeardown is stop plus the device: the child goes, the adapter with it, and
+	// this server follows them out.
+	//
+	// Separate from ActionExit because the device is the part only this process can take
+	// away (an adapter removal is a PnP call and it wants the token), and because the
+	// exit is what keeps it away: the loop rebuilds the device on a ten-second tick
+	// whenever the app's state still asks for one, and a server left running would undo
+	// the removal before the app's log line about it had finished printing.
+	ActionTeardown = "teardown"
+	ActionExit     = "exit"
 )
 
 // FrontPID is the pid file's record. ConfigHash stamps the front config's

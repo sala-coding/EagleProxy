@@ -381,7 +381,7 @@ func Update(mgr *db.Manager, s *setting.Setting, startedID int, ref string, gid 
 		keepKeys := map[string]bool{}
 		if keep != nil {
 			group.Order = append(group.Order, keep.ID)
-			keepKeys[BeanKey(keep, false)] = true
+			keepKeys[BeanKey(keep)] = true
 			logf("<<<<<<<< 运行中的节点在清空后保留: " + keep.DisplayName())
 		}
 		// The other node the clear spared: the one the walk started on. It is on
@@ -393,7 +393,22 @@ func Update(mgr *db.Manager, s *setting.Setting, startedID int, ref string, gid 
 				continue
 			}
 			group.Order = append(group.Order, p.ID)
-			keepKeys[BeanKey(p, false)] = true
+			keepKeys[BeanKey(p)] = true
+		}
+		// A node the reader switched to mid-walk — often one of the fresh ids the
+		// import above just allocated — is exempt like the walk-start one, but it
+		// is in neither `in` nor the order, and the walk below skips the exempt:
+		// without this it drops out of the order the cleanup keeps, invisible in
+		// its own group and doubled by its content twin. The merge branch keeps
+		// the same case (see the live re-add below).
+		if live != nil {
+			if cur := live(); cur >= 0 && !containsInt(group.Order, cur) {
+				if p := mgr.SnapshotProfile(cur); p != nil && p.GID == group.ID {
+					group.Order = append(group.Order, cur)
+					keepKeys[BeanKey(p)] = true
+					logf("<<<<<<<< 走中切换到的运行节点在清空后保留: " + p.DisplayName())
+				}
+			}
 		}
 		// Twins are collected, not deleted here: the order below is the write the
 		// deletions depend on, and a delete that lands before a failed order save
@@ -407,7 +422,7 @@ func Update(mgr *db.Manager, s *setting.Setting, startedID int, ref string, gid 
 			if exempt(e.ID) {
 				continue
 			}
-			if keepKeys[BeanKey(e, false)] {
+			if keepKeys[BeanKey(e)] {
 				// Its fresh twin: the node is already listed above, with what the
 				// reader measured on it.
 				twins = append(twins, e.ID)
@@ -451,14 +466,14 @@ func Update(mgr *db.Manager, s *setting.Setting, startedID int, ref string, gid 
 		// parse added is the one that goes.
 		byKey := map[string]*db.ProxyEntity{}
 		for _, p := range in {
-			if k := BeanKey(p, false); byKey[k] == nil {
+			if k := BeanKey(p); byKey[k] == nil {
 				byKey[k] = p
 			}
 		}
 		reused := map[int]bool{}
 		group.Order = make([]int, 0, len(ru.updated))
 		for _, ent := range ru.updated {
-			if old := byKey[BeanKey(ent, false)]; old != nil && !reused[old.ID] {
+			if old := byKey[BeanKey(ent)]; old != nil && !reused[old.ID] {
 				reused[old.ID] = true
 				group.Order = append(group.Order, old.ID)
 				// A duplicate from here on: same content, same group, and an id
@@ -567,26 +582,6 @@ func Update(mgr *db.Manager, s *setting.Setting, startedID int, ref string, gid 
 	logf("<<<<<<<< Change of " + group.Name + ":\n" + change)
 	res.Message = change
 	return res, nil
-}
-
-// UpdateAll updates every group that has a subscription URL.
-//
-// Every one of them: the group-level "skip auto update" flag this used to honour is
-// gone. It existed for the background timers, and what it answered — whether this
-// group is fetched on a clock — is already said by the interval being empty (see
-// subUpdateLoop).
-func UpdateAll(mgr *db.Manager, s *setting.Setting, startedID int, logf func(string), live func() int) []error {
-	var errs []error
-	for _, gid := range mgr.TabOrder() {
-		g := mgr.SnapshotGroup(gid)
-		if g == nil || g.URL == "" || g.Archive {
-			continue
-		}
-		if _, err := Update(mgr, s, startedID, g.URL, gid, logf, live); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", g.Name, err))
-		}
-	}
-	return errs
 }
 
 func groupProfiles(mgr *db.Manager, gid int) []*db.ProxyEntity {

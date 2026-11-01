@@ -57,39 +57,77 @@
     font-size: 0.6875rem;
 }
 
-/* The node search, centred on the window. A search is a way of looking at the list
-   rather than a property of it, and the bar is the one place in this window that is
-   about the whole list at once. Absolutely placed so that the bar's two ends — the note
-   on the left, the buttons on the right — keep the layout they have; this one answers to
-   the window's centre, and the translate is what puts the field's own centre there
-   rather than its left edge. */
+/* The node search, at the bar's left end — the first thing on the strip, ahead of the
+   entries it used to be centred among. Folded away it is one button in the window
+   controls' own shape (see .search-glyph); a press opens the field and the bar's other
+   entries step out of the way (they are not rendered while it is open — see App.vue), so
+   the bar has one thing to press rather than a field wedged among controls. The cluster
+   is laid out, not placed: it is the bar's first child, and the strip starts after the
+   rail. */
 .status-search {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
     display: flex;
     align-items: center;
     gap: 6px;
+    margin-left: 6px;
+    /* sit over a draggable strip: opt the search cluster out of the caption
+       hit-test so typing and the clear button stay live */
+    --wails-draggable: no-drag;
 }
 
-/* A pill rather than a box: at this height the two round ends are what keeps it reading
-   as a field lying on the bar instead of a panel that was dropped on it.
+/* Folded away, the search stands at the bar's full height like the controls beside it,
+   and as narrow as the other whole-list entries rather than as wide as the window
+   buttons: it belongs to the list's end of the strip. */
+.status-search > .tb-btn {
+    width: 34px;
+    align-self: stretch;
+}
+
+/* The magnifier as the button's own glyph: the same drawing the field carries, at the
+   size the other bar icons are. */
+.search-glyph {
+    width: 14px;
+    height: 14px;
+}
+
+/* The field wraps the input so the magnifier can live inside it: the icon is
+   positioned against the wrapper, the input pays for it in left padding. */
+.search-field {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.search-ic {
+    position: absolute;
+    left: 10px;
+    width: 13px;
+    height: 13px;
+    color: var(--text-dim);
+    pointer-events: none;
+}
+
+.node-search::placeholder {
+    color: var(--text-dim);
+}
+
+/* A rounded rectangle sunk one shade below the bar (--bg against the bar's --bg-2):
+   the field reads as a well to type into rather than a pill lying on the surface.
    Its edge is --line-strong rather than --line: the field is a control standing on the
    bar, and at --line's weight it dissolved into it — a field that does not say where it
    begins is one the reader has to hunt for. This is the same step the app's other
    surfaces-that-stand-on-something wear (a card in the drawer, the rail's own edge), so
-   the search reads as one of them rather than as a hole in the bar. */
+   the search reads as one of them rather than as a hole in the bar.
+   The left padding clears the magnifier (see .search-ic). */
 .node-search {
     width: 300px;
     height: 24px;
-    background: var(--bg-2);
+    background: var(--bg);
     border: 1px solid var(--line-strong);
-    border-radius: 12px;
+    border-radius: 8px;
     color: var(--text);
     font: inherit;
     font-size: 0.75rem;
-    padding: 0 12px;
+    padding: 0 12px 0 30px;
     outline: none;
 }
 
@@ -100,17 +138,6 @@
     cursor: progress;
 }
 
-/* The empty field reads as a headline: the example text sits in the middle of the
-   pill until the first letter arrives, and typists fall back to the left — the one
-   state where centring tells the truth is the one where there is nothing to say. */
-.node-search:placeholder-shown {
-    text-align: center;
-}
-
-.node-search::placeholder {
-    color: var(--text-dim);
-}
-
 /* The pointer says "this is a field" before the click does: the edge steps up to the
    dim text weight, which is the brightest tone in the palette that is not itself a
    state. */
@@ -118,9 +145,9 @@
     border-color: var(--text-dim);
 }
 
-/* And focus is the one state that has to be unmistakable at a glance — the bar is wide
-   and the field is a 240px pill in the middle of it, so "where will the typing go" is
-   the whole question: the accent on the edge, and a ring of its wash outside it. */
+/* And focus is the one state that has to be unmistakable at a glance — the bar has just
+   been emptied of its other entries for this field, so "where will the typing go" is the
+   whole question: the accent on the edge, and a ring of its wash outside it. */
 .node-search:focus {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent-soft);
@@ -128,9 +155,9 @@
 
 /* The count and the way out of the search, beside the field rather than inside it:
    inside, they would eat the room the query is typed into, and a field whose width
-   changes as it is used is a field that moves under the pointer. Outside, the pair sits
-   symmetrically about the centre — which is where the bar's search is anchored — and the
-   field keeps the 240px it was given. */
+   changes as it is used is a field that moves under the pointer. Outside, the pair
+   trails the field to its right, where the bar is empty while the field is open, and the
+   field keeps the width it was given. */
 .status-search-count {
     font-size: 0.625rem;
     font-variant-numeric: tabular-nums;
@@ -174,6 +201,20 @@ button.node-ip {
     color: var(--text-dim);
     cursor: pointer;
     text-align: left;
+    /* The address and its country's flag on one row: flex rather than inline
+       flow, so the flag cannot wrap under a long address and the gap is the
+       same whatever the figures' width. */
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* The flag rides at the address's right: the base .node-flag is sized by height
+   already, and the row's gap does the spacing, so the inline-flow margin it
+   carries for the panel's text rows is dead weight here. */
+button.node-ip .node-flag {
+    margin: 0;
+    flex: none;
 }
 
 button.node-ip:hover {
@@ -426,7 +467,7 @@ table.profiles th {
 }
 
 .console-body {
-    padding: 5px 8px 6px 3px;
+    padding: 0 0 6px 0;
 }
 
 .logline {

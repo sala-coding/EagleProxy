@@ -13,7 +13,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -277,33 +276,6 @@ func (s *Store) Flush() {
 	}
 }
 
-// Categories returns every category that already has a file for the current
-// day, sorted. The log panel uses it to offer a switcher, so only categories
-// that actually recorded something show up.
-func (s *Store) Categories() []string {
-	dir := s.Dir()
-	if dir == "" {
-		return nil
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	suffix := "-" + time.Now().Format("2006-01-02") + ".log"
-	var out []string
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, suffix) {
-			continue
-		}
-		if cat := strings.TrimSuffix(name, suffix); cat != "" {
-			out = append(out, cat)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
 // Read returns up to maxLines trailing lines of a category's file for the
 // current day. The speed-test categories stream their lines to the UI as they
 // are produced, but the file is what the panel re-reads at the end of a run
@@ -405,32 +377,44 @@ func (s *Store) Truncate(category string) {
 	s.wmu.RUnlock()
 	e := entry{category: category, truncate: true, at: time.Now()}
 	s.Flush()
+	// The check is made under this hold: Close may have landed in the window
+	// the first check's release opened — and an entry sent past a writer that
+	// has already drained and stopped is received by nobody. It is not dropped
+	// (the counter never hears of it) and not fallen back (nothing reads the
+	// queue again): a truncate that silently never happened, which is exactly
+	// what this function exists to prevent.
 	s.wmu.RLock()
-	// The check is made AGAIN under this hold: Close may have landed in the
-	// window the first check's release opened — and an entry sent past a
-	// writer that has already drained and stopped is received by nobody. It
-	// is not dropped (the counter never hears of it) and not fallen back
-	// (nothing reads the queue again): a truncate that silently never
-	// happened, which is exactly what this function exists to prevent.
 	if s.closed {
 		s.wmu.RUnlock()
 		s.truncateDirect(category)
 		return
 	}
-	defer s.wmu.RUnlock()
+	select {
+	case s.ch <- e:
+		s.wmu.RUnlock()
+		return
+	default:
+	}
+	// The queue refilled between the flush and the send. One more flush, then
+	// the final attempt; if even that is refused, the dropped counter's notice
+	// is the honest answer rather than a truncate that silently never
+	// happened. The flush runs outside the read lock, not inside it: Flush
+	// takes a read lock of its own, and a Close blocked on the write lock
+	// would turn that recursion into a wait that never ends.
+	s.wmu.RUnlock()
+	s.Flush()
+	s.wmu.RLock()
+	if s.closed {
+		s.wmu.RUnlock()
+		s.truncateDirect(category)
+		return
+	}
 	select {
 	case s.ch <- e:
 	default:
-		// The queue refilled between the flush and the send. One more flush;
-		// if even that is refused, the dropped counter's notice is the honest
-		// answer rather than a truncate that silently never happened.
-		s.Flush()
-		select {
-		case s.ch <- e:
-		default:
-			s.dropped.Add(1)
-		}
+		s.dropped.Add(1)
 	}
+	s.wmu.RUnlock()
 }
 
 // truncateDirect is Truncate after the writer is gone: the queue it used to be

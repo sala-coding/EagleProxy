@@ -73,8 +73,8 @@ export function trafficCell(up: number, down: number): string {
     return `↑ ${fmtBytes(up)} / ↓ ${fmtBytes(down)}`;
 }
 
-// Which column each test mode produces (mirrors runSpeedTest in app.go):
-// 0 延迟测试 / 1 TCP Ping -> latency, 2 完整测试 -> both, 3 速度测试 -> speed.
+// Which column each test mode produces (mirrors runSpeedTest in app_speedtest.go):
+// 0 延迟测试 -> latency, 2 完整测试 -> both, 3 速度测试 -> speed.
 export const MODE_HAS_LATENCY = (m: number) => m !== 3;
 export const MODE_HAS_SPEED = (m: number) => m === 2 || m === 3;
 
@@ -184,14 +184,27 @@ export const purityLevel = (v: string): string => {
     return 'risky';
 };
 
-// SPEED_MODE_KEYS maps a test mode to its i18n label.
-export const SPEED_MODE_KEYS = ['speed.latency', 'speed.tcp', 'speed.full', 'speed.download'];
+// The test modes the menus offer, each with its i18n label and the mode number the
+// backend expects. The numbers cross the IPC boundary (SpeedTestResult.Mode), so they
+// are written out rather than taken from an array index — and 1 stays retired: it was
+// the TCP ping, whose handshake a UDP-only node can never answer and whose dial a TUN
+// run rerouted through the current node.
+export const SPEED_MODES: ReadonlyArray<{key: string; mode: number}> = [
+    {key: 'speed.latency', mode: 0},
+    {key: 'speed.full', mode: 2},
+    {key: 'speed.download', mode: 3},
+];
 
-// The same four modes said as something in progress rather than as a menu item. The
-// status bar names the run that is going: a latency sweep and a download sweep are
-// different waits — one is over in seconds, the other is minutes of bandwidth — and
-// calling both of them "testing" told the reader nothing about which one they were in.
-export const SPEED_RUNNING_KEYS = ['status.test.latency', 'status.test.tcp', 'status.test.full', 'status.test.speed'];
+// The same modes said as something in progress rather than as a menu item, keyed by
+// the mode number. The status bar names the run that is going: a latency sweep and a
+// download sweep are different waits — one is over in seconds, the other is minutes
+// of bandwidth — and calling both of them "testing" told the reader nothing about
+// which one they were in.
+export const SPEED_RUNNING_KEYS: Record<number, string> = {
+    0: 'status.test.latency',
+    2: 'status.test.full',
+    3: 'status.test.speed',
+};
 
 // Hue assigned to a subscription tab. Stepping by the golden angle (~137.5°)
 // maximises the colour distance between consecutive ids, so tabs sitting next to

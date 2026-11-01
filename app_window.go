@@ -31,13 +31,6 @@ func (a *App) ShowWindow() {
 	runtime.WindowUnminimise(a.curCtx())
 }
 
-// HideWindow hides the main window.
-func (a *App) HideWindow() {
-	if a.curCtx() != nil {
-		runtime.WindowHide(a.curCtx())
-	}
-}
-
 // QuitApp exits the application.
 func (a *App) QuitApp() {
 	a.shutdown()

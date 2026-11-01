@@ -1,5 +1,5 @@
 import {createApp, h} from 'vue'
-// Real country flags (ISO 3166-1, SVG) for node names — see NodeName in App.vue.
+// Real country flags (ISO 3166-1, SVG) for node names — see components/NodeName.vue.
 import 'flag-icons/css/flag-icons.min.css'
 import './style.css'
 import App from './App.vue'

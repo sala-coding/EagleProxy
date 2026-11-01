@@ -215,16 +215,16 @@ func (a *App) setEgress(mode string) {
 }
 
 // egressName is a mode as the reader knows it. The strings in the settings file are a
-// contract with the config builder; these are the four words the window uses for the same
-// four, and a message should not confuse the two.
+// contract with the config builder; these are the words the window uses for the same
+// three modes, and a message should not confuse the two. The block mode the config
+// format once carried is retired — reads of it normalise to "rule" (see app_state.go) —
+// so only the three are named here.
 func egressName(mode string) string {
 	switch mode {
 	case "direct":
 		return "直连"
 	case "global":
 		return "代理"
-	case "block":
-		return "阻断"
 	default:
 		return "规则"
 	}

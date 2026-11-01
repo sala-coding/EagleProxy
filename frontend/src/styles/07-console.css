@@ -35,7 +35,7 @@
 /* The log is read on a plain scroll box: the lines lie level and square to the
    reader, arrive where the stream puts them, and nothing transforms them — no
    entrance, no rim, no tilt. The two declarations below are functional, not
-   decorative, and both are load-bearing for App.tsx's follow logic. */
+   decorative, and both are load-bearing for the follow logic in useLogs.ts. */
 .console-body {
     /* The rows are measured against this box, and a row's offsetTop is measured against its
        offsetParent — which is the nearest positioned ancestor, and was the panel rather than
@@ -147,19 +147,24 @@
 .log-level[data-lvl='warn'] { color: var(--amber); }
 .log-level[data-lvl='error'] { color: var(--red); }
 
-/* The collapse button is the odd one out in the head: everything else describes
-   the log, this one dismisses it. Parking it at the far right keeps it from
-   being read as part of the filter/legend group, and the auto margin absorbs
-   whatever space the legend leaves behind. */
-.console-collapse {
+/* The caption stands alone at the head's left end; everything else on the
+   strip — pause, level, copy, clear, collapse — is one group at the right.
+   The auto margin lives on the group's first member, and absorbs whatever
+   space the caption leaves behind. */
+.log-pause {
     margin-left: auto;
 }
 
-/* The generic head rule above gives every icon a trailing gap so it clears the
-   caption that follows it. The collapse button has no caption, so that gap would
-   sit inside the button and knock the chevron off centre. */
-.console-collapse .ic {
+/* One glyph size for the head's four controls — pause, copy, clear, collapse. They stand
+   in a row with the level dropdown, so the size they agree on is the dropdown's own: the
+   strip's text size, 12px. The collapse used to set its own at 1.0625rem, on the grounds
+   that its pane drawing nearly vanished at the button's 11px; the result was one icon a
+   half larger than the three beside it, which is what made the row read as uneven rather
+   than as a group. The trailing gap the head's general rule adds is cancelled here: these
+   buttons hold nothing but the glyph. */
+.console-head .btn.icon-only .ic {
     margin-right: 0;
+    font-size: 0.75rem;
 }
 
 /* The filter as a column beside the log rather than a menu over it: every choice is
@@ -251,18 +256,20 @@
 }
 
 /* The key to the colours. Deliberately not a filter: the categories are read in one
-   stream, so all this has to do is say what each colour stands for. It is held at the
-   log's top right — the eye arrives at the lines' left edge first, so the explanation
-   belongs on the far side of what it explains — and it is one line that neither wraps
-   nor scrolls: five names is the whole of it, and a key you have to scroll to finish
-   reading is not a key. */
+   stream, so all this has to do is say what each colour stands for. It rides the
+   header row's right end — the eye arrives at the lines' left edge first, so the
+   explanation belongs on the far side of what it explains — and it is one line that
+   neither wraps nor scrolls: five names is the whole of it, and a key you have to
+   scroll to finish reading is not a key. */
 .log-legend {
     flex: 0 0 auto;
     display: flex;
+    align-self: center;
     align-items: center;
     justify-content: flex-end;
     gap: 12px;
-    padding: 2px 10px 3px;
+    margin-left: auto;
+    padding-left: 16px;
     white-space: nowrap;
 }
 
@@ -286,7 +293,7 @@
    colour and a dim glow in its own hue (var(--cat) comes from the cat-* class).
    The breath is opacity only — size and position stay put, so the legend never
    shifts while the panel scrolls. The stream's last line lets the cycle run
-   out (the timer in App.tsx drops .live), so there is no hard cut-off.
+   out (the timer in useLogs.ts drops .live), so there is no hard cut-off.
    The glow rides the dot's own opacity now — the box-shadow sits static on the
    dot and the keyframes dim the pair together — because an animated shadow is
    a repaint per frame, and five of these dots streaming was the log panel's
@@ -323,9 +330,10 @@
        visible alongside a scrolling one computes to auto, so stray pixels would
        become scrollable overflow and the panel would grow a horizontal scrollbar
        for them. Fixed-position descendants are outside this box either way, which
-       is what the log's own context menu is. */
+       is what the log's own context menu is. Horizontal inset lives on the rows
+       themselves, so the ruled table spans the well edge to edge. */
     overflow-x: hidden;
-    padding: 6px 10px 8px 4px;
+    padding: 0 0 8px 0;
     /* The log sits in a recess: the floor is a shade below the panel's own, and the
        top and bottom of the well are shaded inward — dark at the top lip where the
        head's shadow falls into it, lighter at the bottom where the light would land.
@@ -334,21 +342,38 @@
        literally set into the panel rather than laid on it. */
     background: rgba(0, 0, 0, .22);
     box-shadow: inset 0 12px 16px -14px rgba(0, 0, 0, .85), inset 0 -10px 14px -12px rgba(0, 0, 0, .6);
+    /* The table's two rules, one variable each: the hairline under every row, and
+       the column rule between the time cell and the message cell. Both alpha over
+       the well's floor, so the zebra and the severity tints keep reading through
+       them. */
+    --log-hair: rgba(255, 255, 255, .05);
+    --log-col: rgba(255, 255, 255, .10);
+    /* The time column's width, declared once for the header and the rows.
+       12ch at the rows' 0.78125rem mono (JetBrains Mono's ch is .6em) =
+       5.625rem. It cannot stay `12ch` on both: the header's smaller type
+       measures a narrower ch, and its column rule then lands ~11px left of
+       the rows' — two vertical lines an eye can tell apart. */
+    --log-stamp-w: 5.625rem;
 }
 
-/* One stream, many sources. The category rides on the colour of the message
-   itself, which is what the eye reads; it used to also draw a rule down the left
-   edge of every line, and that rule is gone — with the drum curving the lines it
-   read as a rail floating a pixel in front of the text. The time is split into
-   its own dimmed column, so in a mixed stream it orders the lines instead of
-   running into them. A breath of vertical padding keeps consecutive lines from
-   touching, which is what makes dense streams read as lines rather than as a
-   wall. */
+[data-variant="light"] .console-body {
+    --log-hair: rgba(28, 35, 45, .10);
+    --log-col: rgba(28, 35, 45, .18);
+}
+
+/* One stream, many sources, ruled as a table. Every row is two cells — the
+   dimmed time, then the message — with a hairline under each row and a column
+   rule between the cells, so a long wrapped message still reads as one row,
+   and the eye can walk a column of times without the messages crossing it.
+   The category rides on the colour of the message itself, which is what the
+   eye reads. The horizontal inset lives here rather than on the scroll box,
+   so the rules span the well edge to edge and the sticky header (which spans
+   it too) lines its cells up with the rows'. */
 .logline {
     display: flex;
-    align-items: baseline;
-    gap: 10px;
-    padding: 1px 10px;
+    align-items: stretch;
+    padding: 2px 22px 2px 14px;
+    border-bottom: 1px solid var(--log-hair);
     color: var(--text);
     font-family: var(--font-mono);
     font-size: 0.78125rem;
@@ -373,7 +398,7 @@
 }
 
 .logline .stamp {
-    flex: 0 0 12ch;
+    flex: 0 0 var(--log-stamp-w);
     color: var(--text-dim);
     opacity: .55;
     font-variant-numeric: tabular-nums;
@@ -384,7 +409,48 @@
 .logline .msg {
     flex: 1;
     min-width: 0;
+    margin-left: 12px;
+    padding-left: 12px;
+    border-left: 1px solid var(--log-col);
     color: var(--cat, var(--text));
+}
+
+/* The table's header: the two column names, stuck to the top of the well so
+   they stay put while the lines scroll under them. The same two-cell skeleton
+   as a row — same insets, same rule between — so the header reads as the
+   table's own edge, and its cells line the rows' cells up beneath them. */
+.log-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: stretch;
+    padding: 4px 22px 3px 14px;
+    background: rgba(13, 17, 23, .95);
+    border-bottom: 1px solid var(--log-col);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: .08em;
+    color: var(--text-dim);
+}
+
+.log-head .stamp {
+    flex: 0 0 var(--log-stamp-w);
+    white-space: pre;
+    font-weight: 600;
+}
+
+.log-head .msg {
+    flex: 1;
+    min-width: 0;
+    margin-left: 12px;
+    padding-left: 12px;
+    border-left: 1px solid var(--log-col);
+    font-weight: 600;
+}
+
+[data-variant="light"] .console-body .log-head {
+    background: rgba(245, 246, 248, .96);
 }
 
 /* Severity overrides category: an error line wears the alarm hue on its rule

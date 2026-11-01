@@ -21,25 +21,16 @@ func (a *App) GetLogs() []string {
 	return a.curController().Logs()
 }
 
-// LogCategories lists the log categories that have recorded something today.
-// The panel's switcher only offers what actually has data, so a category that
-// was never used does not show up as an empty tab.
-func (a *App) LogCategories() []string {
-	if a.logs == nil {
-		return []string{}
-	}
-	return a.logs.Categories()
-}
-
 // GetCategoryLogs returns the tail of one category's log file. The core log is
 // served from memory by GetLogs, so this exists for the speed-test categories:
 // they stream live as they run, but the file is the panel's source once a run
 // ends, and it is read fresh every time (logstore's Read flushes first).
 func (a *App) GetCategoryLogs(category string) []string {
-	if a.logs == nil {
+	logs := a.logStore()
+	if logs == nil {
 		return []string{}
 	}
-	return a.logs.Read(category, 2000)
+	return logs.Read(category, 2000)
 }
 
 // ClearLogs clears the core log buffer and the core log file of the day.
@@ -47,17 +38,18 @@ func (a *App) ClearLogs() {
 	if a.curController() != nil {
 		a.curController().ClearLogs()
 	}
-	if a.logs != nil {
-		a.logs.Truncate("core")
+	if logs := a.logStore(); logs != nil {
+		logs.Truncate("core")
 	}
 }
 
 // ClearCategoryLogs discards a file-backed category's log file of the day.
 func (a *App) ClearCategoryLogs(category string) {
-	if a.logs == nil {
+	logs := a.logStore()
+	if logs == nil {
 		return
 	}
-	a.logs.Truncate(category)
+	logs.Truncate(category)
 }
 
 // The outbound log stream is batched. A busy core writes dozens of lines a
@@ -195,8 +187,8 @@ func (a *App) logf(line string) {
 	if !logstore.HasStamp(line) {
 		line = logstore.Stamp(line)
 	}
-	if a.logs != nil && !isConnNoise(line) {
-		a.logs.Write("core", line)
+	if logs := a.logStore(); logs != nil && !isConnNoise(line) {
+		logs.Write("core", line)
 	}
 	a.emitLog("core", line)
 }

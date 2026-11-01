@@ -118,7 +118,7 @@
    row above wears that hue, and the bar is the same statement made down the whole
    edge — "this card" in the subscription's colour, not "the selected one" in the
    app's. Taking the hue from --tab-hue means the two can never disagree, and that hue
-   is set on the row by App.tsx (see hueFor), so both rows carry it.
+   is set on the row by SubsDrawer.vue (see hueFor in lib/metrics.ts), so both rows carry it.
    Drawn as an inset shadow because a table cell cannot wear a second border on a side
    that already has one; at the base of the badge's background at full strength,
    because a 3px bar cannot be translucent the way a filled pill can.

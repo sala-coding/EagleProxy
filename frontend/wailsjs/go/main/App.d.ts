@@ -24,21 +24,17 @@ export function CloneProfile(arg1:number):Promise<number>;
 
 export function CloseConnection(arg1:string):Promise<void>;
 
+export function CoreVersion():Promise<string>;
+
 export function CreateGroup(arg1:string):Promise<number>;
 
 export function CreateProfile(arg1:string,arg2:number):Promise<number>;
-
-export function CreateRouting(arg1:string,arg2:number):Promise<void>;
-
-export function CreateSubscription(arg1:string):Promise<number>;
 
 export function DeduplicateGroup(arg1:number):Promise<number>;
 
 export function DeleteGroup(arg1:number):Promise<void>;
 
 export function DeleteProfile(arg1:number):Promise<void>;
-
-export function DeleteRouting(arg1:string):Promise<void>;
 
 export function DownloadMissingRuleSets():Promise<number>;
 
@@ -86,10 +82,6 @@ export function GetSPMode():Promise<Record<string, boolean>>;
 
 export function GetSettings():Promise<Record<string, any>>;
 
-export function HideWindow():Promise<void>;
-
-export function ImportLink(arg1:string,arg2:number):Promise<number>;
-
 export function ImportLinks(arg1:string,arg2:number):Promise<Array<number>>;
 
 export function ImportRuleSets(arg1:Array<string>,arg2:string):Promise<number>;
@@ -97,10 +89,6 @@ export function ImportRuleSets(arg1:Array<string>,arg2:string):Promise<number>;
 export function ListGroups():Promise<Array<main.GroupInfo>>;
 
 export function ListProfiles(arg1:number):Promise<Array<main.ProfileInfo>>;
-
-export function ListRoutings():Promise<Array<string>>;
-
-export function LogCategories():Promise<Array<string>>;
 
 export function MoveProfile(arg1:number,arg2:number):Promise<void>;
 
@@ -117,8 +105,6 @@ export function PreviewConfig(arg1:number):Promise<string>;
 export function QuitApp():Promise<void>;
 
 export function ReadClipboard():Promise<string>;
-
-export function Refresh():Promise<void>;
 
 export function RemoveFailedProfiles(arg1:number):Promise<number>;
 
@@ -177,8 +163,6 @@ export function SystemFontScale():Promise<number>;
 export function TestDNS(arg1:Array<string>,arg2:boolean):Promise<Array<dnstest.Result>>;
 
 export function TestHotkey(arg1:string):Promise<boolean>;
-
-export function UpdateAllSubscriptions():Promise<void>;
 
 export function UpdateGroup(arg1:db.Group):Promise<void>;
 

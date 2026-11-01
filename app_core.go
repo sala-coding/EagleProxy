@@ -71,11 +71,16 @@ func (a *App) reload(keepCore bool) error {
 	// first call of a launch; from the second on it is.
 	a.syncDNSStub()
 
+	a.logsMu.Lock()
 	if a.logs == nil {
 		a.logs = logstore.New(a.logDir())
 	} else {
+		// SetDir is a swap on the shared store, and logf/logSpeedtest run on
+		// other goroutines while this reload goes: the same lock the readers
+		// snapshot the pointer under keeps the swap off their holds.
 		a.logs.SetDir(a.logDir())
 	}
+	a.logsMu.Unlock()
 
 	if keepCore && a.curController() != nil {
 		a.curController().SetManager(a.curMgr())

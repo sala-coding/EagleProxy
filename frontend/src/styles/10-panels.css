@@ -3,9 +3,10 @@
    (Split out of App.css; the order of these files is the cascade.) */
 
 /* --- about ---
-   The name, then the facts, as label/value rows. Everything after the name is set in
-   the monospace face: a revision, a version of Go and two paths are read character by
-   character, and they are the parts a bug report copies out. */
+   The name, then the facts, as label/value rows; the author's QR card sits to
+   the right of them. Everything after the name is set in the monospace face:
+   a revision and a version of Go are read character by character, and they are
+   the parts a bug report copies out. */
 /* The mark beside the name: the same artwork the exe and the tray wear, read out of the
    icon directory rather than inlined, so the tree keeps one copy of it. Drawn at 32px
    from the 64px file, which stays sharp on a 2x display. */
@@ -50,6 +51,89 @@
     margin: 0;
     min-width: 0;
     overflow-wrap: anywhere;
+}
+
+/* The card is two columns: the name, the facts and the actions on the left, the
+   author's QR card holding the right edge. stretch, not center — the columns are
+   the same height, so neither side floats in space: the actions' grid fills
+   whatever the QR card's height leaves, and the card follows the facts when they
+   grow. */
+.about-grid {
+    display: flex;
+    align-items: stretch;
+    gap: 18px;
+}
+
+.about-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* The actions are the left column's floor: two by two, full width each, pushed
+   down so the column's spare height lands above them rather than below — the
+   facts stay at the top edge where the reading starts. */
+.about-actions {
+    margin-top: auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding-top: 14px;
+}
+
+.about-actions .btn {
+    width: 100%;
+    margin: 0;
+    justify-content: center;
+}
+
+/* The odd cell — 打开数据目录 — takes the whole row: it opens a folder rather
+   than a page, and spanning it is what keeps the grid two-by-three instead of
+   leaving a hole beside it. */
+.about-actions .btn.wide {
+    grid-column: 1 / -1;
+}
+
+/* The QR card: the image, then the name it belongs to. Its own hairline and floor
+   make it read as a card against either theme rather than as a picture pasted on. */
+.about-qr-card {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* The left column is taller than this card now that it carries four facts and
+       three rows of buttons, and the grid stretches both sides to match. Centring
+       spends that extra height above and below the picture instead of leaving it
+       all under the caption. */
+    justify-content: center;
+    gap: 7px;
+    margin: 0;
+    padding: 9px 9px 7px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .03);
+}
+
+[data-variant="light"] .about-qr-card {
+    background: rgba(28, 35, 45, .04);
+}
+
+/* The card's artwork, as the author drew it: a portrait sheet with the name and
+   the code together. 126px is the width that fits the card's column and keeps the
+   whole sheet visible — cropped, the picture lost the identity that made it a
+   signature rather than a scan target. */
+.about-qr {
+    display: block;
+    width: 126px;
+    height: auto;
+    border-radius: 6px;
+}
+
+.about-qr-cap {
+    font-size: 0.65625rem;
+    letter-spacing: .06em;
+    color: var(--text-dim);
 }
 
 /* A release the check found, and the two things that can be done about it. It sits
@@ -340,7 +424,7 @@
     z-index: 200;
     min-width: 190px;
     /* The node menu lists every action a row has and is taller than a short
-       window, so the clamp in App.tsx moves it up to fit and stops it at the status
+       window, so the clamp in App.vue moves it up to fit and stops it at the status
        bar, which it must not reach over. That clamp writes its own max-height in the
        same pass, measured against the bar's real height, and this one is only where
        that value starts from — the 30px here is the bar's min-height rather than its
@@ -409,7 +493,7 @@
 }
 
 /* The submenu: the same panel as the menu it hangs off, docked beside the item
-   (the layout effect in App.tsx writes the offset, so it can open leftwards when
+   (the layout effect in App.vue writes the offset, so it can open leftwards when
    the window has no room on the right). Doubled class because a later bare
    .ctxmenu re-declares min-width and at equal specificity the later one wins,
    which (0,2,0) does not. Its labels are short, so it sizes to them instead of

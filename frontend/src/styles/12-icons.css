@@ -31,10 +31,9 @@
     }
 }
 
-/* the run-state dot on the routing list and the state chip: a plain painted
+/* the run-state dot on the routing list: a plain painted
    disc, the one glyph that never needed a library */
-.state-dot,
-.state-chip .state-dot {
+.state-dot {
     display: block;
     width: 6px;
     height: 6px;

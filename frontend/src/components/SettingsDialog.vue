@@ -104,7 +104,7 @@ const props = defineProps<{
 // not.
 const uiScale = defineModel<number>('uiScale', {required: true});
 // The theme is the other half of the same arrangement as the type scale: it lives
-// in the app (it is an attribute on the document, see App.tsx) but the control
+// in the app (it is an attribute on the document, see App.vue) but the control
 // belongs to this dialog, and the choice is written into the object being edited
 // so that 保存 is what persists it.
 const theme = defineModel<string>('theme', {required: true});
@@ -1294,7 +1294,19 @@ const jsonSlideExtra = (title: string) =>
 // a useCallback because the field suspends and resumes on every focus change, and a
 // new function each render would make it do so every render instead.
 const onHotkeyCapture = (active: boolean) => {
-    void (active ? API.SuspendHotkeys() : API.ResumeHotkeys());
+    const call = active ? API.SuspendHotkeys() : API.ResumeHotkeys();
+    void call.catch(() => {
+        // One retry, and if the resume still will not land, said out loud: a
+        // suspend that never comes back leaves every global hotkey dead for the
+        // rest of the session with nothing on screen about it.
+        void (active ? API.SuspendHotkeys() : API.ResumeHotkeys())
+            .then(() => {
+                if (!active) emit('notify', t('hotkey.resumeFailed'), 'ok');
+            })
+            .catch(() => {
+                if (!active) emit('notify', t('hotkey.resumeFailed'), 'err');
+            });
+    });
 };
 
 // Whether a captured combination may be recorded, and the last word on it. Two ways
@@ -1316,7 +1328,18 @@ const acceptHotkey = async (key: string, combo: string) => {
     }
     // Asked while the app's own hotkeys are suspended (see onHotkeyCapture), so none
     // of ours is in the way of the answer.
-    if (!(await API.TestHotkey(combo))) {
+    let taken = false;
+    try {
+        taken = await API.TestHotkey(combo);
+    } catch {
+        // A registration the backend could not even attempt (a refusal from
+        // Windows surfaces as an error, not as false) answers the way the false
+        // does: the field's own dialog, which is what a rejected combination was
+        // always meant to meet. Uncaught, the rejection would land on the root
+        // crash boundary instead.
+        taken = false;
+    }
+    if (!taken) {
         hotkeyClash.value = {combo, owner: null};
         return false;
     }

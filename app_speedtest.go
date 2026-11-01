@@ -5,6 +5,7 @@ import (
 	"eagle/internal/db"
 	"eagle/internal/logstore"
 	"eagle/internal/speedtest"
+	"eagle/internal/sub"
 	"eagle/internal/util"
 	"fmt"
 	"strings"
@@ -18,8 +19,6 @@ import (
 // modes never mix their output: text-logs/<category>-YYYY-MM-DD.log.
 func speedtestCategory(mode int) string {
 	switch mode {
-	case speedtest.ModeTCPPing:
-		return "speedtest-tcp"
 	case speedtest.ModeFullTest:
 		return "speedtest-full"
 	case speedtest.ModeSpeedTest:
@@ -36,8 +35,8 @@ func (a *App) logSpeedtest(category, line string) {
 	// the file as a write, and the two have to agree — a test's output used to show
 	// up untimed while it ran and timed once the panel was reopened.
 	line = logstore.Stamp(util.StripANSI(line))
-	if a.logs != nil {
-		a.logs.Write(category, line)
+	if logs := a.logStore(); logs != nil {
+		logs.Write(category, line)
 	}
 	a.emitLog(category, line)
 }
@@ -136,8 +135,6 @@ func (a *App) takeOverSpeedtest(ctx context.Context, cancel context.CancelFunc) 
 // speedtestModeName renders a test mode for logs.
 func speedtestModeName(mode int) string {
 	switch mode {
-	case speedtest.ModeTCPPing:
-		return "TCP Ping"
 	case speedtest.ModeFullTest:
 		return "完整测试"
 	case speedtest.ModeSpeedTest:
@@ -213,15 +210,15 @@ func (a *App) speedtest(ids []int, mode int, title string) ([]SpeedTestResult, e
 	runner.SetContext(ctx)
 	runner.SetLogger(func(line string) { a.logSpeedtest(category, line) })
 
-	if a.logs != nil {
+	if logs := a.logStore(); logs != nil {
 		if title == "" {
 			title = "单个节点"
 		}
 		// Each run replaces the file instead of appending to it, so the log
 		// always describes the latest test of that mode.
-		a.logs.Truncate(category)
-		a.logs.Section(category, fmt.Sprintf("%s · %s · %d 个节点", title, speedtestModeName(mode), len(ids)))
-		a.emitLog("core", logstore.Stamp(">>> 测速日志: "+a.logs.Path(category, time.Now())))
+		logs.Truncate(category)
+		logs.Section(category, fmt.Sprintf("%s · %s · %d 个节点", title, speedtestModeName(mode), len(ids)))
+		a.emitLog("core", logstore.Stamp(">>> 测速日志: "+logs.Path(category, time.Now())))
 	}
 
 	n := a.curSetting().TestConcurrent
@@ -269,6 +266,17 @@ loop:
 				// The store moved under the run (see startDir).
 				return
 			}
+			// The id the measurement was taken on may not name the same node by
+			// the time it lands: a subscription update running beside the walk
+			// deletes profiles, and the freed id goes to the next add. Identity,
+			// not existence — a recycled id's new tenant must not wear the old
+			// node's numbers (the traffic counter closes the same trap; see
+			// FlushTrafficCounter). Checked on a snapshot, so the window left is
+			// the one SaveProfile's own shape already carries.
+			if cur := a.curMgr().SnapshotProfile(ent.ID); cur == nil || cur.GID != ent.GID ||
+				sub.BeanKey(cur) != sub.BeanKey(ent) {
+				return
+			}
 			mu.Lock()
 			// The metric write is funnelled through the manager's locked update
 			// so it cannot interleave with a reader walking the bean maps, and
@@ -300,7 +308,7 @@ loop:
 	}
 	wg.Wait()
 
-	if a.logs != nil {
+	if logs := a.logStore(); logs != nil {
 		// Only the run that is still the registered one writes its report. A
 		// superseded run can reach here after the newer one has already truncated the
 		// file — the join above is bounded on purpose, so this is the case it leaves
@@ -310,9 +318,9 @@ loop:
 		a.speedtestMu.Unlock()
 		if current {
 			for _, r := range results {
-				a.logs.Write(category, a.speedtestResultLine(r))
+				logs.Write(category, a.speedtestResultLine(r))
 			}
-			a.logs.Section(category, speedtestModeName(mode)+" 结束")
+			logs.Section(category, speedtestModeName(mode)+" 结束")
 		}
 	}
 	return results, nil
@@ -321,14 +329,6 @@ loop:
 func runSpeedTest(r *speedtest.Runner, ent *db.ProxyEntity, mode int) SpeedTestResult {
 	res := SpeedTestResult{ID: ent.ID, Mode: mode}
 	switch mode {
-	case speedtest.ModeTCPPing:
-		ms, err := r.RunTCPPing(ent)
-		if err != nil {
-			res.Error = err.Error()
-			res.Latency = -1
-		} else {
-			res.Latency = ms
-		}
 	case speedtest.ModeFullTest:
 		ms, speed, report, err := r.RunFullTest(ent)
 		res.Latency = ms

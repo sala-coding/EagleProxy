@@ -42,8 +42,6 @@ const emit = defineEmits<{
     gripDbl: [];
     openGroup: [id: number];
     hoverSwitch: [id: number];
-    peekReel: [id: number];
-    dropReel: [from: 'drawer' | 'stack'];
     updateSub: [id: number];
     deleteGroup: [id: number];
     showUrlQR: [url: string];
@@ -143,7 +141,6 @@ const hueStyle = (id: number) => ({'--tab-hue': hueFor(id)} as CSSProperties);
 // stays the click's alone.
 const cardEnter = (id: number) => {
     emit('hoverSwitch', id);
-    emit('peekReel', id);
 };
 
 // the row's own action buttons sit inside
@@ -247,7 +244,6 @@ const swallowCtx = (e: MouseEvent) => {
                             :title="d.cardTitle"
                             :data-gid="d.g.id"
                             @mouseenter="cardEnter(d.g.id)"
-                            @mouseleave="emit('dropReel', 'drawer')"
                             @click="emit('openGroup', d.g.id)"
                             @keydown="onRowKey($event, d.g.id)"
                             @contextmenu="swallowCtx">
@@ -365,7 +361,6 @@ const swallowCtx = (e: MouseEvent) => {
                             :style="hueStyle(d.g.id)"
                             :data-gid="d.g.id"
                             @mouseenter="cardEnter(d.g.id)"
-                            @mouseleave="emit('dropReel', 'drawer')"
                             @click="emit('openGroup', d.g.id)"
                             @contextmenu="swallowCtx">
                             <!-- No address on the card. It was the one line on the

@@ -273,7 +273,17 @@ func (a *App) DownloadUpdate() error {
 	if !a.updateBusy.CompareAndSwap(false, true) {
 		return fmt.Errorf("更新正在处理中，请稍候")
 	}
-	defer a.updateBusy.Store(false)
+	// Released on every road except the one past the swap script's start: the
+	// process is already leaving there, and a flag cleared on return would let a
+	// second call pass the gate above and run cleanupUpdateTemps — deleting the
+	// script and build the first swap is still working from, then re-downloading
+	// over the same pid-named paths. The very race the gate was written to close.
+	swapping := false
+	defer func() {
+		if !swapping {
+			a.updateBusy.Store(false)
+		}
+	}()
 	rel, err := a.newerRelease()
 	if err != nil {
 		return err
@@ -363,6 +373,10 @@ func (a *App) DownloadUpdate() error {
 	// The script is detach-started and outlives this cmd; the handle must still
 	// be released, or the updater cmd sits as a zombie until the app exits.
 	go func() { _ = cmd.Wait() }()
+	// Past the point of no return: the script is running and the quit is
+	// scheduled. The busy flag stays up for the seconds this process has left,
+	// so a second press cannot pass the gate and tear the swap's files down.
+	swapping = true
 	// Only now are the helpers torn down — after the one step that can still
 	// fail has succeeded. Both the TUN front-end and the resident server are
 	// this binary with different arguments, and Windows will not replace a file

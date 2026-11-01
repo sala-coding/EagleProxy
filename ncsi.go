@@ -19,15 +19,22 @@ package main
 // So the wake asks the question first. It is the system's own question — the same
 // name, put to the same resolver, the way the system will put it — and the stack
 // hears about the change only once the answer has come back.
+//
+// Every wait here is on the wake's own path, which is to say on the reader's path:
+// the tray badge is what they are watching. So each one is the shortest that still
+// separates "answered" from "not", and the slow path — a takeover that is not ready —
+// gives up in about two seconds instead of six and lets the system look anyway.
 
 import (
 	"context"
 	"encoding/binary"
 	"net"
 	"net/netip"
+	"sync"
 	"time"
 
 	"eagle/internal/configbuilder"
+	"eagle/internal/crashlog"
 	"eagle/internal/dnstest"
 	"eagle/internal/dnsx"
 	"eagle/internal/tunfast"
@@ -47,18 +54,42 @@ const (
 // It is bounded, because the wait is a courtesy to the system and not a condition on
 // it: a takeover that never answers must not keep the stack from hearing that the
 // picture moved. Past this bound the wake goes out as it always did.
-const nCSIReadyWait = 3 * time.Second
+//
+// The bound used to be three seconds, on the reasoning that a first answer needs time
+// to arrive. The routes are taken only after the core's inbound answers (see
+// takeTunRoutes), so the takeover is already able to resolve by the time this runs;
+// the wait is for the adapter's own resolver, which SelfDNS has just written. Two
+// seconds covers that on a slow machine, and a takeover that is not ready answers
+// nothing however long it is given.
+const nCSIReadyWait = 2 * time.Second
 
 // nCSIQuestionWait is one question's own allowance. It is short, like the system's
 // own: a question that took this long to be answered would not have been answered in
 // time for the probe either, and the wait would have cost the reader more than it
 // bought.
-const nCSIQuestionWait = 1200 * time.Millisecond
+//
+// The addresses asked are on this machine's own loopback path into the tunnel (see
+// tunfast.ResolverAddrs), where an answer is milliseconds when it comes at all. The
+// allowance therefore only has to separate "answered" from "will not answer", and
+// the second is exactly the case the wake must not spend two seconds discovering.
+const nCSIQuestionWait = 800 * time.Millisecond
 
 // nCSIWarmWait is how long the cache warming may take. Warming is a courtesy too: a
 // name the machine already knows costs nothing, and a name it does not is warmed only
 // if the resolver answers in time.
-const nCSIWarmWait = 1500 * time.Millisecond
+//
+// Both names are warmed at once, so this is the whole of the warming — not a budget
+// per name — and the first of them is the only one the probe's first step needs.
+const nCSIWarmWait = 500 * time.Millisecond
+
+// nCSIRewakeDelay is when the second wake goes out.
+//
+// The first probe can still lose even over a warm cache: the stack may have begun it
+// on the old picture, and one that loses is not asked again for minutes. A second
+// InternetSetOption a moment later costs two wininet calls and gives the probe a
+// fresh start against a machine that has fully settled — the adapter routed, its
+// resolver written, the cache filled.
+const nCSIRewakeDelay = 1500 * time.Millisecond
 
 // wakeNCSI tells the system to look at its connectivity picture again, once the
 // takeover is able to answer the question its own probe is going to ask.
@@ -67,17 +98,98 @@ const nCSIWarmWait = 1500 * time.Millisecond
 // wake. A wake that arrives while the takeover is still answering nothing is a probe
 // the system loses, and the backoff that follows is minutes long.
 func (a *App) wakeNCSI() {
+	// One budget for both waits: the answer, and the takeover behind it. Spending
+	// the first wait's leftovers on the second is what keeps the whole wake inside
+	// two seconds on a machine where everything is already in place.
 	ctx, cancel := context.WithTimeout(context.Background(), nCSIReadyWait)
 	ready := waitNCSIAnswer(ctx)
-	cancel()
+	canWarm := false
 	if ready {
+		canWarm = waitSystemTakeover(ctx)
+	}
+	cancel()
+	switch {
+	case ready && canWarm:
 		// The cache is warm before the system asks: the probe's first step is a
 		// resolution, and one that is already answered costs the probe nothing.
 		warmNCSIProbe()
-	} else {
+	case ready:
+		// The takeover has not reached every interface yet. Warming now would put
+		// whatever a physical resolver answers — possibly a forgery — into the very
+		// cache the probe is about to hit, which is how its first step loses before
+		// the probe began. Skipped deliberately; the second wake warms it instead.
+		a.logf("[vpn] 系统 DNS 接管尚未生效，跳过缓存预热")
+	default:
 		a.logf("[vpn] 接管尚未答出探测域名，仍按旧例唤醒系统的连通性探测")
 	}
 	refreshSystemNetworkState()
+	// And once more behind it: see nCSIRewakeDelay. By then the takeover has either
+	// landed or will not, so the second wake warms the cache first — a good answer
+	// in the cache, overwriting whatever the first probe's own resolution left
+	// there, is what lets the probe's second start win.
+	go crashlog.Guard("rewakeNCSI", func() {
+		time.Sleep(nCSIRewakeDelay)
+		if systemTakeoverSettled() {
+			warmNCSIProbe()
+		}
+		refreshSystemNetworkState()
+	})
+}
+
+// waitSystemTakeover answers whether the takeover has reached every interface that
+// resolves — the resident server applies it on its own one-second tick, so a state
+// file written moments ago does not yet describe the machine — waiting briefly, on
+// the budget the caller hands over.
+func waitSystemTakeover(ctx context.Context) bool {
+	for {
+		if systemTakeoverSettled() {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+// systemTakeoverSettled reports whether every interface the machine resolves through
+// now leads with the takeover's loopback.
+//
+// The list asked is the same one the server took over (see tunfast.SystemResolvers:
+// interfaces with a default route, the tunnel itself skipped), so "all of them carry
+// the loopback" is not a guess about which interfaces matter — it is the exact
+// condition under which a query through the system resolver can only be answered by
+// the forwarder.
+func systemTakeoverSettled() bool {
+	list, err := tunfast.SystemResolvers(configbuilder.TunAdapterName())
+	if err != nil || len(list) == 0 {
+		return false
+	}
+	for _, e := range list {
+		if !carriesTakeover(e) {
+			return false
+		}
+	}
+	return true
+}
+
+// carriesTakeover answers whether one interface's resolver list now starts with the
+// takeover. Per family, not per interface: an interface carrying only IPv4 resolvers
+// is taken over on that family alone (see PrependResolvers), and its queries are
+// answered by the forwarder all the same.
+func carriesTakeover(e tunfast.AdapterResolvers) bool {
+	for _, v := range e.V4 {
+		if v == "127.0.0.1" {
+			return true
+		}
+	}
+	for _, v := range e.V6 {
+		if v == "::1" {
+			return true
+		}
+	}
+	return false
 }
 
 // waitNCSIAnswer asks the takeover's own resolver the question the system's probe is
@@ -87,13 +199,24 @@ func (a *App) wakeNCSI() {
 // at (see tunfast.ResolverAddrs) — because that is the one the system's probe will
 // use, and no other path proves that one works: the machine's own resolvers may
 // answer while the adapter's still cannot.
+//
+// The addresses are asked at once. They are one per family, and the probe will use
+// whichever its own socket picks; asking them in turn made the family that cannot
+// answer a full question's wait in front of the wake, which is the wait this function
+// exists to keep short.
 func waitNCSIAnswer(ctx context.Context) bool {
 	addrs, err := tunfast.ResolverAddrs(configbuilder.TunAdapterName())
-	if err != nil {
+	if err != nil || len(addrs) == 0 {
 		return false
 	}
+	answers := make(chan bool, len(addrs))
 	for _, addr := range addrs {
-		if askNCIName(ctx, addr, nCSIProbeHost) {
+		go func(addr netip.Addr) {
+			answers <- askNCIName(ctx, addr, nCSIProbeHost)
+		}(addr)
+	}
+	for range addrs {
+		if <-answers {
 			return true
 		}
 	}
@@ -140,14 +263,23 @@ func nCSIAnswered(reply []byte) bool {
 // It goes through the machine's own resolver on purpose: a question put straight to a
 // resolver would be answered all the same, but it would populate no cache — and the
 // cache is the thing being warmed here.
+//
+// Both names go out together: they are two questions to the same resolver, and doing
+// them in turn put the second one's wait in the cache's own path for no reason.
 func warmNCSIProbe() {
 	ctx, cancel := context.WithTimeout(context.Background(), nCSIWarmWait)
 	defer cancel()
+	var wg sync.WaitGroup
 	for _, name := range []string{nCSIProbeHost, nCSIDNSHost} {
-		// A name that does not resolve is not a failure here: the cache remembers
-		// that too, and the probe asks for what it asks for.
-		_, _ = net.DefaultResolver.LookupHost(ctx, name)
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+			// A name that does not resolve is not a failure here: the cache
+			// remembers that too, and the probe asks for what it asks for.
+			_, _ = net.DefaultResolver.LookupHost(ctx, name)
+		}(name)
 	}
+	wg.Wait()
 }
 
 // nCSIQueryID is the id of one question. It only has to differ from the questions

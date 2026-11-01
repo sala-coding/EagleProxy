@@ -72,10 +72,10 @@
     top: var(--fly-y, 0px);
     /* the one concession to the new seat: the original 88vh cap still applies, but
        a pane dropped low in a short window must not hang off the bottom edge.
-       The layout effect in App.tsx normally slides it up before this matters. */
+       The layout effect in App.vue normally slides it up before this matters. */
     max-height: min(88vh, calc(100vh - var(--fly-y, 0px) - 8px));
     /* The travel is the distance from the window's right border to the pane's final
-       seat, written by the layout effect in App.tsx. A fixed few pixels would be a
+       seat, written by the layout effect in App.vue. A fixed few pixels would be a
        nudge; this is the whole crossing. */
     --fly-travel: 40px;
     animation: paneOut .52s cubic-bezier(.32, .72, .28, 1) both;

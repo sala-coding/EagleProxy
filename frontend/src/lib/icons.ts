@@ -22,6 +22,8 @@ export const Layout4Filled = mk('layout-4-fill', "<path fill=\"currentColor\" d=
 
 export const LayoutBottomCloseFilled = mk('layout-bottom-close-fill', "<path fill=\"currentColor\" d=\"M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM5 19h14v-3H5zm9.828-11.207a1 1 0 0 0-1.414 0L12 9.207l-1.414-1.414a1 1 0 0 0-1.414 1.414l2.121 2.121a1 1 0 0 0 1.414 0l2.121-2.121a1 1 0 0 0 0-1.414\"/>");
 
+export const LayoutBottomLine = mk('layout-bottom-line', "<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" d=\"M4 15h16M5 20h14a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1Z\"/>");
+
 export const CheckCircleFilled = mk('check-circle-fill', "<path fill=\"currentColor\" d=\"M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12S6.477 2 12 2m4.95 6.38a1 1 0 0 0-1.415 0l-4.95 4.951l-2.121-2.121a1 1 0 1 0-1.414 1.414l2.829 2.828a1 1 0 0 0 1.414 0l5.656-5.657a1 1 0 0 0 0-1.414\"/>");
 
 export const CheckFilled = mk('check-fill', "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M21.546 5.112a1.5 1.5 0 0 1 0 2.121L10.232 18.547a1.5 1.5 0 0 1-2.121 0L2.454 12.89a1.5 1.5 0 1 1 2.121-2.121l4.596 4.596L19.424 5.112a1.5 1.5 0 0 1 2.122 0\" clip-rule=\"evenodd\"/>");
@@ -91,6 +93,8 @@ export const RightFilled = mk('right-fill', "<path fill=\"none\" stroke=\"curren
 export const SaveFilled = mk('save-fill', "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6.414A2 2 0 0 0 19.414 5L17 2.586A2 2 0 0 0 15.586 2zm10.238 8.793a1 1 0 1 0-1.414-1.414l-4.242 4.243l-1.415-1.415a1 1 0 0 0-1.414 1.414l2.05 2.051a1.1 1.1 0 0 0 1.556 0z\" clip-rule=\"evenodd\"/>");
 
 export const ServerFilled = mk('server-fill', "<path fill=\"currentColor\" d=\"M20 19a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-4h16zm-6-2a1 1 0 1 0 0 2a1 1 0 0 0 0-2m3 0a1 1 0 1 0 0 2a1 1 0 0 0 0-2m3-4H4V9h16zM18 3a2 2 0 0 1 2 2v2H4V5a2 2 0 0 1 2-2z\"/>");
+
+export const Settings3Filled = mk('settings-3-fill', "<path fill=\"currentColor\" d=\"M14.035 2.808c.369-.266.89-.39 1.402-.203a10 10 0 0 1 2.981 1.725c.417.35.57.86.524 1.313c-.075.752.058 1.48.42 2.106c.361.627.924 1.106 1.615 1.417c.414.187.782.576.875 1.113a10 10 0 0 1 0 3.44a1.51 1.51 0 0 1-.875 1.114c-.69.311-1.254.79-1.616 1.416c-.361.627-.494 1.354-.419 2.106c.046.452-.107.964-.524 1.313a10 10 0 0 1-2.981 1.724a1.51 1.51 0 0 1-1.402-.202c-.614-.442-1.31-.691-2.035-.691c-.724 0-1.42.249-2.035.691a1.51 1.51 0 0 1-1.402.202a10 10 0 0 1-2.981-1.724c-.417-.35-.57-.86-.524-1.313c.075-.752-.058-1.48-.42-2.106c-.361-.627-.925-1.105-1.615-1.416a1.51 1.51 0 0 1-.876-1.114a10 10 0 0 1 0-3.44c.094-.537.462-.926.876-1.113c.69-.311 1.254-.79 1.616-1.417c.361-.627.494-1.354.419-2.106a1.51 1.51 0 0 1 .524-1.313a10 10 0 0 1 2.981-1.725a1.51 1.51 0 0 1 1.402.203c.614.442 1.31.691 2.035.691c.724 0 1.42-.249 2.035-.691M12 8.999a3 3 0 1 0 0 6a3 3 0 0 0 0-6\"/>");
 
 export const ShieldFilled = mk('shield-fill', "<path fill=\"currentColor\" d=\"M11.298 2.196a2 2 0 0 1 1.404 0l7 2.625A2 2 0 0 1 21 6.694v5.362a9 9 0 0 1-4.975 8.05l-3.354 1.677a1.5 1.5 0 0 1-1.342 0l-3.354-1.677A9 9 0 0 1 3 12.056V6.694A2 2 0 0 1 4.298 4.82zM12 8a1 1 0 0 0-1 1v2H9a1 1 0 0 0 0 2h2v2a1 1 0 1 0 2 0v-2h2a1 1 0 1 0 0-2h-2V9a1 1 0 0 0-1-1\"/>");
 

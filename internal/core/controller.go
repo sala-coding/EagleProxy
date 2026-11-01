@@ -105,13 +105,6 @@ func (c *Controller) SetCorePath(p string) {
 	c.corePath = p
 }
 
-// CorePath returns the configured core path.
-func (c *Controller) CorePath() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.corePath
-}
-
 // SetSetting swaps the settings this controller builds configs from.
 func (c *Controller) SetSetting(s *setting.Setting) {
 	c.mu.Lock()

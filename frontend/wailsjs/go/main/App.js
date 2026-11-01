@@ -34,20 +34,16 @@ export function CloseConnection(arg1) {
   return window['go']['main']['App']['CloseConnection'](arg1);
 }
 
+export function CoreVersion() {
+  return window['go']['main']['App']['CoreVersion']();
+}
+
 export function CreateGroup(arg1) {
   return window['go']['main']['App']['CreateGroup'](arg1);
 }
 
 export function CreateProfile(arg1, arg2) {
   return window['go']['main']['App']['CreateProfile'](arg1, arg2);
-}
-
-export function CreateRouting(arg1, arg2) {
-  return window['go']['main']['App']['CreateRouting'](arg1, arg2);
-}
-
-export function CreateSubscription(arg1) {
-  return window['go']['main']['App']['CreateSubscription'](arg1);
 }
 
 export function DeduplicateGroup(arg1) {
@@ -60,10 +56,6 @@ export function DeleteGroup(arg1) {
 
 export function DeleteProfile(arg1) {
   return window['go']['main']['App']['DeleteProfile'](arg1);
-}
-
-export function DeleteRouting(arg1) {
-  return window['go']['main']['App']['DeleteRouting'](arg1);
 }
 
 export function DownloadMissingRuleSets() {
@@ -158,14 +150,6 @@ export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
-export function HideWindow() {
-  return window['go']['main']['App']['HideWindow']();
-}
-
-export function ImportLink(arg1, arg2) {
-  return window['go']['main']['App']['ImportLink'](arg1, arg2);
-}
-
 export function ImportLinks(arg1, arg2) {
   return window['go']['main']['App']['ImportLinks'](arg1, arg2);
 }
@@ -180,14 +164,6 @@ export function ListGroups() {
 
 export function ListProfiles(arg1) {
   return window['go']['main']['App']['ListProfiles'](arg1);
-}
-
-export function ListRoutings() {
-  return window['go']['main']['App']['ListRoutings']();
-}
-
-export function LogCategories() {
-  return window['go']['main']['App']['LogCategories']();
 }
 
 export function MoveProfile(arg1, arg2) {
@@ -220,10 +196,6 @@ export function QuitApp() {
 
 export function ReadClipboard() {
   return window['go']['main']['App']['ReadClipboard']();
-}
-
-export function Refresh() {
-  return window['go']['main']['App']['Refresh']();
 }
 
 export function RemoveFailedProfiles(arg1) {
@@ -340,10 +312,6 @@ export function TestDNS(arg1, arg2) {
 
 export function TestHotkey(arg1) {
   return window['go']['main']['App']['TestHotkey'](arg1);
-}
-
-export function UpdateAllSubscriptions() {
-  return window['go']['main']['App']['UpdateAllSubscriptions']();
 }
 
 export function UpdateGroup(arg1) {

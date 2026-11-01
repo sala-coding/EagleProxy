@@ -38,7 +38,7 @@ export const nowStamp = () => {
 };
 
 // file-backed categories, in no particular order
-export const FILE_CATS = ['speedtest-url', 'speedtest-tcp', 'speedtest-full', 'speedtest-download'];
+export const FILE_CATS = ['speedtest-url', 'speedtest-full', 'speedtest-download'];
 
 // The time a line carries, as a sortable key. The store stamps "15:04:05.000",
 // which is what orders a mixed stream; a line without one keeps its place at the

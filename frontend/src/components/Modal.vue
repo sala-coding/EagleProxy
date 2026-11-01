@@ -78,7 +78,12 @@ const props = withDefaults(defineProps<{
     // on what a panel looks like, and so a caller with nothing to measure falls back to
     // the numbers already written there.
     seat?: {left: number; top: number; width: number; height: number} | null;
-}>(), {bodyScroll: true});
+    // closable = false takes the heading bar's ✕ away. The connections window is the
+    // one panel that shares its seat with the drawer and answers to the same rail
+    // button: its way out is that button and Escape, and a second ✕ beside them read
+    // as two doors to the same room.
+    closable?: boolean;
+}>(), {bodyScroll: true, closable: true});
 
 // onClose -> 'close'; onClosing -> 'closing' (fires the moment the exit begins,
 // before the animation has finished). `head` and `bar`, which were ReactNode
@@ -302,7 +307,7 @@ const modalClass = computed(() =>
                 <h2>{{ title }}</h2>
                 <div class="modal-head-actions">
                     <slot name="head"/>
-                    <button class="btn tiny ghost" @click="requestClose">
+                    <button v-if="closable" class="btn tiny ghost" @click="requestClose">
                         <CloseFilled class="ic"/>
                     </button>
                 </div>

@@ -91,32 +91,6 @@ func (c *Client) Connections() (*ConnectionsResp, error) {
 	return &out, nil
 }
 
-// ProxiesResp is the /proxies payload: the outbound table, by tag.
-type ProxiesResp struct {
-	Proxies map[string]Proxy `json:"proxies"`
-}
-
-// Proxy is one entry of that table. Only the fields this app reads are declared — the rest
-// of the payload is a dashboard's business.
-type Proxy struct {
-	Type string   `json:"type"`
-	Now  string   `json:"now"`
-	All  []string `json:"all"`
-}
-
-// Proxies fetches the outbound table.
-func (c *Client) Proxies() (*ProxiesResp, error) {
-	data, err := c.get("/proxies")
-	if err != nil {
-		return nil, err
-	}
-	var out ProxiesResp
-	if err := json.Unmarshal(data, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
 // Select points a selector at one of its members.
 //
 // The body is the shape the dashboard sends. What the call buys is the reason it exists:

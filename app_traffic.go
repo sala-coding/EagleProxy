@@ -11,11 +11,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// apiDownMsg reports a dead core for actions the user explicitly took. Merely
-// listing connections is not one of them: that path stays quiet (see
-// GetConnections), because the button is clickable with no core running.
-const apiDownMsg = "未连接到核心（端口 %d 无响应），请先启动一个节点"
-
 func (a *App) GetConnections() (*clash.ConnectionsResp, error) {
 	if a.curSetting() == nil {
 		return nil, fmt.Errorf("not initialised")

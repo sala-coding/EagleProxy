@@ -157,6 +157,12 @@ func main() {
 		// undo by dragging back. Maximising is unaffected.
 		MinWidth:  1100,
 		MinHeight: 530,
+		// The system frame is gone; the frontend draws its own titlebar (see
+		// .titlebar in 05-layout.css). Dragging, snapping and double-click-to-
+		// maximise still come from the OS: the bar's --wails-draggable: drag
+		// makes Wails return HTCAPTION there. The close button hides to the
+		// tray, which is what HideWindowOnClose below did to the system X.
+		Frameless: true,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

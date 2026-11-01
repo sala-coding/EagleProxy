@@ -44,7 +44,7 @@ func (a *App) recordHotSnapshot() {
 	keys := make(map[int]string, len(nodes))
 	for id := range nodes {
 		if ent := a.curMgr().SnapshotProfile(id); ent != nil {
-			keys[id] = sub.BeanKey(ent, false)
+			keys[id] = sub.BeanKey(ent)
 		}
 	}
 	a.hotMu.Lock()
@@ -62,7 +62,7 @@ func (a *App) hotSnapshotMatches(id int) bool {
 		return false
 	}
 	ent := a.curMgr().SnapshotProfile(id)
-	return ent != nil && sub.BeanKey(ent, false) == key
+	return ent != nil && sub.BeanKey(ent) == key
 }
 
 // tryHotSwitch moves the running core to another node without restarting it, and reports
@@ -186,7 +186,9 @@ func (a *App) startProfileLockedOn(id int, frontSettled func(error)) error {
 	// separate calls, the old core's exit runs on its own goroutine, and a callback
 	// arriving after this line had already taken the flag down read the planned stop
 	// as a crash and started the node again under the switch's own start. A stop that
-	// never raises its exit takes the flag down itself (see unmarkExpectedStop).
+	// never raises its exit leaves the flag to onCoreExit's pid check: the mark
+	// names the stop's own pid, so a stale one can only ever fall to the exit
+	// that raised it or be overwritten by the next mark.
 	// A node that is already in the running config is switched to through the core's own
 	// API, without stopping anything — see tryHotSwitch. Checked before the mode branches
 	// because it holds in both of them: under TUN the same config carries the tun inbound,
@@ -339,7 +341,12 @@ func (a *App) stopCoreLocked() error {
 	// direct under a switch that said proxied, and the caller got a failure it did not
 	// have.
 	if a.runningID() == core.StoppedID && a.curSetting().SPModeSystemProxy() {
-		a.applySystemProxy(false)
+		if err := a.applySystemProxy(false); err != nil {
+			// The core is gone but the registry refused the hand-back: Windows
+			// still points at a dead port. Said rather than swallowed — the
+			// caller's error is the stop's, and this failure is its own.
+			a.logf("[system proxy] 核心停止后的代理清理失败: " + err.Error())
+		}
 	}
 	return err
 }
@@ -368,6 +375,18 @@ func (a *App) setVPNState(pid, profileID int) {
 // clear and the read happen under the same hold, so no writer can land in
 // between.
 func (a *App) clearFrontRecordIfMine(pid int) {
+	a.clearFrontRecord(pid, true)
+}
+
+// clearFrontRecordOnly is clearFrontRecordIfMine without the sweep, for a teardown that
+// is taking the device away itself: the sweep would be a second PowerShell round trip
+// hunting for a device that is being removed in the same breath, and the removal is the
+// better answer for a broken one anyway.
+func (a *App) clearFrontRecordOnly(pid int) {
+	a.clearFrontRecord(pid, false)
+}
+
+func (a *App) clearFrontRecord(pid int, sweepAdapter bool) {
 	a.vpnMu.Lock()
 	mine := a.vpnPID == pid
 	if mine {
@@ -379,7 +398,9 @@ func (a *App) clearFrontRecordIfMine(pid int) {
 		return
 	}
 	a.clearTunFrontPID()
-	a.clearTunAdapterAfterStop()
+	if sweepAdapter {
+		a.clearTunAdapterAfterStop()
+	}
 }
 
 func (a *App) stopVPN() error {

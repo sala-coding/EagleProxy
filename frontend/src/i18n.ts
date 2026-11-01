@@ -20,19 +20,18 @@ const zh: Record<string, string> = {
     'btn.routing': '路由',
     'btn.settings': '设置',
     'nav.title': '侧边导航',
-    'nav.subs': '所有订阅',
+    'nav.subs': '配置',
     'panel.resize': '拖动调整宽度，双击回到随窗口变化的自动宽度',
-    'groups.title': '订阅列表',
+    'groups.title': '配置列表',
     'side.add': '添加',
     'groups.manage': '管理',
     'groups.none': '没有分组',
     'groups.unnamed': '未命名',
     'btn.add': '新增',
     'btn.import': '导入',
-    'speed.latency': '延迟测试',
-    'speed.tcp': 'TCP Ping',
-    'speed.full': '完整测试',
-    'speed.download': '速度测试',
+    'speed.latency': '延迟',
+    'speed.full': '完整',
+    'speed.download': '速度',
     'btn.testCurrent': '测当前',
     'btn.testGroup': '测分组',
     'btn.reset': '重置',
@@ -53,11 +52,10 @@ const zh: Record<string, string> = {
     'col.latency': '延迟',
     'table.empty': '该分组暂无节点',
     'status.noteTitle': '消息',
-    // One line per test mode, in SPEED_MODE_KEYS order (see SPEED_RUNNING_KEYS in
-    // App.tsx): the four runs measure four different things, and the status bar names
-    // the one that is going rather than calling them all "testing".
+    // One line per test mode, keyed like SPEED_RUNNING_KEYS in metrics.ts: the runs
+    // measure different things, and the status bar names the one that is going
+    // rather than calling them all "testing".
     'status.test.latency': '正在测延迟…',
-    'status.test.tcp': '正在测 TCP…',
     'status.test.full': '正在完整测试…',
     'status.test.speed': '正在测速…',
     'status.rateHint': '当前节点实时速率（每 1 秒刷新）',
@@ -83,11 +81,14 @@ const zh: Record<string, string> = {
     'log.collapse': '收起',
     'log.expand': '展开',
     'log.resize': '拖动调整日志面板高度（双击恢复默认）',
+    'log.colTime': '时间',
+    'log.colMsg': '内容',
     'log.empty': '暂无日志',
     'log.filter': '按路由筛选日志',
     // The other filter's caption, and the level words it offers. What a level means is
     // "how loud", which is a word in the reader's own language; the core's keywords are
-    // what a line is matched on, and they stay on the option values in App.tsx.
+    // what a line is matched on, and they stay on the option values in
+    // lib/logfilter.ts.
     'log.levelHint': '按级别筛选日志',
     // "所有" rather than the column's "全部": the two controls sit one above the
     // other, and two lists both starting with the same word read as the same list.
@@ -137,9 +138,10 @@ const zh: Record<string, string> = {
     'btn.about': '关于',
     'dlg.about.title': '关于',
     'about.version': '版本',
+    'about.arch': '架构',
+    'about.core': '内核',
     'about.go': 'Go 版本',
-    'about.core': '核心路径',
-    'about.dataDir': '数据目录',
+    'about.author': '作者主页',
     'about.openDataDir': '打开数据目录',
     'about.repo': '项目主页',
     'about.checkUpdate': '检查更新',
@@ -149,7 +151,7 @@ const zh: Record<string, string> = {
     'batch.dedupe': '去除重复节点',
     'batch.removeFailed': '移除测速失败的节点',
     'batch.resolve': '解析域名',
-    'search.placeholder': '搜索节点+订阅',
+    'search.placeholder': '搜索节点、地区、协议...',
     'search.clear': '清除',
     // what the count in the search box is counting: the pool widens to every subscription
     // as soon as the box has something in it
@@ -157,7 +159,7 @@ const zh: Record<string, string> = {
     'search.none': '没有匹配的节点',
     'settings.group.tun': 'TUN 虚拟网卡',
     // The groups the raw settings object is split into (see SETTING_GROUPS in
-    // App.tsx): the flat list is a machine's copy of the file, and these are the
+    // lib/settings-meta.ts): the flat list is a machine's copy of the file, and these are the
     // subjects it actually contains.
     'settings.group.inbound': '入站监听',
     'settings.group.subs': '订阅管理',
@@ -345,7 +347,7 @@ const zh: Record<string, string> = {
     // The languages, each named in its own tongue: a language is the one label that
     // must not be translated — the reader looking for it is the reader who cannot read the
     // rest of the interface — so every dictionary spells these the same way (see
-    // LANGUAGES in App.tsx, which is what the pills are drawn from).
+    // LANGUAGES in lib/settings-meta.ts, which is what the pills are drawn from).
     'lang.zh': '中文',
     'lang.en': 'English',
     'lang.ru': 'Русский',
@@ -354,6 +356,7 @@ const zh: Record<string, string> = {
     'cfg.spmode2': '上次的运行模式',
     'cfg.remember_spmode': '恢复上次模式',
     'cfg.skip_cert': '跳过证书',
+    'hotkey.resumeFailed': '热键恢复失败，全局热键可能已停用',
     'cfg.hk_mw': '主窗口热键',
     // used to say 菜单, after nekoray's "show the system proxy menu". There is no such
     // menu here — the key toggles the system proxy (see toggleSystemProxy in app.go).
@@ -565,6 +568,7 @@ const zh: Record<string, string> = {
     // The first two were being used without ever being defined, so the status bar said
     // "sub.updated" — a key is what tip() falls back to.
     'sub.updated': '订阅已更新',
+    'sub.busy': '有节点操作正在进行，请稍后再更新订阅',
     'sub.updatedAll': '全部订阅已更新',
     // What a subscription carried and this build cannot speak. Not a failure of the
     // update — everything else arrived — but it is the one explanation for a list that
@@ -608,7 +612,6 @@ const en: Record<string, string> = {
     'btn.add': 'Add',
     'btn.import': 'Import',
     'speed.latency': 'Latency',
-    'speed.tcp': 'TCP Ping',
     'speed.full': 'Full Test',
     'speed.download': 'Speed Test',
     'btn.testCurrent': 'Test Selected',
@@ -632,7 +635,6 @@ const en: Record<string, string> = {
     'table.empty': 'No profiles in this group',
     'status.noteTitle': 'Message',
     'status.test.latency': 'Testing latency…',
-    'status.test.tcp': 'Testing TCP…',
     'status.test.full': 'Running the full test…',
     'status.test.speed': 'Testing speed…',
     'status.rateHint': 'Live rate of the running node (refreshes every second)',
@@ -655,6 +657,8 @@ const en: Record<string, string> = {
     'log.collapse': 'Collapse',
     'log.expand': 'Expand',
     'log.resize': 'Drag to resize the log panel (double-click to reset)',
+    'log.colTime': 'Time',
+    'log.colMsg': 'Message',
     'log.empty': 'No logs',
     'log.filter': 'Filter logs by route',
     'log.levelHint': 'Filter logs by level',
@@ -701,9 +705,10 @@ const en: Record<string, string> = {
     'btn.about': 'About',
     'dlg.about.title': 'About',
     'about.version': 'Version',
+    'about.arch': 'Architecture',
+    'about.core': 'Kernel',
     'about.go': 'Go version',
-    'about.core': 'Core path',
-    'about.dataDir': 'Data directory',
+    'about.author': "Author's page",
     'about.openDataDir': 'Open the data directory',
     'about.repo': 'Project page',
     'about.checkUpdate': 'Check for updates',
@@ -713,7 +718,7 @@ const en: Record<string, string> = {
     'batch.dedupe': 'Remove duplicates',
     'batch.removeFailed': 'Remove failed nodes',
     'batch.resolve': 'Resolve domains',
-    'search.placeholder': 'Search nodes + subscriptions',
+    'search.placeholder': 'Search nodes, regions, protocols...',
     'search.clear': 'Clear',
     'search.scope': 'Search scope: nodes of every subscription',
     'search.none': 'No matching nodes',
@@ -878,6 +883,7 @@ const en: Record<string, string> = {
     'cfg.spmode2': 'Mode last left in',
     'cfg.remember_spmode': 'Restore last mode',
     'cfg.skip_cert': 'Skip certs',
+    'hotkey.resumeFailed': 'Failed to re-enable hotkeys; global hotkeys may be off',
     'cfg.hk_mw': 'Main window hotkey',
     'cfg.hk_spmenu': 'System proxy hotkey',
     'cfg.hk_toggle_tun': 'TUN hotkey',
@@ -1053,6 +1059,7 @@ const en: Record<string, string> = {
     'sub.left': 'Left',
     'sub.expire': 'Expires',
     'sub.updated': 'Subscription updated',
+    'sub.busy': 'A node action is in progress — try updating the subscription again shortly',
     'sub.updatedAll': 'All subscriptions updated',
     'sub.skipped': 'Skipped {0} unsupported node(s): {1}',
     'groups.interval': 'Auto update (min)',

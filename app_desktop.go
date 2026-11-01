@@ -1,8 +1,15 @@
 package main
 
 import (
+	"context"
+	"os/exec"
+	goruntime "runtime"
 	"runtime/debug"
 	"strings"
+	"time"
+
+	"eagle/internal/core"
+	"eagle/internal/util"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -24,11 +31,10 @@ func prettyVersion(v string) string {
 	return "dev"
 }
 
-// GetAbout reports the identity of this build: which release it was built from, the
-// Go it was built with, and where it keeps its data and its core. The two paths are
-// reported relative to the executable — the short form the settings field asks for, and
-// the one that still reads the same after the folder is moved — with the absolute
-// paths beside them for the tooltip (see relToExec).
+// GetAbout reports the identity of this build: which release it was built from and
+// the Go it was built with — the facts the About card and the bug-report body read.
+// (The data and core paths the card used to carry are the settings fields' own
+// business; see relToExec for the relative form those write.)
 //
 // A map rather than a struct: the front end lays these out as label/value rows and
 // nothing else reads them, so a struct would be a second declaration of the same fields
@@ -40,15 +46,12 @@ func (a *App) GetAbout() map[string]string {
 		"version":   "",
 		"built":     "",
 		"goVersion": "",
-		// Relative, because that is the form the reader wrote the two paths in and the
-		// one that still means something after the folder moves (see relToExec). The
-		// full paths ride along for the tooltip, which is where a path gets copied out
-		// of this card.
-		"dataDir":     relToExec(a.curDataDir()),
-		"corePath":    relToExec(a.curCorePath()),
-		"dataDirAbs":  a.curDataDir(),
-		"corePathAbs": a.curCorePath(),
-		"repo":        updateRepo,
+		// The platform the binary was compiled for, not the one it happens to be
+		// running on: the two differ exactly when the answer matters (a 386 build
+		// on an amd64 machine, the windows/arm64 package on a Snapdragon), and it
+		// is the first thing a bug report is sorted by.
+		"arch": goruntime.GOOS + "/" + goruntime.GOARCH,
+		"repo": updateRepo,
 	}
 	if appVersion != "" {
 		info["version"] = prettyVersion(appVersion)
@@ -80,6 +83,47 @@ func (a *App) GetAbout() map[string]string {
 		info["version"] = "开发版"
 	}
 	return info
+}
+
+// coreVersionWindow bounds the version probe: a core that answers takes tens of
+// milliseconds, and one that does not is not worth a stalled card.
+const coreVersionWindow = 2 * time.Second
+
+// CoreVersion asks the kernel binary what it is, for the About card's 内核 row.
+//
+// The core is an external executable (see GetCorePath), so its version is not
+// something this build can know — the answer has to come from running it.
+// `version` is the subcommand every sing-box-shaped core answers, and it prints
+// one line ("sing-box version 1.9.0") above the environment block the card has no
+// room for, so the first line is taken and the number is its last field.
+//
+// Empty means the card stays silent rather than guessing: no core on disk, a
+// binary that does not answer, or one that overran the window. Deliberately not
+// cached — the reader can point the app at another core between two openings.
+func (a *App) CoreVersion() string {
+	exe, err := core.ResolveCore(resolveAppPath(a.curCorePathRaw()), a.curDataDir())
+	if err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), coreVersionWindow)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exe, "version")
+	// A console program started by a GUI one puts up a window of its own, and
+	// this probe would flash one every time the card is opened.
+	util.HideConsole(cmd)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	line = strings.TrimSpace(line)
+	if i := strings.Index(strings.ToLower(line), "version "); i >= 0 {
+		line = line[i+len("version "):]
+	}
+	if f := strings.Fields(line); len(f) > 0 {
+		return f[0]
+	}
+	return ""
 }
 
 // OpenURL opens a URL in the default browser.

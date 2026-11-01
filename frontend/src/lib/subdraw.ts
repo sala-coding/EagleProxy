@@ -45,7 +45,7 @@ export function fmtQuota(n: number): string {
 // window narrow enough for the stylesheet's clamp makes it narrower still, and a column
 // that kept its ten through both would spend a narrow drawer on filler while showing less
 // of a name in a wide one than there was room for. So the count is measured from the row
-// it is drawn in — see nameCols in App.tsx — and this is what it falls back to until
+// it is drawn in — see nameCols in useSubsPanel.ts — and this is what it falls back to until
 // there is a row to measure.
 //
 // The unit is columns and not characters, and that is the whole point of the

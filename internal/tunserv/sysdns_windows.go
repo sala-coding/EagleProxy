@@ -40,6 +40,15 @@ type State struct {
 	// resolver is written while a node is serving and taken away when there is
 	// none.
 	Node bool `json:"node"`
+	// Prewarm asks for the adapter while TUN mode is still OFF, so that the first
+	// switch-on of a session opens a device instead of paying for a PnP create.
+	//
+	// It is a flag of its own rather than Adapter = true at startup for one reason:
+	// Adapter says "the capture has an owner", and that is a fact about the reader's
+	// mode — the app decides it, and the server must not believe a warmed device is
+	// a captured one. Prewarm says only "build it before anyone asks", and the app
+	// clears it the moment the capture takes over (see the app's tunServiceState).
+	Prewarm bool `json:"prewarm"`
 }
 
 const (
@@ -65,12 +74,28 @@ func WriteState(dataDir string, st State) error {
 	if err != nil {
 		return err
 	}
-	tmp := statePath(dataDir) + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	// A unique neighbour per write, not a fixed one: two reconciles can pass their
+	// unchanged checks before either's write lands, and interleaved writers on one
+	// fixed name truncate each other mid-write — a torn file renamed into place
+	// reads back as the zero State, and the server's next tick restores resolvers
+	// a live takeover still wants (the command slot was fixed for exactly this
+	// class; see replaceCommandLocked).
+	tmp, err := os.CreateTemp(dir, stateName+".tmp")
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, statePath(dataDir)); err != nil {
-		_ = os.Remove(tmp)
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, statePath(dataDir)); err != nil {
+		_ = os.Remove(tmpName)
 		return err
 	}
 	return nil
@@ -93,11 +118,14 @@ func ReadState(dataDir string) State {
 var sysMu sync.Mutex
 
 // lastApplyTry paces the re-apply in ReconcileResolvers, and applyIncomplete remembers
-// that there is anything to re-apply at all. Guarded by sysMu, like the machine's
-// resolvers they stand for.
+// that there is anything to re-apply at all. lastRestoreTry paces the restore the same
+// way — a restore that cannot finish (an interface from the record is gone) would
+// otherwise be retried on every one-second tick, unpaced. Guarded by sysMu, like the
+// machine's resolvers they stand for.
 var (
 	lastApplyTry    time.Time
 	applyIncomplete bool
+	lastRestoreTry  time.Time
 )
 
 // ReconcileResolvers brings the machine's own resolvers in line with what the app asked for,
@@ -119,7 +147,14 @@ func ReconcileResolvers(dataDir string, want bool) {
 		// Re-applying is the same list written again, so the retry is idempotent; it is
 		// paced because this function runs on the server's one-second tick, and skipped
 		// entirely while the last apply was clean.
-		if !applyIncomplete || time.Since(lastApplyTry) < 30*time.Second {
+		if !applyIncomplete {
+			// Clean takeover: the one gap left is an interface that appeared after
+			// the snapshot was taken. Paced inside, for the same reason the
+			// re-apply is.
+			pickupLateInterfaces(dataDir)
+			return
+		}
+		if time.Since(lastApplyTry) < 30*time.Second {
 			return
 		}
 		lastApplyTry = time.Now()
@@ -166,6 +201,10 @@ func ReconcileResolvers(dataDir string, want bool) {
 		lastApplyTry = time.Now()
 		log("resolvers: taken over (%d interface(s); the app's forwarder answers on 53)", len(snapshot))
 	case !want && taken:
+		if time.Since(lastRestoreTry) < 30*time.Second {
+			return
+		}
+		lastRestoreTry = time.Now()
 		if err := restoreLocked(dataDir, "the node stopped"); err != nil {
 			// The restore did not finish: at least one interface kept the
 			// takeover resolver (or the record could not even be read). The
@@ -181,6 +220,79 @@ func ReconcileResolvers(dataDir string, want bool) {
 		}
 		applyIncomplete = false
 	}
+}
+
+// lastPickupTry paces the late-interface pickup. Guarded by sysMu.
+var lastPickupTry time.Time
+
+// pickupLateInterfaces takes over interfaces that appeared after the snapshot was
+// taken — a dock or a second network coming up mid-session carries no loopback, so
+// Windows asks it in the multi-homed race and names leak in the clear while the
+// state file says the takeover is on. Each newcomer is taken over and added to the
+// record, so the restore can give it back too; interfaces the record already
+// carries, and interfaces already leading with a loopback (a takeover whose record
+// was lost — writing one into the record would have the restore put it back as if
+// it were the machine's own), are left to the paths that own them. Paced for the
+// same reason the re-apply is: this runs on a one-second tick.
+//
+// The record is extended before the prepend, by the rule the takeover itself keeps:
+// a crash between the two must leave a way back, and a way back that names an
+// interface's own resolvers costs nothing to write.
+func pickupLateInterfaces(dataDir string) {
+	if time.Since(lastPickupTry) < 30*time.Second {
+		return
+	}
+	lastPickupTry = time.Now()
+	snapshot, err := readUndo(dataDir)
+	if err != nil {
+		return
+	}
+	fresh, err := tunfast.SystemResolvers(configbuilder.TunAdapterName())
+	if err != nil {
+		return
+	}
+	recorded := make(map[uint64]bool, len(snapshot))
+	for _, e := range snapshot {
+		recorded[e.LUID] = true
+	}
+	var newcomer []tunfast.AdapterResolvers
+	for _, e := range fresh {
+		if recorded[e.LUID] || carriesLoopback(e) {
+			continue
+		}
+		newcomer = append(newcomer, e)
+	}
+	if len(newcomer) == 0 {
+		return
+	}
+	if err := writeUndo(dataDir, append(snapshot, newcomer...)); err != nil {
+		log("resolvers: late-interface record: %v", err)
+		return
+	}
+	if err := tunfast.PrependResolvers(newcomer, netip.MustParseAddr("127.0.0.1"), netip.MustParseAddr("::1")); err != nil {
+		// At least one newcomer refused; the record now names it, and the
+		// half-state the re-apply finishes is exactly the recovery for it.
+		applyIncomplete = true
+		log("resolvers: late-interface apply: %v", err)
+		return
+	}
+	log("resolvers: picked up %d new interface(s)", len(newcomer))
+}
+
+// carriesLoopback reports whether an interface's own list already leads with the
+// takeover's address.
+func carriesLoopback(e tunfast.AdapterResolvers) bool {
+	for _, v := range e.V4 {
+		if v == "127.0.0.1" {
+			return true
+		}
+	}
+	for _, v := range e.V6 {
+		if v == "::1" {
+			return true
+		}
+	}
+	return false
 }
 
 // OriginalResolvers answers the machine's own resolvers as they were before the takeover:

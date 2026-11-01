@@ -588,7 +588,7 @@
     overflow: hidden;
     /* The navigation rail is fixed to the window's left edge and painted over
        this layout rather than laid out with it, so everything else starts after
-       the strip. --rail-w is declared on this element by App.tsx and shrinks
+       the strip. --rail-w is declared on this element by App.vue and shrinks
        when the rail is folded away; the fallback matches the open width so the
        layout is still right if the variable is ever missing. */
     /* The subscriptions drawer lives in the same gutter: --panel-w is how wide it
@@ -598,14 +598,14 @@
        number instead of repeating the sum. The width has a ceiling so a narrow
        window keeps a usable table beside it.
        --panel-w-user is the width the reader dragged the drawer to, published
-       inline by App.tsx, and it is left out entirely when they have not dragged one:
+       inline by App.vue, and it is left out entirely when they have not dragged one:
        the fallback is then the window's own share, which needs no JavaScript to follow
-       the window. App.tsx used to compute that share and hand it over here as well, which
+       the window. App.vue used to compute that share and hand it over here as well, which
        meant a setState on every frame of a resize to keep a number current that this line
        can work out for itself. The min() is what stops a number saved on a wide screen
        from taking the table's share away on a narrow one. The rail's width comes from the
        variable rather than a number written here: it used to be a literal, which is a
-       second copy of a value App.tsx owns, and a copy is what goes stale the next time the
+       second copy of a value App.vue owns, and a copy is what goes stale the next time the
        rail is resized. */
     --panel-w: min(
         var(--panel-w-user, clamp(300px, 30vw, 720px)),
@@ -626,12 +626,18 @@
     /* The status bar's height, used by the things that have to stop at its top edge —
        the navigation rail, and the two panels that stand clear of it. It is a
        fallback: the real height belongs to the bar's contents (the chips decide it),
-       so App.tsx measures it and writes this same property on this same element from
+       so App.vue measures it and writes this same property on this same element from
        a ResizeObserver. The declared value is what shows before that first
        measurement lands. It used to be the only source, and the two drifted apart:
        a bar taller than this made the rail overlap it, and the overlap drew a
        rectangle in the window's bottom-left corner. */
     --status-h: 30px;
+    /* The title bar's height. The bar is the window's own chrome now — the system frame
+       is gone (see .titlebar) — so this is what any box placed against the window's top
+       edge has to come down by before its own inset. One value, read by the bar itself
+       and by the panel seat: the drawer that used to start --chrome-inset under the
+       window's top edge covered the bar, which was the frame's job to keep clear of. */
+    --titlebar-h: 34px;
     /* The rail, then the gap and the panel together: the gap sits inside the term
        multiplied by --panel-open, so the content hands the space back exactly when the
        drawer closes. */
@@ -662,7 +668,7 @@
        is never seen head-on — which is why one duration can serve both ends.
 
        Modal unmounts the dialog on a timer matched to this, so the number is repeated
-       in App.tsx (440). Changing it here means changing it there; see
+       in App.vue (440). Changing it here means changing it there; see
        .modal.flip.flip-out. */
     --door-dur: .44s;
     --door-ease: cubic-bezier(.4, 0, .2, 1);
@@ -725,11 +731,8 @@
 
 /* A drag is the width changing under the pointer, every frame, on purpose. The
    transition that times the drawer's entrance would put the content half a beat
-   behind the edge being dragged, which reads as lag rather than as weight. The
-   stack's right inset is on that same clock — it is what keeps the heap's edge
-   against the window's while the table slides — so it goes off with it. */
-.app.resizing .content,
-.app.resizing .reel {
+   behind the edge being dragged, which reads as lag rather than as weight. */
+.app.resizing .content {
     transition: none;
 }
 

@@ -209,9 +209,6 @@ func NewClient(t Target, opts Options) *Client {
 	return c
 }
 
-// Target is the resolver this client asks.
-func (c *Client) Target() Target { return c.t }
-
 // Exchange relays one message, serialised against the other users of this path.
 func (c *Client) Exchange(ctx context.Context, msg []byte) ([]byte, error) {
 	select {

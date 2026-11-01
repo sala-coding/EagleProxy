@@ -29,6 +29,25 @@ export const LONG_KEYS = new Set([
 // newline, and there was no way to take one out without editing the text around it.
 export const LINE_LIST_KEYS = new Set(['user_agent2']);
 
+// The string fields whose values are a known vocabulary, rendered as a dropdown of
+// presets rather than a free-text input. The free-text input used to be the whole
+// story for log_level — a field whose every valid answer is one of five words the
+// core's docs spell — and a typo in it (or a level the core refuses) surfaced only
+// as the config failing at start-up. The values are the core's own spellings; the
+// map is the extension point (a new field with a vocabulary is one line here).
+export const FIELD_OPTIONS: Record<string, string[]> = {
+    log_level: ['debug', 'info', 'warn', 'error', 'trace'],
+};
+
+// The dropdown's options for a field: its vocabulary, with whatever value is
+// currently set prepended when it is not one of them — a hand-typed or legacy
+// value must stay visible and selectable, never silently rewritten.
+export function fieldOptions(k: string, current: string): string[] {
+    const base = FIELD_OPTIONS[k];
+    if (!base) return [];
+    return current && !base.includes(current) ? [current, ...base] : base;
+}
+
 // The line under a field, for a key whose value needs a rule stated rather than a
 // name given. Same lookup shape as fieldLabel: a key with no translation gets no
 // hint, so this costs nothing on the fields that have nothing to explain.

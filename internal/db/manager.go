@@ -117,10 +117,12 @@ func (m *Manager) Load() error {
 	return nil
 }
 
-// SaveManager persists groups/pm.json (the group tab order).
+// SaveManager persists groups/pm.json (the group tab order). It takes the
+// write lock: the save writes a file, and writers of the same file must
+// serialise — a read lock would let two saves interleave on one temp file.
 func (m *Manager) SaveManager() error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.saveManagerLocked()
 }
 
@@ -717,7 +719,23 @@ func writeJSON(path string, v interface{}) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	// Sync before the rename: NTFS can land the metadata change ahead of the
+	// data blocks, so a power loss right after the rename would answer with a
+	// target file that exists but holds nothing — the half-written state the
+	// rename was chosen to prevent.
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync()
+	}
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {

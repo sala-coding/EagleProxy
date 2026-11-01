@@ -173,14 +173,6 @@ func (r *Routing) Normalize() {
 	}
 }
 
-// DisplayRouting renders a short summary like nekoray's Routing::DisplayRouting.
-func (r *Routing) DisplayRouting() string {
-	return strings.Join([]string{
-		"[Default Outbound] " + r.DefOutbound,
-		"[DNS] " + map[bool]string{true: "DNS Object", false: "Simple DNS"}[r.UseDNSObject],
-	}, "\n")
-}
-
 // Setting is the full nekoray DataStore.
 type Setting struct {
 	ExtraCore   *ExtraCore   `json:"extraCore,omitempty"`
@@ -606,10 +598,14 @@ var saveMu sync.Mutex
 func (s *Setting) Save() error {
 	saveMu.Lock()
 	defer saveMu.Unlock()
-	routingMu.RLock()
-	defer routingMu.RUnlock()
+	// The clone is what gets marshalled, not s itself: the runtime mode flags
+	// are written by the tray and the hotkeys under runtimeModeMu, and a
+	// marshal that reads the live struct raced those writes. Clone takes both
+	// locks (the same read Replace keeps safe), so the copy serialises the
+	// same consistent store — and no lock is held here while it does, which
+	// keeps the RWMutex recursion out of the picture.
 	path := s.dataStorePath()
-	data, err := json.MarshalIndent(s, "", "  ")
+	data, err := json.MarshalIndent(s.Clone(), "", "  ")
 	if err != nil {
 		return err
 	}
@@ -627,7 +623,23 @@ func writeFileAtomic(path string, data []byte) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	// Sync before the rename: NTFS can land the metadata change ahead of the
+	// data blocks, so a power loss right after the rename would answer with a
+	// target file that exists but holds nothing — the reset-store state the
+	// rename was chosen to prevent.
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync()
+	}
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -780,31 +792,6 @@ func (s *Setting) Clone() *Setting {
 	defer routingMu.RUnlock()
 	next := *s
 	return &next
-}
-
-// WithRememberID returns a copy of s with the remembered profile id replaced.
-func (s *Setting) WithRememberID(id int) *Setting {
-	next := s.Clone()
-	next.RememberID = id
-	return next
-}
-
-// WithEgressMode returns a copy of s with the outbound mode replaced.
-//
-// A copy rather than a field write, for the same reason as WithRememberID: this value is
-// edited from the tray, a hotkey and the window at once, and a write into a pointer another
-// goroutine has already replaced is an update nobody sees (see App.setEgress).
-func (s *Setting) WithEgressMode(mode string) *Setting {
-	next := s.Clone()
-	next.EgressMode = mode
-	return next
-}
-
-// WithRememberSpmode returns a copy of s with the remembered mode list replaced.
-func (s *Setting) WithRememberSpmode(modes []string) *Setting {
-	next := s.Clone()
-	next.RememberSpmode = modes
-	return next
 }
 
 // WithActiveRouting returns a copy of s with name as the active routing.

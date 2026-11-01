@@ -26,32 +26,6 @@ export function useSubsDrawer(deps: {
     // is a centred dialog and not a panel at all.
     const subsClosing = ref<PanelExit | null>(null);
 
-    // The stack the table becomes while the drawer is out (see the reel in the JSX) has no
-    // state of its own. It used to be a ring that went round for as long as the drawer
-    // was there, driven frame by frame, and it was mounted and unmounted with the
-    // drawer rather than on a timer of its own. So `subsDrop` is the whole of it: the
-    // is there now. So `subsDrop` is the whole of it: the layer is mounted with the drawer
-    // and unmounted with it, and the entrance plays because the element is new on the frame
-    // the drawer opens.
-
-    // When the heap is allowed to start asking for its nodes. The drawer opens over .44s
-    // (--door-dur), and a table that fills itself the instant it is mounted is a table whose
-    // twenty rows are built inside the opening: the click lands, the door swings, and the
-    // whole application's render happens in the same frame as the swing — measured at one
-    // and a half seconds of script on this machine, which the door cannot animate through.
-    // So the tables go up empty (see ReelTable) and this is what lets them begin, on the
-    // drawer's own clock. The duration is the door's: shortening it here without shortening
-    // it there would have the tables start before the door has finished opening.
-    const reelReady = ref(false);
-    watch(subsDrop, (drop, _, onCleanup) => {
-        if (!drop) {
-            reelReady.value = false;
-            return;
-        }
-        const timer = window.setTimeout(() => reelReady.value = true, 440);
-        onCleanup(() => window.clearTimeout(timer));
-    }, {immediate: true});
-
     // The duration is App.css's: doorFlipOut's .44s. Shortening it here without
     // shortening it there would cut the swing off mid-turn.
     watch(subsClosing, (closing, _, onCleanup) => {
@@ -142,5 +116,5 @@ export function useSubsDrawer(deps: {
         onCleanup(() => window.removeEventListener('keydown', onKey));
     });
 
-    return {subsDrop, subsClosing, reelReady, openSubs, closeSubs, hardCloseSubs, subsBtnRef};
+    return {subsDrop, subsClosing, openSubs, closeSubs, hardCloseSubs, subsBtnRef};
 }

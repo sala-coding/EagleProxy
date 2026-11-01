@@ -160,11 +160,11 @@ func resolveAppPath(p string) string {
 	return util.ResolveAppPath(p)
 }
 
-// relToExec writes an absolute path the way the about box reports it: relative to the
-// folder the executable sits in, which is the text a reader would have written there
-// anyway (see resolveAppPath) and short enough to read at a glance. A path with no
-// relative form — another volume, or one above the executable's folder — is reported as
-// it is: a chain of ".." says less than the path itself.
+// relToExec writes an absolute path relative to the folder the executable sits in —
+// the form the settings' own path fields ask for (see resolveAppPath) and the one
+// that still reads the same after the folder is moved. A path with no relative form
+// — another volume, or one above the executable's folder — is returned as it is: a
+// chain of ".." says less than the path itself.
 func relToExec(abs string) string {
 	if abs == "" {
 		return ""
@@ -529,18 +529,6 @@ func (a *App) PickCoreFile() (string, error) {
 			{DisplayName: "所有文件", Pattern: "*.*"},
 		},
 	})
-}
-
-// Refresh re-reads profiles and groups from disk. It is a read-only operation:
-// a running core, the status bar and the runtime proxy toggles all survive it.
-func (a *App) Refresh() error {
-	// The lock lives here rather than at each call site, so that no caller can forget
-	// it: a re-read rebuilds the manager's maps while a subscription walk may be
-	// standing in the old ones, and the walk's commits would then land on a manager
-	// nothing else is reading (the whole update silently lost).
-	a.subMu.Lock()
-	defer a.subMu.Unlock()
-	return a.reload(true)
 }
 
 // OpenDataDir opens the settings directory in the file manager. It is where the

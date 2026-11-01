@@ -23,6 +23,9 @@ const listening = ref(false);
 // What the control is saying back: the modifiers being held, so far, or why the last
 // press was refused.
 const status = ref('');
+// True while the accept ask (an IPC round trip) is in flight: a second key inside
+// that window is swallowed rather than recorded twice.
+let accepting = false;
 
 // While this field listens, the app must not be holding any hotkey: Windows delivers
 // a registered combination to this process and passes nothing on, so the field would
@@ -40,6 +43,11 @@ watch(listening, (on, _, onCleanup) => {
 
 const press = async (e: KeyboardEvent) => {
     if (!listening.value) return;
+    // One capture at a time: acceptHotkey awaits its answer, and a second key
+    // pressed inside that window used to run the whole recording again — both
+    // writes landing on value, the later one winning for no press that a
+    // reader could account for. The in-flight ask swallows the extra key.
+    if (accepting) return;
     // The field's own while it listens. Tab would move on to the next row, Space
     // would scroll the dialog, Enter would do whatever the row does. The browser's
     // own shortcuts — Ctrl+W, F5 — cannot be taken back here for the same reason they
@@ -88,7 +96,15 @@ const press = async (e: KeyboardEvent) => {
     // combination the reader is most likely to press is the one already in this row.
     // Let go first and that press would be answered by our own registration, as a
     // conflict with nobody.
-    if (props.acceptHotkey && !(await props.acceptHotkey(props.hotkeyKey, combo))) {
+    accepting = true;
+    let taken = true;
+    if (props.acceptHotkey) taken = await props.acceptHotkey(props.hotkeyKey, combo);
+    accepting = false;
+    // The field can come out of listening while the ask was in flight — the sheet
+    // closed, or the field lost focus. Writing the model of a closed dialog is a
+    // change nobody asked for, so a capture with nowhere to land stops here.
+    if (!listening.value) return;
+    if (!taken) {
         listening.value = false;
         status.value = '';
         return;

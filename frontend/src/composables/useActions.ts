@@ -580,6 +580,12 @@ export function useActions(deps: AppActionsDeps) {
         }
         deps.setBusy(true);
         try {
+            // Read at write time, not at entry: UpdateSettings merges every
+            // field the payload carries, and the settings dialog auto-saves on
+            // a debounce. A snapshot taken before that save landed would carry
+            // the pre-save values and write them over the file — eating the
+            // reader's edits. The fresh read takes whatever the dialog last
+            // persisted and touches only egress_mode.
             const s: any = await API.GetSettings();
             await API.UpdateSettings(new setting.Setting({...s, egress_mode: mode}));
             deps.egress.value = mode;
@@ -660,6 +666,13 @@ export function useActions(deps: AppActionsDeps) {
                 onDiscard,
             };
         } catch (e) {
+            // The editor never opened, so the discard the caller handed over —
+            // 新增 and 克隆 hand one in to retract their just-created record —
+            // runs here rather than being dropped: dropped, it left a created
+            // node nobody asked to keep, with no dialog on screen saying why.
+            try {
+                await onDiscard?.();
+            } catch { /* the notify below carries the first failure */ }
             deps.notify(errText(e), 'err');
         }
     };
@@ -717,7 +730,15 @@ export function useActions(deps: AppActionsDeps) {
     };
 
     const importFromClipboard = async () => {
-        deps.importText.value = await API.ReadClipboard();
+        // Wrapped like every sibling action: a clipboard another process holds
+        // (clipboard managers, Office, RDP all do this) rejects the read, and an
+        // unhandled rejection out of a click handler lands on the root crash
+        // boundary — the whole window for a toast's worth of trouble.
+        try {
+            deps.importText.value = await API.ReadClipboard();
+        } catch (e) {
+            deps.notify(errText(e), 'err');
+        }
     };
 
     const doPreview = async (id?: number) => {
@@ -742,6 +763,15 @@ export function useActions(deps: AppActionsDeps) {
     // button can reach it again) and says why.
     const addSubFromSearch = async (raw: string) => {
         const url = raw.trim();
+        // The same reentry gate the pull itself keeps (see updateSub): a node
+        // action in flight would make the pull return silently, leaving a
+        // brand-new subscription of zero nodes and no word about either. Said
+        // here, before the record exists, so the retry after the action settles
+        // is one press on the same box.
+        if (deps.busyRef.value) {
+            deps.notify(t('sub.busy'), 'err');
+            return;
+        }
         try {
             deps.subBusy.value = true;
             let host = '';

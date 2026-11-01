@@ -192,14 +192,6 @@ func (a *App) applySettingLocked(next *setting.Setting) error {
 	return nil
 }
 
-// ListRoutings returns available routing profile names.
-func (a *App) ListRoutings() []string {
-	if a.curSetting() == nil {
-		return []string{}
-	}
-	return a.curSetting().ListRoutings()
-}
-
 // GetActiveRouting returns the active routing profile name.
 func (a *App) GetActiveRouting() string {
 	if a.curSetting() == nil {
@@ -414,23 +406,6 @@ func (a *App) TestDNS(servers []string, viaProxy bool) ([]dnstest.Result, error)
 		ctx = context.Background()
 	}
 	return dnstest.Run(ctx, servers, opts), nil
-}
-
-// CreateRouting creates a routing profile from a preset (0=Default, 1=bypass CN,
-// 2=bypass RU, 3=bypass US).
-func (a *App) CreateRouting(name string, preset int) error {
-	if a.curSetting() == nil {
-		return fmt.Errorf("settings not loaded")
-	}
-	return a.curSetting().SaveRouting(name, setting.PresetRouting(preset))
-}
-
-// DeleteRouting removes a routing profile.
-func (a *App) DeleteRouting(name string) error {
-	if a.curSetting() == nil {
-		return fmt.Errorf("settings not loaded")
-	}
-	return a.curSetting().DeleteRouting(name)
 }
 
 // SetActiveRouting switches the active routing profile.

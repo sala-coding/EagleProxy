@@ -2,12 +2,10 @@ package main
 
 import (
 	"eagle/internal/configbuilder"
-	"eagle/internal/db"
 	"eagle/internal/sub"
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -41,8 +39,8 @@ func (a *App) PreviewConfig(id int) (string, error) {
 // disk, and the table went on showing the rows it had read minutes before — old ids,
 // nodes that no longer existed. The next double click on one of those rows asked the
 // backend to start an id that named nothing, and the answer was "profile N not found".
-// The window answers this event by re-reading the tree and the list (see App.tsx),
-// which is what a table of live ids needs.
+// The window answers this event by re-reading the tree and the list (the
+// groups:changed handler in App.vue), which is what a table of live ids needs.
 // gid is the group the window should be showing (the hotkey switch uses the event that
 // way). Pass -1 to leave the reader where they are: an update refreshes the list of the
 // group it belongs to, and must not move the view to it — a background refresh of
@@ -95,53 +93,6 @@ func (a *App) UpdateSubscription(gid int) (*sub.Result, error) {
 	// re-read the list it is showing.
 	a.emitGroupsChanged(-1)
 	return res, err
-}
-
-// UpdateAllSubscriptions refreshes every group that has a subscription URL.
-func (a *App) UpdateAllSubscriptions() error {
-	// serialised with the per-group loop for the same reason UpdateSubscription is.
-	a.subMu.Lock()
-	defer a.subMu.Unlock()
-	errs := sub.UpdateAll(a.curMgr(), a.curSetting(), a.runningID(), a.logf, a.runningID)
-	// Announced even when some groups failed: the ones that came through have new
-	// ids on disk, and the window is showing the old ones.
-	a.emitGroupsChanged(-1)
-	if len(errs) > 0 {
-		lines := make([]string, 0, len(errs))
-		for _, e := range errs {
-			lines = append(lines, e.Error())
-		}
-		return fmt.Errorf("%s", strings.Join(lines, "\n"))
-	}
-	return nil
-}
-
-// CreateSubscription creates a group from a subscription URL and imports it.
-func (a *App) CreateSubscription(rawURL string) (int, error) {
-	rawURL = strings.TrimSpace(rawURL)
-	if rawURL == "" {
-		return -1, fmt.Errorf("empty url")
-	}
-	name := sub.HostLabel(rawURL)
-	if name == "" {
-		// Not a URL this can make a name from; the address itself is the next best
-		// thing, and the panel may still name the subscription on the first update.
-		name = rawURL
-	}
-	g := &db.Group{ID: -1, FrontProxyID: -1, Name: name, URL: rawURL}
-	if err := a.curMgr().AddGroup(g); err != nil {
-		return -1, err
-	}
-	a.subMu.Lock()
-	defer a.subMu.Unlock()
-	if _, err := sub.Update(a.curMgr(), a.curSetting(), a.runningID(), rawURL, g.ID, a.logf, a.runningID); err != nil {
-		// Even a failed first import can have written part of the list (the parse
-		// lands before the error is raised); the window is told either way.
-		a.emitGroupsChanged(g.ID)
-		return g.ID, err
-	}
-	a.emitGroupsChanged(g.ID)
-	return g.ID, nil
 }
 
 // ExportConfigFile writes the generated sing-box config to a user-chosen file.

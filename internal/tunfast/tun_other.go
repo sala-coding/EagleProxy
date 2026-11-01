@@ -9,17 +9,11 @@ import (
 )
 
 // ErrUnsupported reports the bring-up being attempted on a platform where
-// wintun does not exist. Options and Interface above are shared so a call
+// wintun does not exist. Prepare and the route capture are shared so a call
 // site compiles unchanged; the Windows side is the only implementation,
 // because each system's bring-up lives in the code that is already
 // platform-specific.
 var ErrUnsupported = errors.New("tunfast: only implemented on windows")
-
-// Open is the cross-platform entry point. On every system without wintun
-// it reports ErrUnsupported rather than pretending to open something.
-func Open(options Options) (Interface, error) {
-	return nil, ErrUnsupported
-}
 
 // ErrNotFound is the same answer as on Windows: no adapter by that name.
 var ErrNotFound = errors.New("adapter not found")
