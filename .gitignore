@@ -1,5 +1,6 @@
 # build outputs
 build/bin
+build/log
 frontend/dist
 node_modules
 
@@ -7,6 +8,7 @@ node_modules
 # and subscription URLs; they must never be published
 /config
 /configp
+/config.yaml
 /text-logs
 /log
 /*.log
@@ -15,3 +17,5 @@ node_modules
 /.codebuddy
 /.DS_Store
 /BUGS.md
+# agent tooling state, not part of the program
+/skills-lock.json
