@@ -1,12 +1,14 @@
 package main
 
 import (
+	"eagle/internal/configbuilder"
 	"eagle/internal/core"
 	"eagle/internal/db"
 	"eagle/internal/logstore"
 	"eagle/internal/setting"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -143,7 +145,16 @@ func (a *App) markExpectedStop() {
 	a.coreMu.Unlock()
 }
 
-
+// takeMissingRuleSets returns the rule sets the last start named as missing — the
+// ones the core said it could not fetch (404). Empty when the exit was something
+// else, which is the ordinary crash the restart budget is for.
+func (a *App) takeMissingRuleSets() []string {
+	c := a.curController()
+	if c == nil {
+		return nil
+	}
+	return c.TakeMissingRuleSets()
+}
 
 // onCoreExit decides what a core that has gone means. Asked-for exits are just the
 // other half of a stop; an exit nobody asked for is a crash, and the core is started
@@ -176,6 +187,23 @@ func (a *App) onCoreExit(gen, id, pid int) {
 	// cannot stay up is a fact worth telling the reader once, not a loop worth
 	// running quietly.
 	now := time.Now()
+	a.coreMu.Unlock()
+
+	// Before counting it as one more failure, ask whether the exit named a rule set
+	// the upstream does not publish ("initial rule-set: geoip-private: unexpected
+	// status: 404"). Dropping that tag and trying once more is a different config
+	// rather than the same one again, so it is not charged against the restart
+	// budget — otherwise two missing rule sets would exhaust three tries and the
+	// node would never come up at all.
+	if tags := a.takeMissingRuleSets(); len(tags) > 0 && configbuilder.SkipRuleSets(tags) > 0 {
+		a.notifyMessage(fmt.Sprintf("规则集 %s 不存在，已跳过该规则并重试", strings.Join(tags, "、")), true)
+		if err := a.StartProfile(id); err != nil {
+			a.notifyMessage("自动重启失败: "+err.Error(), true)
+		}
+		return
+	}
+
+	a.coreMu.Lock()
 	kept := a.restarts[:0]
 	for _, t := range a.restarts {
 		if now.Sub(t) < coreRestartWindow {

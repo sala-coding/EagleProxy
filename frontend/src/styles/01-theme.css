@@ -748,4 +748,19 @@
     cursor: col-resize !important;
     user-select: none;
 }
+
+/* The list a select opens is painted by the platform out of the control's own surface:
+   a select that is hovered or focused — the wash a reader has just set as the hover
+   colour — hands that wash to every option, so the whole dropdown arrives in the hover
+   colour instead of only the entry under the pointer. The options take the panel's
+   surface instead, and the entry in force keeps the wash. */
+select option {
+    background: var(--bg-2);
+    color: var(--text);
+}
+
+select option:checked {
+    background: var(--hover-bg);
+    color: var(--text);
+}
 

@@ -42,7 +42,10 @@
     margin: 0 -10px 7px;
     padding: 5px 10px;
     font-size: 0.625rem;
-    color: var(--text-dim);
+    /* The card's own name in the ink of its values: the smaller size and the letter
+       spacing already say "caption", and asking the colour to say it as well left a
+       band of grey at the top of every card. */
+    color: var(--text);
     text-transform: uppercase;
     letter-spacing: .08em;
     background: var(--bg);
@@ -229,6 +232,7 @@
    addresses and logs. Specificity has to outrank .jf-field's own input rule, which
    is why the selector reaches through the field. */
 .set-group .jf-field input.mono,
+.set-group .jf-field select.mono,
 .set-group .jf-field input[type="number"] {
     font-family: var(--font-mono);
     font-size: 0.75rem;
@@ -1220,6 +1224,51 @@
     width: min(780px, 92vw);
 }
 
+/* The generated-config preview: a reading pane rather than a form. Its box is a share
+   of the window in both directions — the dialog is the window's size, not a number
+   written here — and its height is not the reader's to drag: one field that can be
+   resized by hand is a dialog that changes shape under a stray press. */
+.modal.preview {
+    width: clamp(420px, 58vw, 760px);
+}
+
+.modal.preview .code {
+    height: clamp(200px, 52vh, 560px);
+    max-height: none;
+}
+
+.preview-box {
+    position: relative;
+}
+
+.preview-code {
+    display: block;
+    width: 100%;
+    resize: none;
+}
+
+/* The copy sits in the field's own corner: the panel has no foot to carry it, and a
+   press that lands on the text instead is a caret, which is what an editable field
+   is for. */
+.preview-copy {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    opacity: .75;
+}
+
+.preview-copy:hover,
+.preview-copy:focus-visible {
+    opacity: 1;
+}
+
+.preview-copy.copied {
+    color: var(--green);
+    border-color: var(--green);
+    background: var(--green-bg);
+    opacity: 1;
+}
+
 .modal.narrow {
     width: 430px;
 }
@@ -1253,9 +1302,33 @@
 
 .modal-foot {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
     gap: 8px;
     margin-top: 20px;
+}
+
+/* One row of buttons, all the same box. The file picker in the import dialog is a
+   label wearing .btn, and the modal's own label rule (display:block, 12px top margin,
+   dim ink) lifted it off the line the three real buttons stand on — so the row read
+   as two heights and two colours. And the row is a footnote to the dialog rather than
+   its subject: 26px instead of the button's usual 30. */
+.modal-foot > .btn,
+.modal-foot > label.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    height: 26px;
+    padding: 0 10px;
+    font-family: inherit;
+    font-size: 0.75rem;
+    line-height: 1;
+}
+
+.modal-foot > label.btn {
+    color: var(--text);
+    cursor: pointer;
 }
 
 .code {
@@ -1554,10 +1627,13 @@
     color: var(--text-dim);
 }
 
+/* A field's own name is read before its value, so it wears the ink the values wear
+   rather than the dimmer one the hints use: at --text-dim the whole card read as
+   grey type on a dark ground, which is what "不够白" was. */
 .jf-field > label {
     display: block;
     font-size: 0.75rem;
-    color: var(--text-dim);
+    color: var(--text);
     margin-bottom: 3px;
 }
 

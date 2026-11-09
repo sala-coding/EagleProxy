@@ -92,6 +92,8 @@ export function LANIP():Promise<string>;
 
 export function LANShare():Promise<boolean>;
 
+export function ListCoreFiles(arg1:string):Promise<Array<string>>;
+
 export function ListGroups():Promise<Array<main.GroupInfo>>;
 
 export function ListProfiles(arg1:number):Promise<Array<main.ProfileInfo>>;
@@ -150,6 +152,8 @@ export function SetLANShare(arg1:boolean):Promise<main.LANState>;
 
 export function SetSystemProxyMode(arg1:boolean):Promise<void>;
 
+export function SetUWPLoopback(arg1:boolean):Promise<void>;
+
 export function SetVPNMode(arg1:boolean):Promise<void>;
 
 export function SetWindowBackground(arg1:string):Promise<void>;
@@ -173,6 +177,8 @@ export function SystemFontScale():Promise<number>;
 export function TestDNS(arg1:Array<string>,arg2:boolean):Promise<Array<dnstest.Result>>;
 
 export function TestHotkey(arg1:string):Promise<boolean>;
+
+export function UWPLoopback():Promise<boolean>;
 
 export function UpdateGroup(arg1:db.Group):Promise<void>;
 

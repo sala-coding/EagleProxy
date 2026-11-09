@@ -124,28 +124,109 @@
    — and the edge and the wash appear on hover, so the control has a frame
    exactly when it is being aimed at. Each level's value carries the colour that
    its own lines will come in, so the head and the body read as one story. */
+/* The dropdown is drawn here rather than left to a native select: the platform paints
+   that control's list itself, and the entry under the pointer came out in the system's
+   white highlight — a colour from no palette, in a strip whose whole point is its
+   colours. The trigger keeps the geometry the select had. */
+.log-level-wrap {
+    position: relative;
+}
+
+/* A box the width of the word it shows — the word a reader is reading is the one the
+   control has to be. A native select sized itself to its longest option instead, so the
+   resting box was as wide as 错误 while saying 所有, with empty floor either side. The
+   frame is worn at rest, since what the reader is aiming at is a dropdown rather than a
+   word on the strip. */
 .log-level {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    width: auto;
     height: 22px;
-    padding: 0 4px;
+    padding: 0 5px;
     background: transparent;
-    border: 1px solid transparent;
+    border: 1px solid var(--line);
     border-radius: 5px;
     color: var(--text-dim);
+    font: inherit;
     font-size: 0.75rem;
+    white-space: nowrap;
     outline: none;
     cursor: pointer;
     transition: background .15s ease, color .15s ease, border-color .15s ease;
 }
 
 .log-level:hover,
-.log-level:focus-visible {
-    border-color: var(--line);
+.log-level:focus-visible,
+.log-level.open {
+    border-color: var(--line-strong);
     background: var(--hover-bg);
 }
 
 .log-level[data-lvl='normal'] { color: var(--accent); }
 .log-level[data-lvl='warn'] { color: var(--amber); }
 .log-level[data-lvl='error'] { color: var(--red); }
+
+/* The trigger's own caret, in the row's colour: a triangle rather than a glyph keeps the
+   word and the mark on the strip's one baseline. */
+.log-level-caret {
+    width: 0;
+    height: 0;
+    border-left: 3.5px solid transparent;
+    border-right: 3.5px solid transparent;
+    border-top: 4px solid currentColor;
+    opacity: .75;
+}
+
+/* The list itself: it opens downwards, the way the caret points and the way every other
+   menu in the app opens. The head is the panel's top strip, so the list falls over the
+   first lines rather than out of the window. It wears the app's surfaces rather than the
+   system's — the pointer's entry is --hover-bg, and the one in force the accent wash (the
+   same pair the log's own filter column uses). */
+.log-level-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 250;
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    /* As wide as its longest word, never wider: the list is a column of the same words
+       the trigger says, not a panel parked under it. */
+    width: max-content;
+    min-width: 100%;
+    background: var(--bg-2);
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, .45);
+}
+
+.log-level-menu button {
+    display: block;
+    width: 100%;
+    padding: 5px 8px;
+    border: 0;
+    border-radius: 5px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 0.75rem;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.log-level-menu button:hover,
+.log-level-menu button:focus-visible {
+    background: var(--hover-bg);
+    color: var(--text);
+    outline: none;
+}
+
+.log-level-menu button.on {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
 
 /* The caption stands alone at the head's left end; everything else on the
    strip — pause, level, copy, clear, collapse — is one group at the right.

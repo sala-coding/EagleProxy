@@ -4,10 +4,11 @@
 //
 // One dictionary per file (see ./i18n/), the way the tips are one file per language: a
 // dictionary is a page of words, and seven of them in one file is a page nobody can read.
-export type Lang = 'zh' | 'en' | 'ru' | 'ko';
+export type Lang = 'zh' | 'en' | 'ru' | 'fa';
 
+import {shallowRef} from 'vue';
 import {ru} from './i18n/ru';
-import {ko} from './i18n/ko';
+import {fa} from './i18n/fa';
 
 const zh: Record<string, string> = {
 'sp.systemProxy': '系统代理',
@@ -114,7 +115,7 @@ const zh: Record<string, string> = {
     'loglevel.error': '错误',
     'log.noMatch': '没有符合筛选条件的日志',
     'dlg.import.title': '导入分享链接',
-    'dlg.import.hint': '每行一个链接，支持 vmess / vless / trojan / ss / socks / http / tuic / hy2 / naive / nekoray。',
+    'dlg.import.hint': '每行一个链接，支持 vmess / vless / trojan / ss / socks / http / tuic / hy2 / naive / anytls / hysteria / snell / nekoray。',
     'btn.scanImage': '从图片识别',
     'btn.readClipboard': '读取剪贴板',
     'btn.browse': '浏览',
@@ -284,6 +285,8 @@ const zh: Record<string, string> = {
     'settings.customHint': '选一个颜色，整个界面由它推导。',
     'settings.uiFontHint': '点击或拖动格子调字号，双击恢复跟随系统；文字仍随窗口宽窄浮动。',
     'settings.extraCores': '外部核心路径',
+    'settings.uwp': 'UWP 回环解锁',
+    'settings.uwpHint': '让应用商店里的 UWP 应用也能连接本机代理端口（需要一次管理员授权）。',
     'settings.all': '全部设置',
     // Settings field names, shown as the labels of the raw JSON editor. The key
     // itself is still exposed as the field's tooltip, so a name from the docs
@@ -367,7 +370,7 @@ const zh: Record<string, string> = {
     'lang.zh': '中文',
     'lang.en': 'English',
     'lang.ru': 'Русский',
-    'lang.ko': '한국어',
+    'lang.fa': 'فارسی',
     'cfg.language': '语言',
     'cfg.spmode2': '上次的运行模式',
     'cfg.remember_spmode': '恢复上次模式',
@@ -480,6 +483,7 @@ const zh: Record<string, string> = {
     'ip.purity.mid': '一般',
     'ip.purity.risky': '高风险',
     'btn.copy': '复制',
+    'btn.copied': '已复制',
     // The sniffing row on the routing card. These three were in the file from the port and
     // unreferenced until the row existed; the labels are the ones a segmented control wants —
     // short enough to sit three to a line — so nekoray's "探测结果用于…" is cut to its
@@ -702,7 +706,7 @@ const en: Record<string, string> = {
     'loglevel.error': 'Error',
     'log.noMatch': 'No lines match this filter',
     'dlg.import.title': 'Import Share Links',
-    'dlg.import.hint': 'One link per line. Supports vmess / vless / trojan / ss / socks / http / tuic / hy2 / naive / nekoray.',
+    'dlg.import.hint': 'One link per line. Supports vmess / vless / trojan / ss / socks / http / tuic / hy2 / naive / anytls / hysteria / snell / nekoray.',
     'btn.scanImage': 'Scan Image',
     'btn.readClipboard': 'Read Clipboard',
     'btn.browse': 'Browse',
@@ -806,6 +810,8 @@ const en: Record<string, string> = {
     'settings.customHint': 'Pick a colour; the rest of the interface follows.',
     'settings.uiFontHint': 'Click or drag the cells to size the type, double-click returns to the system default; the type still floats with the window width.',
     'settings.extraCores': 'External core paths',
+    'settings.uwp': 'UWP loopback',
+    'settings.uwpHint': 'Let Store (UWP) apps reach the local proxy port. One administrator prompt.',
     'settings.all': 'All settings',
     'cfg.inbound_auth': 'Inbound auth',
     'cfg.user': 'Username',
@@ -912,7 +918,7 @@ const en: Record<string, string> = {
     'lang.zh': '中文',
     'lang.en': 'English',
     'lang.ru': 'Русский',
-    'lang.ko': '한국어',
+    'lang.fa': 'فارسی',
     'cfg.language': 'Language',
     'cfg.spmode2': 'Mode last left in',
     'cfg.remember_spmode': 'Restore last mode',
@@ -1010,6 +1016,7 @@ const en: Record<string, string> = {
     'ip.purity.mid': 'ordinary',
     'ip.purity.risky': 'high risk',
     'btn.copy': 'Copy',
+    'btn.copied': 'Copied',
     'routing.sniffing': 'Traffic sniffing',
     'routing.sniffHint': 'Takes the domain out of the traffic (TLS SNI / HTTP Host) for the rules to match. "For destination" leaves it unresolved here and hands the name to the outbound.',
     'routing.sniffOff': 'Off',
@@ -1115,25 +1122,29 @@ const en: Record<string, string> = {
     'msg.cloned': 'Cloned',
 };
 
-const dicts: Record<Lang, Record<string, string>> = {zh, en, ru, ko};
+const dicts: Record<Lang, Record<string, string>> = {zh, en, ru, fa};
 
-let current: Lang = 'zh';
+// A ref rather than a plain variable, so every t() called inside a render effect or
+// a computed depends on the language and one switch repaints every word — including
+// the rows a child component draws, which a plain variable left in the language they
+// were first spoken in (labels that stayed Chinese after switching to English).
+const current = shallowRef<Lang>('zh');
 
 // SetLang switches the active language.
 export function setLang(l: Lang) {
-    current = dicts[l] ? l : 'zh';
+    current.value = dicts[l] ? l : 'zh';
 }
 
 // Lang returns the active language.
 export function getLang(): Lang {
-    return current;
+    return current.value;
 }
 
 // T translates a key, falling back to Chinese then the key itself, and fills
 // {0}, {1}… with args in order — the same substitution the tips table gets,
 // because a few strings here are parameterised the same way.
 export function t(key: string, ...args: (string | number)[]): string {
-    const s = dicts[current][key] ?? zh[key] ?? key;
+    const s = dicts[current.value][key] ?? zh[key] ?? key;
     if (!args.length) return s;
     return s.replace(/\{(\d+)\}/g, (m, i) => {
         const v = args[Number(i)];
@@ -1145,7 +1156,7 @@ export function t(key: string, ...args: (string | number)[]): string {
 // (0 Chinese, 1 English, 2 traditional Chinese, 3 Persian, 4 Russian); 2 and 3 are not
 // shipped here, so a file that carries either falls back to Chinese — 3 used to be
 // Persian, which is no longer offered, and an old file that carries it now lands on
-// Chinese the way 2 always did. 5 is Korean, a language added here rather than
+// Chinese the way 2 always did. 5 is Persian, a language added here rather than
 // inherited from nekoray, so the number is ours to hand out.
 export function langFromCode(code: number): Lang {
     switch (code) {
@@ -1154,7 +1165,7 @@ export function langFromCode(code: number): Lang {
         case 4:
             return 'ru';
         case 5:
-            return 'ko';
+            return 'fa';
         default:
             return 'zh';
     }
@@ -1168,7 +1179,7 @@ export function codeOfLang(lang: Lang): number {
     switch (lang) {
         case 'en':
             return 1;
-        case 'ko':
+        case 'fa':
             return 5;
         case 'ru':
             return 4;
@@ -1180,7 +1191,7 @@ export function codeOfLang(lang: Lang): number {
 // form lists them. One list rather than a repetition per language: it is what says
 // which codes are ours, and a language added as a file but missed here would be a
 // language the window can wear but never offer.
-const ALL: Lang[] = ['zh', 'en', 'ru', 'ko'];
+const ALL: Lang[] = ['zh', 'en', 'ru', 'fa'];
 
 // SystemLang is the language the machine is speaking, as the web view reports it.
 // The web view takes its locale from the system on every desktop this app runs on,

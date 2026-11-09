@@ -147,6 +147,12 @@ export const CUSTOM_HUE = '--custom-hue';
 // colour the window is actually wearing rather than on a reconstruction of it.
 export const CUSTOM_COLOR = '--custom-color';
 
+// The derivation that made a stored set, kept in it so an older one is re-made
+// instead of worn: the ink a palette carries is the derivation's, not the reader's,
+// and a set saved before the ink was whitened would keep showing the old grey.
+export const CUSTOM_VERSION = '--custom-version';
+export const CUSTOM_VERSION_NOW = '5';
+
 // The three numbers the derivation works in. All of them are used: the hue tints the
 // surfaces, and the picked colour's own saturation and lightness drive the accent — so
 // a muted slate and a vivid blue are two different palettes, not one hue family.
@@ -174,7 +180,21 @@ export function hexOf(h: number, s: number, l: number): string {
     const a = sn * Math.min(ln, 1 - ln);
     const f = (n: number) => ln - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
     const hex = (v: number) => Math.round(v * 255).toString(16).padStart(2, '0');
-    return `${hex(f(0))}${hex(f(8))}${hex(f(4))}`;
+    // With the `#`: this string is the record of the picked colour and goes back
+    // into the picker, which reads only a #rrggbb — a bare six digits fell back to
+    // the derived accent, so the field never showed the colour it was made with.
+    return `#${hex(f(0))}${hex(f(8))}${hex(f(4))}`;
+}
+
+// The colour the picker opens on, out of a stored palette: the record kept beside
+// the hue when there is one, and the ground otherwise — --bg *is* the picked colour,
+// so a palette saved before the record existed still opens on the colour it was made
+// with rather than on the accent derived from it.
+export function pickedColor(p: CustomPalette): string {
+    const c = p[CUSTOM_COLOR];
+    if (typeof c === 'string' && /^#?[0-9a-f]{6}$/i.test(c)) return c.startsWith('#') ? c : `#${c}`;
+    const m = /hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/.exec(p['--bg'] ?? '');
+    return m ? hexOf(Number(m[1]), Number(m[2]), Number(m[3])) : '';
 }
 
 // A colour is the whole palette. The picked colour is the ground itself — not a hue
@@ -203,12 +223,21 @@ export function buildCustomPalette(tone: string | {h: number; s: number; l: numb
         '--bg-3': surf(8),
         '--line': surf(12, 0.7),
         '--line-strong': surf(20, 0.85),
-        '--text': `hsl(${h}, ${pc(Math.min(s, 25))}%, ${pale ? 12 : 94}%)`,
-        '--text-dim': `hsl(${h}, ${pc(Math.min(s, 18))}%, ${pale ? 38 : 68}%)`,
+        // The deep side's ink, near-neutrally coloured: the picked saturation only
+        // tints it, because a saturated blue at high lightness reads as grey-blue
+        // rather than as white. 92% is the plain reading — 97 was the correction
+        // overshooting into "too white".
+        '--text': `hsl(${h}, ${pc(Math.min(s, 6))}%, ${pale ? 12 : 92}%)`,
+        '--text-dim': `hsl(${h}, ${pc(Math.min(s, 10))}%, ${pale ? 38 : 76}%)`,
         '--accent': accent,
         '--accent-soft': `hsla(${acc.h}, ${acc.s}%, ${acc.l}%, ${pale ? 0.14 : 0.18})`,
         '--accent-edge': `hsla(${acc.h}, ${acc.s}%, ${acc.l}%, ${pale ? 0.45 : 0.50})`,
-        '--on-fill': pale ? '#ffffff' : `hsl(${h}, ${pc(Math.min(s, 25))}%, 10%)`,
+        // What sits on a filled control — chosen from the accent's own lightness, not
+        // from the ground's: on a very dark ground the accent lands near 37%, and the
+        // dark ink that belongs on a pale fill read as two greys on it (the "淡蓝底、
+        // 字看不清" case). A fill light enough to carry dark ink gets it; everything
+        // darker gets white.
+        '--on-fill': acc.l >= 60 ? `hsl(${h}, ${pc(Math.min(s, 25))}%, 10%)` : '#ffffff',
         '--green': pale ? '#279c56' : '#4fd489',
         '--red': pale ? '#d64545' : '#ff6b6b',
         '--amber': pale ? '#c98a00' : '#ffc266',
@@ -225,6 +254,7 @@ export function buildCustomPalette(tone: string | {h: number; s: number; l: numb
     core[CUSTOM_GROUND] = pale ? 'pale' : 'deep';
     core[CUSTOM_HUE] = String(h);
     core[CUSTOM_COLOR] = hexOf(h, s, l);
+    core[CUSTOM_VERSION] = CUSTOM_VERSION_NOW;
     return core;
 }
 
@@ -234,7 +264,13 @@ export function readCustomPalette(): CustomPalette | null {
     try {
         const raw = window.localStorage.getItem('custom-palette');
         const p = raw ? JSON.parse(raw) as CustomPalette : null;
-        return p && typeof p['--bg'] === 'string' ? p : null;
+        if (!p || typeof p['--bg'] !== 'string') return null;
+        if (p[CUSTOM_VERSION] === CUSTOM_VERSION_NOW) return p;
+        // Rebuilt from the colour it was made with, so nothing the reader chose is
+        // lost — only the derivation that turns it into surfaces and ink is new.
+        const rebuilt = buildCustomPalette(pickedColor(p) || p['--bg']);
+        window.localStorage.setItem('custom-palette', JSON.stringify(rebuilt));
+        return rebuilt;
     } catch {
         return null;
     }

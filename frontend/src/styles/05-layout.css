@@ -347,7 +347,46 @@
    squares. 34 like the rest, and the row is one height and one width from end
    to end. */
 .tb-btn.lan-toggle {
+    position: relative;
     width: 34px;
+}
+
+/* On, and something is riding it: the green the bar's other live things wear. The
+   glyph breathes while a device is connected — on the compositor (opacity and
+   transform only), the way the rail's lit switch does, so a still window pays
+   nothing for it. */
+.tb-btn.lan-toggle.on {
+    color: var(--green);
+}
+
+.tb-btn.lan-toggle.live .ic {
+    will-change: opacity, transform;
+    animation: lanBreath 1.8s ease-in-out infinite;
+}
+
+@keyframes lanBreath {
+    0%, 100% {
+        opacity: .45;
+        transform: scale(.9);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.08);
+    }
+}
+
+/* The device count on the icon's corner: small enough to sit on a 34px button, and
+   read against whatever is behind it rather than owning a pill of its own. */
+.lan-count {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    font-size: 9px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--green);
+    text-shadow: 0 0 3px var(--bg-2);
+    pointer-events: none;
 }
 
 /* No floor of their own either: the batch words and the mode words are short,

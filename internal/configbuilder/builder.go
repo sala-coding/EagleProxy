@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"eagle/internal/bean"
 	"eagle/internal/db"
@@ -2046,7 +2047,14 @@ func (b *builder) buildRoute(tagProxy string) map[string]interface{} {
 	route["default_domain_resolver"] = resolver
 
 	if len(b.ruleSets) > 0 {
-		route["rule_set"] = b.ruleSetDefinitions()
+		// The outbound a remote rule set is downloaded through: the one this route
+		// already sends everything unnamed to. It used to be settled by the core on
+		// its own, which 1.14 deprecated (see HttpClientSupported).
+		detour, _ := route["final"].(string)
+		if detour == "" {
+			detour = tagProxy
+		}
+		route["rule_set"] = b.ruleSetDefinitions(detour)
 	}
 	return route
 }
@@ -2061,7 +2069,7 @@ func (b *builder) buildRoute(tagProxy string) map[string]interface{} {
 // matches, which looks exactly like a routing profile that does nothing. Dropping the
 // .srs file in there (under the name the remote URL ends in, geosite-cn.srs and the
 // like — see addRuleSet) is what makes these rules work offline.
-func (b *builder) ruleSetDefinitions() []interface{} {
+func (b *builder) ruleSetDefinitions(detour string) []interface{} {
 	tags := make([]string, 0, len(b.ruleSets))
 	for tag := range b.ruleSets {
 		tags = append(tags, tag)
@@ -2079,12 +2087,20 @@ func (b *builder) ruleSetDefinitions() []interface{} {
 			})
 			continue
 		}
-		out = append(out, map[string]interface{}{
+		remote := map[string]interface{}{
 			"type":   "remote",
 			"tag":    tag,
 			"format": "binary",
 			"url":    b.ruleSets[tag],
-		})
+		}
+		// From 1.14 the core refuses to pick a client of its own for this download
+		// (see HttpClientSupported), so the outbound is named here. Inline rather
+		// than a shared http_clients entry: one download, one client, and no tag to
+		// keep in step with it.
+		if HttpClientSupported() {
+			remote["http_client"] = map[string]interface{}{"detour": detour}
+		}
+		out = append(out, remote)
 	}
 	return out
 }
@@ -2192,6 +2208,15 @@ func (b *builder) makeRule(list []string, isIP bool) map[string]interface{} {
 	for _, item := range list {
 		if isIP {
 			if name := strings.TrimPrefix(item, "geoip:"); name != item {
+				// The private ranges are not a rule set upstream: sing-geoip ships no
+				// geoip-private.srs (the fetch answers 404), and a rule set the core
+				// cannot initialize takes the whole config down with it — "start
+				// router: initial rule-set: geoip-private: unexpected status: 404",
+				// every restart. sing-box has a matcher for exactly this case.
+				if strings.EqualFold(strings.TrimSpace(name), "private") {
+					rule["ip_is_private"] = true
+					continue
+				}
 				// addRuleSet answers "" for an empty name ("geoip:", half a
 				// keystroke or a truncated copy). Appending that blind put
 				// rule_set: [""] in the config with no definition behind it,
@@ -2262,12 +2287,57 @@ func (b *builder) makeRule(list []string, isIP bool) map[string]interface{} {
 // the same name in the settings' rule-set directory is used instead when there is one —
 // which is the only way these rules can work on a network that cannot reach
 // raw.githubusercontent.com (see ruleSetDefinitions).
+// skippedRuleSets are the tags the running core has already said the upstream does
+// not publish ("initial rule-set: geosite-jp: unexpected status: 404 Not Found").
+// The supervisor records them after a failed start and rebuilds; the build then
+// leaves them out rather than writing a reference the core cannot initialize. They
+// last for the process: upstream content is not going to appear between two
+// restarts, and a reader who fixes the rule gets a fresh process to prove it.
+var (
+	skippedMu       sync.Mutex
+	skippedRuleSets = map[string]bool{}
+)
+
+// SkipRuleSets records tags that must not be written as remote rule sets, and
+// answers how many were new. Zero means nothing changed — the retry would be the
+// same config again, so the caller must count it as an ordinary failed restart
+// instead of looping.
+func SkipRuleSets(tags []string) int {
+	skippedMu.Lock()
+	defer skippedMu.Unlock()
+	added := 0
+	for _, t := range tags {
+		if t != "" && !skippedRuleSets[t] {
+			skippedRuleSets[t] = true
+			added++
+		}
+	}
+	return added
+}
+
+func ruleSetSkipped(tag string) bool {
+	skippedMu.Lock()
+	defer skippedMu.Unlock()
+	return skippedRuleSets[tag]
+}
+
 func (b *builder) addRuleSet(kind, name string) string {
 	name = strings.TrimSpace(strings.TrimPrefix(name, "!"))
 	if name == "" {
 		return ""
 	}
+	// Refused here as well as in makeRule: nothing that reaches this function should
+	// ever register a remote rule set the upstream does not publish (see the
+	// geoip:private case there), so the door is closed for every caller.
+	if kind == "geoip" && strings.EqualFold(name, "private") {
+		return ""
+	}
 	tag := kind + "-" + name
+	// A tag the core already refused to fetch is left out of the build (see
+	// skippedRuleSets): writing it again would fail the same way.
+	if ruleSetSkipped(tag) {
+		return ""
+	}
 	if b.ruleSets == nil {
 		b.ruleSets = map[string]string{}
 	}
@@ -2286,7 +2356,8 @@ func (b *builder) addRuleSet(kind, name string) string {
 // reader cannot fetch in advance, and the presets are the one set the reader should
 // not have to discover by first writing a rule that needs them.
 func PresetRuleSetTags() []string {
-	return []string{"geoip-cn", "geosite-cn", "geoip-ru", "geosite-category-ru", "geoip-us"}
+	return []string{"geoip-cn", "geosite-cn", "geoip-ru", "geosite-category-ru", "geoip-us",
+		"geoip-ir", "geosite-category-ir"}
 }
 
 // RuleSetSources lists where a rule set's fresh copy can be fetched from, in the order

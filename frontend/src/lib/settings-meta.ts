@@ -142,7 +142,7 @@ export const LANGUAGES = [
     {value: '0', label: 'lang.zh', flag: 'cn'},
     {value: '1', label: 'lang.en', flag: 'us'},
     {value: '4', label: 'lang.ru', flag: 'ru'},
-    {value: '5', label: 'lang.ko', flag: 'kr'},
+    {value: '5', label: 'lang.fa', flag: 'ir'},
 ];
 
 // The same flag by the language rather than by the file's number, for the one place

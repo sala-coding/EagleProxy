@@ -2,7 +2,7 @@
 // The log panel, extracted from App.tsx (the showLogs JSX block): the head
 // strip (pause / level / copy / clear / collapse), the filter column beside
 // the log, the legend, and the lines themselves.
-import {computed, type Ref} from 'vue';
+import {computed, onBeforeUnmount, onMounted, ref, type Ref} from 'vue';
 import {t} from '../i18n';
 import {CONSOLE_MAX_SHARE, CONSOLE_MIN_H} from '../lib/layout';
 import {LOG_CATEGORIES, LOG_FILTERS, LOG_LEVELS, lineLevelOf, sectionText, splitStamp, type ShownLine} from '../lib/logfilter';
@@ -79,6 +79,24 @@ const headDbl = (e: MouseEvent) => {
     if (el?.closest('button, select, input, a')) return;
     emit('collapse');
 };
+
+// The level dropdown, drawn rather than left to the platform: a native select's list is
+// painted by the system, and its entry under the pointer came out in the system's own
+// highlight — a white band in a dark head, out of the palette entirely. A menu of this
+// app's own paints the hover with --hover-bg, the one colour the reader chose for it.
+const levelOpen = ref(false);
+const levelWrap = ref<HTMLElement | null>(null);
+const levelLabel = computed(() =>
+    t(LOG_LEVELS.find(l => l.id === props.logLevel)?.label ?? 'loglevel.all'));
+const pickLevel = (id: string) => {
+    levelOpen.value = false;
+    emit('setLevel', id);
+};
+const onLevelOutside = (e: PointerEvent) => {
+    if (levelOpen.value && !levelWrap.value?.contains(e.target as Node)) levelOpen.value = false;
+};
+onMounted(() => document.addEventListener('pointerdown', onLevelOutside, true));
+onBeforeUnmount(() => document.removeEventListener('pointerdown', onLevelOutside, true));
 </script>
 
 <template>
@@ -130,13 +148,28 @@ const headDbl = (e: MouseEvent) => {
                 what a line is matched against (see LOG_LEVELS and
                 LINE_LEVEL). The chosen one wears the colour its lines
                 will wear below. -->
-            <select class="log-level" :value="logLevel"
-                    :data-lvl="logLevel"
-                    :title="t('log.levelHint')"
-                    :aria-label="t('log.levelHint')"
-                    @change="emit('setLevel', ($event.target as HTMLSelectElement).value)">
-                <option v-for="l in LOG_LEVELS" :key="l.id" :value="l.id">{{ t(l.label) }}</option>
-            </select>
+            <div ref="levelWrap" class="log-level-wrap">
+                <button type="button"
+                        :class="`log-level${levelOpen ? ' open' : ''}`"
+                        :data-lvl="logLevel"
+                        :title="t('log.levelHint')"
+                        :aria-label="t('log.levelHint')"
+                        :aria-expanded="levelOpen"
+                        aria-haspopup="listbox"
+                        @click="levelOpen = !levelOpen">
+                    <span class="log-level-word">{{ levelLabel }}</span>
+                    <span class="log-level-caret" aria-hidden="true"></span>
+                </button>
+                <ul v-if="levelOpen" class="log-level-menu" role="listbox"
+                    :aria-label="t('log.levelHint')">
+                    <li v-for="l in LOG_LEVELS" :key="l.id">
+                        <button type="button" role="option"
+                                :aria-selected="logLevel === l.id"
+                                :class="logLevel === l.id ? 'on' : ''"
+                                @click="pickLevel(l.id)">{{ t(l.label) }}</button>
+                    </li>
+                </ul>
+            </div>
             <!-- Copying the whole panel, the head's own button for what the
                 right-click menu offers on the text: the act is about the panel
                 rather than about a line, and reaching for it over the menu

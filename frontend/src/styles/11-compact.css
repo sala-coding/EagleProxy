@@ -70,8 +70,10 @@
     gap: 6px;
     /* The rail runs the full window height, statusbar band included, and covers the
        bar's first 40px — so the cluster starts at the rail's right edge, right beside
-       the About icon, instead of under it. */
-    margin-left: calc(var(--rail-w, 40px) + 6px);
+       the About icon, instead of under it. The ten pixels of air the magnifier keeps
+       from the rail live inside the button and the field alike (see below and
+       .search-ic), so the glyph stands in the same place closed and open. */
+    margin-left: var(--rail-w, 40px);
     /* The bar itself right-aligns everything (it was built for the rates and the
        address alone), so the cluster — now the bar's leftmost thing — pushes the
        right-hand group away with an auto margin: the magnifier reads as the bar's
@@ -88,12 +90,22 @@
    border that the titlebar's own tb-btn rule zeroes does not reach here, so the
    button showed its UA outline; only the glyph remains. */
 .status-search > .tb-btn {
-    width: 34px;
+    width: 30px;
+    /* Stretched by the bar, never sized from --status-h: that variable is written from
+       the bar's own measured height (see App.vue), so a height that reads it feeds the
+       measurement back into the box being measured — the bar grew a pixel a frame until
+       it had eaten the window. */
     align-self: stretch;
     border: 0;
-    padding: 0;
+    /* The same ten pixels the field puts before its magnifier (.search-ic): the glyph
+       is the same object in both states, and its place is where it was — the press used
+       to shift it ten pixels right as the field unfolded. */
+    padding: 0 0 0 10px;
     background: none;
     outline: none;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
 }
 
 .status-search > .tb-btn:hover,
@@ -106,8 +118,11 @@
 /* The magnifier as the button's own glyph: the same drawing the field carries, at the
    size the other bar icons are. */
 .search-glyph {
-    width: 14px;
-    height: 14px;
+    display: block;
+    /* The field's own magnifier is 13 (see .search-ic): one drawing, one size, so the
+       press does not resize the glyph as well as move it. */
+    width: 13px;
+    height: 13px;
 }
 
 /* The field wraps the input so the magnifier can live inside it: the icon is
@@ -121,6 +136,10 @@
 .search-ic {
     position: absolute;
     left: 10px;
+    /* Centred on the field's own line rather than left to its static position: the
+       same centre the closed button's glyph takes, so the two states are one place. */
+    top: 50%;
+    transform: translateY(-50%);
     width: 13px;
     height: 13px;
     color: var(--text-dim);
@@ -721,22 +740,13 @@ table.profiles th {
 }
 
 /* The rows of that card the builder writes only for a tun front-end, while TUN is not
-   the mode in place: dimmed, because until TUN is switched on they are settings for
-   something that is not running. Dimmed and not disabled, so the pointer says as much —
-   filling them in before switching TUN on is the usual order of use, and a control that
-   refuses the first edit is the wrong way to say "not in force yet".
-   Worn by rows rather than by a block of the card: the card's rows are the two kind
-   frames now (see .kind-box), the MTU with the two lists in one and the switches in the
-   other, so it is the rows the builder writes for a tun front-end that dim, one at a
-   time — the switches' frame as a whole except for 隐藏核心控制台, which is not one of
-   them (nothing in the builder reads it for the tun). */
+   the mode in place. They used to be dimmed to 55% and come up to full under the
+   pointer or the caret, which read as grey type that only becomes readable by
+   accident — and half the card was unreadable at rest. Which rows take effect only
+   with TUN on is said by the switch above them, not by their ink: the rows are the
+   card's own rows now, not disabled, not faded (the .tun-idle class stays in the
+   markup as the place to hang a real state on if one is ever needed). */
 .tun-idle {
-    opacity: .55;
-    transition: opacity .15s;
-}
-
-.tun-idle:hover,
-.tun-idle:focus-within {
     opacity: 1;
 }
 
@@ -1402,7 +1412,8 @@ table.groups-table .btn.tiny .ic {
     color: var(--accent);
 }
 
-.input-row > input {
+.input-row > input,
+.input-row > select {
     flex: 1;
     min-width: 0;
 }
@@ -1573,7 +1584,10 @@ table.groups-table .btn.tiny .ic {
     background: var(--bg);
     border: 1px solid var(--line);
     border-radius: 8px;
-    color: var(--text-dim);
+    /* The direction's own name and note in the ink of values: at --text-dim the four
+       cards were grey until the pointer crossed them, which is the one thing a choice
+       of four should never be. */
+    color: var(--text);
     font: inherit;
     cursor: pointer;
     transition: border-color .15s, background .15s, color .15s;
@@ -1581,13 +1595,13 @@ table.groups-table .btn.tiny .ic {
 
 .rt-card:hover {
     border-color: var(--line-strong);
-    color: var(--text);
 }
 
-/* Open for editing. */
+/* Open for editing: the reader's hover colour as the ground with the accent on the
+   edge — the same two parts the capsules use for "chosen". */
 .rt-card.active {
     border-color: var(--accent);
-    background: var(--accent-soft);
+    background: var(--hover-bg);
 }
 
 /* The mode traffic is actually following, which is not the same thing as the card being
@@ -1957,11 +1971,15 @@ table.groups-table .btn.tiny .ic {
     color: var(--text);
 }
 
-/* The one in force. */
+/* The one in force: the reader's own hover colour as the ground, with the accent on
+   the edge and the plain ink on the word — so "chosen" is a fill the reader picked and
+   a mark the app owns, and it stays apart from the pointer's own wash. (A filled
+   accent capsule put the accent over the accent; against a dark custom ground that is
+   two dark blues a shade apart.) */
 .either-btn.on {
     border-color: var(--accent);
-    background: var(--accent-soft);
-    color: var(--accent);
+    background: var(--hover-bg);
+    color: var(--text);
 }
 
 .either-btn:focus-visible {
@@ -2001,9 +2019,13 @@ table.groups-table .btn.tiny .ic {
     color: var(--text);
 }
 
+/* The chosen segment, in the same two parts as the two-answer capsule: the reader's
+   hover colour as the ground, the accent as a ring around it (an inset ring rather
+   than a border, so the capsule's geometry does not move when the choice does). */
 .seg-item.on {
-    background: var(--accent);
-    color: var(--on-fill);
+    background: var(--hover-bg);
+    color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 /* Keyboard only: the pointer already gets the hover above. */
@@ -2338,12 +2360,13 @@ table.groups-table .btn.tiny .ic {
     background: var(--hover-bg);
 }
 
-/* The one whose address is the value of the field it sits under. The accent wash the app
-   uses for a chosen thing (see --accent-soft), and the address rides along in that colour
-   rather than staying dim against it. */
+/* The one whose address is the value of the field it sits under: the reader's hover
+   colour as the ground, marked with an accent bar down its left edge so the chosen row
+   and the row under the pointer are still two different readings. */
 .dns-row.on {
-    background: var(--accent-soft);
-    color: var(--accent);
+    background: var(--hover-bg);
+    color: var(--text);
+    box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .dns-row-name {

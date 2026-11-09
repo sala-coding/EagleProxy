@@ -26,27 +26,37 @@ func CoreVersion() string {
 	return v
 }
 
-// NativeStackSupported reports whether the recorded core is sing-box 1.15.0 or
-// newer: sing-tun ships its own TCP/IP stack from there on, the stack field is
-// deprecated and the reader's choice between gvisor/system/mixed stops applying.
-// A core that cannot be probed, or one whose answer does not parse, reads as
-// older — the safe side is the side that still writes the field the old core
-// understands.
-func NativeStackSupported() bool {
+// atLeast reports whether the recorded core is major.minor or newer. A core that
+// cannot be probed, or one whose answer does not parse, reads as older — the safe
+// side is the side that still writes the fields the old core understands.
+func atLeast(major, minor int) bool {
 	m := regexp.MustCompile(`^(\d+)\.(\d+)`).FindStringSubmatch(CoreVersion())
 	if m == nil {
 		return false
 	}
-	major, err := strconv.Atoi(m[1])
+	gotMajor, err := strconv.Atoi(m[1])
 	if err != nil {
 		return false
 	}
-	if major != 1 {
-		return major > 1
+	if gotMajor != major {
+		return gotMajor > major
 	}
-	minor, err := strconv.Atoi(m[2])
+	gotMinor, err := strconv.Atoi(m[2])
 	if err != nil {
 		return false
 	}
-	return minor >= 15
+	return gotMinor >= minor
 }
+
+// NativeStackSupported reports whether the recorded core is sing-box 1.15.0 or
+// newer: sing-tun ships its own TCP/IP stack from there on, the stack field is
+// deprecated and the reader's choice between gvisor/system/mixed stops applying.
+func NativeStackSupported() bool { return atLeast(1, 15) }
+
+// HttpClientSupported reports whether the recorded core is sing-box 1.14.0 or
+// newer: from there a remote rule-set names the HTTP client it is downloaded
+// with, and the implicit default — a download through the default outbound — is
+// deprecated. A core of 1.15 refuses it outright unless an environment variable
+// turns the old behaviour back on, which is the FATAL in the log ("核心反复退出"
+// three times over).
+func HttpClientSupported() bool { return atLeast(1, 14) }

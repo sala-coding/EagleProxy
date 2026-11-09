@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -513,6 +514,52 @@ func (a *App) SetCorePath(path string) {
 		a.curController().SetCorePath(abs)
 	}
 	a.saveAppConfig()
+}
+
+// ListCoreFiles lists the executables in the folder a core path points into:
+// the cores a reader can switch between instead of retyping a path. An empty
+// dir is the folder beside the executable, which is where the bundled core
+// lives. The paths come back in the form a core path is stored (see relToExec),
+// so a choice can be written straight back into the field.
+func (a *App) ListCoreFiles(dir string) []string {
+	dir = strings.TrimSpace(dir)
+	// Nothing chosen yet: the two folders the auto-detection itself looks in — the
+	// program's own, and the sing-box/ folder beside it — so a fresh copy that was
+	// unzipped with its core lists that core without the reader having to browse for
+	// it first.
+	var dirs []string
+	if dir == "" {
+		if d := execDir(); d != "" {
+			dirs = append(dirs, d, filepath.Join(d, "sing-box"))
+		}
+	} else {
+		dirs = append(dirs, resolveAppPath(dir))
+	}
+	out := make([]string, 0, 8)
+	seen := map[string]bool{}
+	for _, d := range dirs {
+		entries, err := os.ReadDir(d)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			// An executable: .exe on Windows, no extension on the other platforms.
+			if ext := strings.ToLower(filepath.Ext(e.Name())); ext != "" && ext != ".exe" {
+				continue
+			}
+			p := relToExec(filepath.Join(d, e.Name()))
+			if seen[p] {
+				continue
+			}
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // PickCoreFile opens the native file picker and returns the chosen executable.

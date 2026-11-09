@@ -19,3 +19,5 @@ node_modules
 /BUGS.md
 # agent tooling state, not part of the program
 /skills-lock.json
+build/*.log
+/.workbuddy

@@ -44,7 +44,7 @@ import JsonForm from "../JsonForm.vue";
 import Modal from "./Modal.vue";
 import {applyRoute, errText} from "../lib/shared";
 import {rsCategoryOf, type Dict} from "../lib/metrics";
-import {buildCustomPalette, computedHex, CUSTOM_COLOR, CUSTOM_GROUND, CUSTOM_HUE, CUSTOM_VARS, HOVER_VAR, hueHex, readCustomPalette, scaleFromIndex, scaleIndex, THEMES, UI_SCALE_CELLS, UI_SCALE_MAX, UI_SCALE_MIN, wearHover} from "../lib/theme";
+import {buildCustomPalette, computedHex, CUSTOM_GROUND, CUSTOM_HUE, CUSTOM_VARS, HOVER_VAR, hueHex, pickedColor, readCustomPalette, scaleFromIndex, scaleIndex, THEMES, UI_SCALE_CELLS, UI_SCALE_MAX, UI_SCALE_MIN, wearHover} from "../lib/theme";
 import {FRAME_KEYS, GROUP_FULL_ROW, GROUP_IN_STARTUP, LANGUAGES, rememberLanguage, ROUTING_SLIDE, SETTING_GROUPS, SETTING_HIDDEN, SETTING_SECTIONS} from "../lib/settings-meta";
 import {canonicalHotkey} from "../lib/jsonform";
 import TunCard from "./settings/TunCard.vue";
@@ -162,8 +162,9 @@ const storedHue = (): number => {
 // have on — the very thing that read as "why light blue on a black theme".
 const storedColor = (): string => {
     if (theme.value === 'custom') {
-        const saved = readCustomPalette()?.[CUSTOM_COLOR];
-        if (typeof saved === 'string' && /^#[0-9a-f]{6}$/i.test(saved)) return saved;
+        const p = readCustomPalette();
+        const picked = p ? pickedColor(p) : '';
+        if (picked) return picked;
     }
     return computedHex('--accent', hueHex(storedHue()));
 };
@@ -762,6 +763,41 @@ const pickCore = async () => {
         emit('notify', errText(e), 'err');
     }
 };
+
+// The cores sitting in the folder the path points into, so switching between the
+// builds there is a pick rather than a retyped path. Polled while the dock is open:
+// a core copied in beside the others shows up without reopening the panel, and a
+// path picked elsewhere reloads the list for its own folder (see the watch).
+const cores = ref<string[]>([]);
+const coreName = (p: string) => p ? p.replace(/^.*[\\/]/, '') : 'sing-box.exe';
+// The field's current value first, so it stays the selected entry even when the
+// folder it names cannot be read (or holds nothing but itself) — and one entry per
+// file name, because the same core can be written absolutely in the file and
+// relatively by the listing.
+const coreChoices = computed(() => {
+    const seen = new Set<string>();
+    return [corePath.value, ...cores.value].filter(p => {
+        const name = coreName(p);
+        if (seen.has(name)) return false;
+        seen.add(name);
+        return true;
+    });
+});
+const coreDirOf = (p: string) => p.replace(/[\\/][^\\/]*$/, '');
+const refreshCores = async () => {
+    try {
+        cores.value = await API.ListCoreFiles(coreDirOf(corePath.value));
+    } catch {
+        cores.value = [];
+    }
+};
+let corePoll = 0;
+onMounted(() => {
+    void refreshCores();
+    corePoll = window.setInterval(refreshCores, 2000);
+});
+onBeforeUnmount(() => { window.clearInterval(corePoll); });
+watch(corePath, () => { void refreshCores(); });
 
 const coreKeys = computed(() =>
     Array.from(new Set(['naive', 'hysteria2', 'tuic', ...Object.keys(extraCores.value)])));
@@ -1508,7 +1544,8 @@ const onPortInput = (e: Event) => {
                     (see the note below about its label column). -->
                 <div v-bind="slideOf('settings.group.tun', ' set-tun')">
                     <div class="set-group-title">{{ t('settings.group.tun') }}</div>
-                    <TunCard v-if="obj" :obj="obj" :tun-on="tunOn" @patch="onJsonChange"/>
+                    <TunCard v-if="obj" :obj="obj" :tun-on="tunOn" @patch="onJsonChange"
+                             @notify="(m, k) => emit('notify', m, k)"/>
                     <div v-else class="hint">加载中…</div>
                 </div>
 
@@ -1597,9 +1634,14 @@ const onPortInput = (e: Event) => {
                                 <div class="jf-field">
                                     <label :title="t('settings.corePath')">{{ t('settings.corePathShort') }}</label>
                                     <div class="input-row">
-                                        <input class="mono" :value="corePath"
-                                               placeholder="sing-box.exe"
-                                               @input="corePath = ($event.target as HTMLInputElement).value"/>
+                                        <!-- A pick, not a path: the folder the current core lives in is
+                                            watched (see cores), and what is in it is the list. A core
+                                            somewhere else is still one press away (the browse button). -->
+                                        <select class="mono" :value="corePath"
+                                                :title="corePath || t('settings.corePath')"
+                                                @change="corePath = ($event.target as HTMLSelectElement).value">
+                                            <option v-for="c in coreChoices" :key="c" :value="c">{{ coreName(c) }}</option>
+                                        </select>
                                         <button class="btn" @click="pickCore()" :title="t('btn.browse')">
                                             <FolderOpenFilled class="ic"/>
                                         </button>

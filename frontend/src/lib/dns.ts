@@ -580,6 +580,9 @@ export const COUNTRY_PRESETS = [
     {code: 'cn', domain: ['geosite:cn', 'geosite:private', 'geosite:apple', 'geosite:microsoft'], ip: ['geoip:cn', 'geoip:private']},
     {code: 'ru', domain: ['geosite:category-ru', 'geosite:private', 'geosite:apple', 'geosite:microsoft'], ip: ['geoip:ru', 'geoip:private']},
     {code: 'us', domain: ['geosite:private', 'geosite:apple', 'geosite:microsoft'], ip: ['geoip:us', 'geoip:private']},
+    // Iran ships no country-wide domain list upstream either — category-ir is the one the
+    // repository carries (geosite-ir is a 404), so the flag brings that plus the ranges.
+    {code: 'ir', domain: ['geosite:category-ir', 'geosite:private', 'geosite:apple', 'geosite:microsoft'], ip: ['geoip:ir', 'geoip:private']},
 ];
 
 // The cards the routing section draws, in the order it draws them: the three directions

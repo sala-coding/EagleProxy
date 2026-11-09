@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -75,6 +76,14 @@ type Controller struct {
 	inboundReady bool
 
 	logs []string
+
+	// missingMu guards missing: the rule sets the last start could not fetch (the
+	// core names them, "initial rule-set: geoip-private: unexpected status: 404").
+	// The supervisor reads the list after an exit and drops those tags from the next
+	// build, which is the one retry that can actually succeed — the config was the
+	// problem, not the core.
+	missingMu sync.Mutex
+	missing   []string
 
 	// OnLog receives a line of core output.
 	OnLog func(string)
@@ -206,6 +215,9 @@ func (c *Controller) RunningConfig() map[string]interface{} {
 }
 
 func (c *Controller) Start(id int) error {
+	// A start is a fresh reading of the log: whatever the previous one said about a
+	// missing rule set has already been acted on (or was never this build's).
+	c.resetMissingRuleSets()
 	// One short locked read for the state the build needs — SetManager /
 	// SetSetting swap them from another goroutine (a reload that keeps the
 	// core), so wide reads outside the lock would race the swap.
@@ -320,6 +332,12 @@ func (c *Controller) startLocked(id int, res *configbuilder.Result, ent *db.Prox
 
 	cmd := exec.Command(exe, "run", "-c", cfgPath)
 	cmd.Dir = c.configDir
+	// A 1.15 core refuses a remote rule set that names no client of its own. The
+	// config names one wherever the version says the core can read it (see
+	// configbuilder.HttpClientSupported); this keeps the old behaviour available
+	// for the core that could not be probed, so an unread number never costs a
+	// start. Older cores ignore a variable they do not know.
+	cmd.Env = append(os.Environ(), "ENABLE_DEPRECATED_IMPLICIT_DEFAULT_HTTP_CLIENT=true")
 	w := &lineWriter{fn: c.appendLog}
 	cmd.Stdout = w
 	cmd.Stderr = w
@@ -895,6 +913,41 @@ func (c *Controller) appendLog(line string) {
 	c.mu.Unlock()
 }
 
+// missingRuleSetRe reads the tag out of the line the core writes when it cannot
+// fetch a rule set: "initial rule-set: geoip-private: unexpected status: 404 Not
+// Found". One line can name several, separated by " | ".
+var missingRuleSetRe = regexp.MustCompile(`initial rule-set: ([A-Za-z0-9][A-Za-z0-9._-]*):[^|]*?404`)
+
+func (c *Controller) noteMissingRuleSet(tag string) {
+	c.missingMu.Lock()
+	for _, t := range c.missing {
+		if t == tag {
+			c.missingMu.Unlock()
+			return
+		}
+	}
+	c.missing = append(c.missing, tag)
+	c.missingMu.Unlock()
+}
+
+// TakeMissingRuleSets returns and clears the tags the last start could not fetch.
+// The supervisor drops them from the next build (see onCoreExit): a rule set the
+// upstream does not publish is a config that cannot ever start, and the alternative
+// is three restarts of the same doomed config.
+func (c *Controller) TakeMissingRuleSets() []string {
+	c.missingMu.Lock()
+	out := c.missing
+	c.missing = nil
+	c.missingMu.Unlock()
+	return out
+}
+
+func (c *Controller) resetMissingRuleSets() {
+	c.missingMu.Lock()
+	c.missing = nil
+	c.missingMu.Unlock()
+}
+
 // recordLocked is the one writer of the log buffer, and the three readers of a
 // core line all hang off it: the buffer itself (what the panel reloads from),
 // and — through OnLog — the file and the live stream together. fire says
@@ -910,6 +963,14 @@ func (c *Controller) recordLocked(line string, fire bool) {
 	// the core may colour its output; the escapes are meaningless in a log file
 	// and in the UI, and they survive a clipboard copy as stray control bytes
 	line = util.StripANSI(line)
+	// A rule set the core could not fetch is read here, before the noise filter:
+	// the reader's ignore list is about what the panel shows, and a line the panel
+	// hides is still the reason the node will not come up.
+	if strings.Contains(line, "initial rule-set:") && strings.Contains(line, "404") {
+		for _, m := range missingRuleSetRe.FindAllStringSubmatch(line, -1) {
+			c.noteMissingRuleSet(m[1])
+		}
+	}
 	// The ignore list is the reader's noise filter (setting 的 log_ignore):
 	// a line carrying any entry as a substring never enters the buffer, the
 	// live stream or the file — the three readers of this one path. Read live

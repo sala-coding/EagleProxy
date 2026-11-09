@@ -170,6 +170,10 @@ export function LANShare() {
   return window['go']['main']['App']['LANShare']();
 }
 
+export function ListCoreFiles(arg1) {
+  return window['go']['main']['App']['ListCoreFiles'](arg1);
+}
+
 export function ListGroups() {
   return window['go']['main']['App']['ListGroups']();
 }
@@ -286,6 +290,10 @@ export function SetSystemProxyMode(arg1) {
   return window['go']['main']['App']['SetSystemProxyMode'](arg1);
 }
 
+export function SetUWPLoopback(arg1) {
+  return window['go']['main']['App']['SetUWPLoopback'](arg1);
+}
+
 export function SetVPNMode(arg1) {
   return window['go']['main']['App']['SetVPNMode'](arg1);
 }
@@ -332,6 +340,10 @@ export function TestDNS(arg1, arg2) {
 
 export function TestHotkey(arg1) {
   return window['go']['main']['App']['TestHotkey'](arg1);
+}
+
+export function UWPLoopback() {
+  return window['go']['main']['App']['UWPLoopback']();
 }
 
 export function UpdateGroup(arg1) {

@@ -468,6 +468,17 @@ const groupEditGid = ref<number | null>(null);
 const moveOpen = ref(false);
 const previewOpen = ref(false);
 const previewText = ref('');
+// The copy button's short-lived "done": the text is already on the clipboard, and a
+// tooltip that says so is the whole acknowledgement — a toast for every press would
+// be louder than the act.
+const previewCopied = ref(false);
+const copyPreview = async () => {
+    try {
+        await navigator.clipboard.writeText(previewText.value);
+        previewCopied.value = true;
+        window.setTimeout(() => { previewCopied.value = false; }, 1200);
+    } catch { /* a refused clipboard: the text is still selectable by hand */ }
+};
 const qrOpen = ref(false);
 const qrDataUrl = ref('');
 const scanErr = ref('');
@@ -1757,7 +1768,7 @@ onBeforeUnmount(() => {
                 off the first. -->
             <button type="button"
                     class="tb-btn lan-toggle"
-                    :class="lanShare ? 'on' : ''"
+                    :class="[lanShare ? 'on' : '', lanDevices > 0 ? 'live' : '']"
                     :disabled="lanShareBusy"
                     role="switch"
                     :aria-checked="lanShare"
@@ -2075,7 +2086,6 @@ onBeforeUnmount(() => {
                            }"/>
                 </label>
                 <button class="btn ghost" @click="importFromClipboard">{{ t('btn.readClipboard') }}</button>
-                <button class="btn ghost" @click="importOpen = false">{{ t('btn.cancel') }}</button>
                 <button class="btn primary" :disabled="!importText.trim()"
                         @click="doImport">{{ t('import.into', groups.find(g => g.id === gid)?.name ?? '') }}
                 </button>
@@ -2212,10 +2222,20 @@ onBeforeUnmount(() => {
             </ul>
         </Modal>
 
-        <Modal v-if="previewOpen" :title="t('dlg.preview.title')" wide @close="previewOpen = false">
-            <pre class="code">{{ previewText }}</pre>
-            <div class="modal-foot">
-                <button class="btn primary" @click="previewOpen = false">{{ t('btn.close') }}</button>
+        <Modal v-if="previewOpen" :title="t('dlg.preview.title')" extra-class="preview"
+               @close="previewOpen = false">
+            <!-- Editable: the preview is a config to be read, trimmed and pasted
+                elsewhere, and a wall of read-only text makes the reader retype what
+                they came to copy. The copy button rides the field's corner where the
+                hand already is. -->
+            <div class="preview-box">
+                <textarea class="code preview-code" v-model="previewText" spellcheck="false"
+                          wrap="off" :aria-label="t('dlg.preview.title')"></textarea>
+                <button class="btn tiny ghost preview-copy" :class="previewCopied ? 'copied' : ''"
+                        :title="previewCopied ? t('btn.copied') : t('btn.copy')"
+                        :aria-label="t('btn.copy')" @click="copyPreview">
+                    <CopyFilled class="ic"/>
+                </button>
             </div>
         </Modal>
 

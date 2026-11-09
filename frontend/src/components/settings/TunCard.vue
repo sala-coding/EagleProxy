@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {computed, onMounted, ref} from 'vue';
 import {t} from '../../i18n';
+import {errText} from '../../lib/shared';
 import {type Dict} from '../../lib/metrics';
 import * as API from '../../../wailsjs/go/main/App';
 
@@ -18,7 +19,7 @@ const props = defineProps<{
     tunOn: boolean;
 }>();
 
-const emit = defineEmits<{patch: [p: Dict]}>();
+const emit = defineEmits<{patch: [p: Dict]; notify: [text: string, kind?: 'ok' | 'err']}>();
 
 // The rows of the TUN card the builder writes only for a tun front-end — the MTU,
 // four of its switches and the two lists below them (see BuildVPNConfig and
@@ -105,6 +106,38 @@ const tunStack = () => {
     const n = Number(props.obj.vpn_impl);
     if (n === 3) return nativeStack.value ? 3 : 0;
     return TUN_STACKS.some(s => s.value === n) ? n : 0;
+};
+
+// UWP loopback: Store apps are isolated from 127.0.0.1 by default, so a proxy on the
+// local port is unreachable to them until the machine's exemption store is opened. The
+// switch is the store's own answer (see UWPLoopback), not a flag kept here — a machine
+// unlocked by another client shows as unlocked. Turning it on costs one UAC prompt.
+const uwpOn = ref(false);
+const uwpBusy = ref(false);
+onMounted(() => {
+    API.UWPLoopback().then(v => { uwpOn.value = !!v; }).catch(() => {});
+});
+const toggleUwp = async (e: Event) => {
+    const box = e.target as HTMLInputElement;
+    const next = box.checked;
+    // The press shows at once. The elevated run takes seconds — one UAC prompt and a
+    // subprocess per framework — and a box that sat unchecked (and disabled) for the
+    // whole of it read as a switch that never took the click.
+    uwpOn.value = next;
+    uwpBusy.value = true;
+    try {
+        await API.SetUWPLoopback(next);
+    } catch (err) {
+        emit('notify', errText(err), 'err');
+    } finally {
+        // What was recorded is the answer: a dismissed prompt and a refused re-lock
+        // both leave the note as it was, and the box follows it back.
+        try {
+            uwpOn.value = await API.UWPLoopback();
+        } catch { /* keep the intent */ }
+        box.checked = uwpOn.value;
+        uwpBusy.value = false;
+    }
 };
 </script>
 
@@ -219,6 +252,14 @@ const tunStack = () => {
             <label>{{ t('cfg.vpn_bypass_white') }}</label>
             <label class="jf-check">
                 <input type="checkbox" :checked="!!obj.vpn_rule_white" @change="flag('vpn_rule_white')($event)"/>
+            </label>
+        </div>
+        <!-- Machine-wide, not a key of the settings file: the exemption store is the
+            system's, and the switch shows what it says (see UWPLoopback). -->
+        <div class="jf-field">
+            <label :title="t('settings.uwpHint')">{{ t('settings.uwp') }}</label>
+            <label class="jf-check">
+                <input type="checkbox" :checked="uwpOn" :disabled="uwpBusy" @change="toggleUwp"/>
             </label>
         </div>
     </div>
