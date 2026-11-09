@@ -57,16 +57,6 @@ The artefact lands in `build/bin/Eagle.exe`.
 
 The version number is stamped into the program itself (`main.appVersion`): the About card reads it, and the update check compares it against the release tags on GitHub — which is why a real release has to go through `release.ps1`. Without `-Version` the script stamps the current commit as `0.0.0-dev+<sha>`, which sorts below every release and identifies a local build only.
 
-## Publishing
-
-```cmd
-node scripts/make-release.mjs v1.0.15
-```
-
-- The release notes come from `scripts/notes/<version>.md` (the script's generic paragraph is used when that file is missing).
-- Two assets are uploaded: `Eagle-<version>-windows.exe` and `Eagle-<version>-windows-full.zip` — the zip packs every `.exe`/`.dll` from the repository's `sing-box/` folder beside the program.
-- An asset of the same name is deleted first, so re-running the command fixes a version's notes or artefacts in place.
-
 ## Directory layout
 
 ```

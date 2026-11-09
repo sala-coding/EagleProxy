@@ -57,16 +57,6 @@ wails build
 
 版本号注入到程序自身（`main.appVersion`）：关于卡据此显示版本，更新检查也据此与 GitHub 上的发布标签比较，因此正式发布必须走 `release.ps1`。不带 `-Version` 时脚本用当前提交哈希生成 `0.0.0-dev+<sha>`，排序低于任何正式版本，只用作本地构建标识。
 
-## 发布
-
-```cmd
-node scripts/make-release.mjs v1.0.15
-```
-
-- 版本说明来自 `scripts/notes/<version>.md`（缺失时用脚本内的通用文案）；
-- 上传两个资产：`Eagle-<version>-windows.exe` 与 `Eagle-<version>-windows-full.zip`（后者把仓库根 `sing-box/` 下的全部 `.exe`/`.dll` 一起打包）；
-- 同名资产会先删除再上传，重复执行即可修正某个版本的说明或产物。
-
 ## 目录结构
 
 ```
