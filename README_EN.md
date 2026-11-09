@@ -55,8 +55,6 @@ wails build
 
 The artefact lands in `build/bin/Eagle.exe`.
 
-The version number is stamped into the program itself (`main.appVersion`): the About card reads it, and the update check compares it against the release tags on GitHub — which is why a real release has to go through `release.ps1`. Without `-Version` the script stamps the current commit as `0.0.0-dev+<sha>`, which sorts below every release and identifies a local build only.
-
 ## Directory layout
 
 ```

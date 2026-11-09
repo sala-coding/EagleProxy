@@ -55,8 +55,6 @@ wails build
 
 产物在 `build/bin/Eagle.exe`。
 
-版本号注入到程序自身（`main.appVersion`）：关于卡据此显示版本，更新检查也据此与 GitHub 上的发布标签比较，因此正式发布必须走 `release.ps1`。不带 `-Version` 时脚本用当前提交哈希生成 `0.0.0-dev+<sha>`，排序低于任何正式版本，只用作本地构建标识。
-
 ## 目录结构
 
 ```
