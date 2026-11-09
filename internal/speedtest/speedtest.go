@@ -10,10 +10,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -97,6 +95,13 @@ func (r *Runner) base() context.Context {
 	return r.ctx
 }
 
+// log writes one line to the run's log panel when a logger is attached.
+func (r *Runner) log(line string) {
+	if r.logf != nil {
+		r.logf(line)
+	}
+}
+
 // reportCoreOutput pushes the temporary core output to the logger so the reason
 // a test failed is visible in the UI instead of only in the toast.
 func (r *Runner) reportCoreOutput(ent *db.ProxyEntity, output string) {
@@ -140,21 +145,41 @@ const latencySamples = 3
 // can differ by hundreds of milliseconds and the column becomes unreadable. The
 // median is used rather than the mean because it ignores the long tail, which is
 // exactly the part that makes a healthy node look bad by accident.
+//
+// The samples go out at once rather than one after another: serially they were the
+// whole of a latency test's wall time — three round trips per node — and a group
+// test with them in line read as a run that never went wide no matter what the
+// scheduler above it held. The median is unchanged by firing together (each sample
+// is its own connection), and the short burst is what a browser does too.
 func probeLatency(ctx context.Context, proxyPort int, testURL string, timeout time.Duration) (int, error) {
+	type sample struct {
+		ms  int
+		err error
+	}
+	out := make([]sample, latencySamples)
+	var wg sync.WaitGroup
+	for i := 0; i < latencySamples; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			ms, err := urlTest(ctx, proxyPort, testURL, timeout)
+			out[i] = sample{ms, err}
+		}(i)
+	}
+	wg.Wait()
 	samples := make([]int, 0, latencySamples)
 	var lastErr error
-	for i := 0; i < latencySamples; i++ {
-		if err := ctx.Err(); err != nil {
-			// The run was stopped: the samples already taken are not a measurement
-			// of anything, so they are not reported as one.
-			return 0, err
-		}
-		ms, err := urlTest(ctx, proxyPort, testURL, timeout)
-		if err != nil {
-			lastErr = err
+	for _, s := range out {
+		if s.err != nil {
+			// A cancelled run is the caller's answer, not a missing sample: the
+			// run was stopped, and whatever landed is not a measurement of anything.
+			if ctx.Err() != nil {
+				return 0, ctx.Err()
+			}
+			lastErr = s.err
 			continue
 		}
-		samples = append(samples, ms)
+		samples = append(samples, s.ms)
 	}
 	if len(samples) == 0 {
 		if lastErr == nil {
@@ -174,11 +199,11 @@ func probeLatency(ctx context.Context, proxyPort int, testURL string, timeout ti
 	return samples[mid], nil
 }
 
-// RunFullTest measures latency, download speed and the outbound IP. The speed is
-// -1 when the download step failed, so the list can show it as unavailable.
-func (r *Runner) RunFullTest(ent *db.ProxyEntity) (int, float64, string, error) {
+// RunFullTest measures latency, both directions and the outbound IP. A direction
+// is -1 when its measurement failed, so the list can show it as unavailable.
+func (r *Runner) RunFullTest(ent *db.ProxyEntity) (int, float64, float64, string, error) {
 	var latency int
-	speed := 0.0
+	down, up := 0.0, 0.0
 	var report strings.Builder
 	_, err := r.withTestCore(ent, 40*time.Second, func(proxyPort int) error {
 		ctx := r.base()
@@ -189,16 +214,20 @@ func (r *Runner) RunFullTest(ent *db.ProxyEntity) (int, float64, string, error) 
 		latency = ms
 		fmt.Fprintf(&report, "延迟: %d ms\n", ms)
 
-		timeout := time.Duration(r.s.TestDownloadTimeout) * time.Second
-		if timeout <= 0 {
-			timeout = 30 * time.Second
+		rd, err := measureSpeed(ctx, proxyPort, r.s)
+		if rd.server != "" {
+			r.log("[test] " + rd.server)
 		}
-		if s, err := downloadSpeedThrough(ctx, proxyPort, r.s.TestDownloadURL, timeout); err == nil {
-			speed = s
-			fmt.Fprintf(&report, "下载: %.2f MB/s\n", s)
+		down, up = speedColumns(rd)
+		if rd.down > 0 {
+			fmt.Fprintf(&report, "下载: %.2f MB/s\n", rd.down)
 		} else {
-			speed = -1
 			fmt.Fprintf(&report, "下载: 失败 (%v)\n", err)
+		}
+		if rd.up > 0 {
+			fmt.Fprintf(&report, "上传: %.2f MB/s\n", rd.up)
+		} else if rd.upErr != "" {
+			fmt.Fprintf(&report, "上传: 失败 (%s)\n", rd.upErr)
 		}
 		// The address lookups are the last two steps and they carry their own
 		// timeouts; a run that has been cancelled skips them rather than spending
@@ -206,56 +235,99 @@ func (r *Runner) RunFullTest(ent *db.ProxyEntity) (int, float64, string, error) 
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		// The machine's own address first, then the node's: read in the order they
-		// happen, and it is the pair that answers "did the traffic actually leave
-		// through the node". Skipped in TUN mode, where every request is taken by the
-		// core and "direct" would report the same address twice under two names.
+		// Both asks go out together and the report keeps the reading order: serially
+		// the pair cost up to eighteen seconds of tail per node, which is what a
+		// group test spent waiting after every download had already landed. One
+		// goroutine each, answer written before the join — no lock needed, the
+		// addresses are disjoint variables.
+		var inIP, outIP string
+		var wg sync.WaitGroup
+		// The machine's own address: skipped in TUN mode, where every request is
+		// taken by the core and "direct" would report the same address twice under
+		// two names.
 		if !r.s.VPNMode() {
-			if ip, err := inboundIP(8 * time.Second); err == nil {
-				fmt.Fprintf(&report, "入口 IP: %s\n", ip)
-			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if ip, err := inboundIP(8 * time.Second); err == nil {
+					inIP = ip
+				}
+			}()
 		}
-		if ip, err := outboundIP(proxyPort, 10*time.Second); err == nil {
-			fmt.Fprintf(&report, "出口 IP: %s\n", ip)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ip, err := outboundIP(proxyPort, 10*time.Second); err == nil {
+				outIP = ip
+			}
+		}()
+		wg.Wait()
+		if inIP != "" {
+			fmt.Fprintf(&report, "入口 IP: %s\n", inIP)
+		}
+		if outIP != "" {
+			fmt.Fprintf(&report, "出口 IP: %s\n", outIP)
 		}
 		return nil
 	})
-	return latency, speed, strings.TrimSpace(report.String()), err
+	return latency, down, up, strings.TrimSpace(report.String()), err
 }
 
-// RunSpeedTest measures only the download speed (and the outbound IP), skipping
-// the latency probe so a slow link is not charged for it first. The returned
-// value is in MB/s.
-func (r *Runner) RunSpeedTest(ent *db.ProxyEntity) (float64, string, error) {
-	var speed float64
+// RunSpeedTest measures only the two speeds (and the outbound IP), skipping the
+// latency probe so a slow link is not charged for it first. Both values are MB/s.
+func (r *Runner) RunSpeedTest(ent *db.ProxyEntity) (float64, float64, string, error) {
+	var down, up float64
 	var report strings.Builder
 	_, err := r.withTestCore(ent, 12*time.Second, func(proxyPort int) error {
 		ctx := r.base()
-		timeout := time.Duration(r.s.TestDownloadTimeout) * time.Second
-		if timeout <= 0 {
-			timeout = 30 * time.Second
+		rd, err := measureSpeed(ctx, proxyPort, r.s)
+		if rd.server != "" {
+			r.log("[test] " + rd.server)
 		}
-		s, err := downloadSpeedThrough(ctx, proxyPort, r.s.TestDownloadURL, timeout)
 		if err != nil {
 			fmt.Fprintf(&report, "下载: 失败 (%v)\n", err)
 			return err
 		}
-		speed = s
-		fmt.Fprintf(&report, "下载: %.2f MB/s\n", s)
+		down, up = speedColumns(rd)
+		fmt.Fprintf(&report, "下载: %.2f MB/s\n", rd.down)
+		if rd.up > 0 {
+			fmt.Fprintf(&report, "上传: %.2f MB/s\n", rd.up)
+		} else if rd.upErr != "" {
+			fmt.Fprintf(&report, "上传: 失败 (%s)\n", rd.upErr)
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		// Same pair, same shape as the full test's (see there): both asks at once,
+		// the report keeping the reading order.
+		var inIP, outIP string
+		var wg sync.WaitGroup
 		if !r.s.VPNMode() {
-			if ip, err := inboundIP(8 * time.Second); err == nil {
-				fmt.Fprintf(&report, "入口 IP: %s\n", ip)
-			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if ip, err := inboundIP(8 * time.Second); err == nil {
+					inIP = ip
+				}
+			}()
 		}
-		if ip, err := outboundIP(proxyPort, 10*time.Second); err == nil {
-			fmt.Fprintf(&report, "出口 IP: %s\n", ip)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ip, err := outboundIP(proxyPort, 10*time.Second); err == nil {
+				outIP = ip
+			}
+		}()
+		wg.Wait()
+		if inIP != "" {
+			fmt.Fprintf(&report, "入口 IP: %s\n", inIP)
+		}
+		if outIP != "" {
+			fmt.Fprintf(&report, "出口 IP: %s\n", outIP)
 		}
 		return nil
 	})
-	return speed, strings.TrimSpace(report.String()), err
+	return down, up, strings.TrimSpace(report.String()), err
 }
 
 // withTestCore builds a temporary config, launches sing-box and invokes fn with
@@ -444,11 +516,10 @@ func coreHint(output string) string {
 // --- primitives ---
 
 func proxyClient(proxyPort int, timeout time.Duration) *http.Client {
-	proxyURL := &url.URL{Scheme: "http", Host: fmt.Sprintf("127.0.0.1:%d", proxyPort)}
 	return &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
-			Proxy:             http.ProxyURL(proxyURL),
+			Proxy:             http.ProxyURL(proxyURL(proxyPort)),
 			DisableKeepAlives: true,
 		},
 	}
@@ -490,75 +561,6 @@ func urlTest(ctx context.Context, proxyPort int, testURL string, timeout time.Du
 		ms = 1
 	}
 	return ms, nil
-}
-
-func downloadSpeed(ctx context.Context, proxyPort int, dlURL string, timeout time.Duration) (float64, error) {
-	if dlURL == "" {
-		return 0, fmt.Errorf("no download url")
-	}
-	client := proxyClient(proxyPort, timeout)
-	start := time.Now()
-	// The request carries the run's context, so a cancelled run stops reading a
-	// payload of tens of megabytes instead of finishing it first: this is the step
-	// that made the stop button look broken.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dlURL, nil)
-	if err != nil {
-		return 0, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	// A source that answers with a redirect page or a portal error is not a speed:
-	// carrying on would count the few hundred bytes it sent and report 0.00 MB/s —
-	// a number that reads as "the node is slow" when what happened is that the
-	// source never sent a payload to measure.
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	n, err := io.Copy(io.Discard, resp.Body)
-	elapsed := time.Since(start).Seconds()
-	if err != nil || elapsed <= 0 || n < 100<<10 {
-		return 0, fmt.Errorf("download failed (%d bytes)", n)
-	}
-	return float64(n) / elapsed / 1024 / 1024, nil
-}
-
-// downloadSpeedThrough measures against a list of sources in turn: the reader's own
-// choice first, then built-in mirrors. One source refusing a datacentre IP, missing a
-// port under one node or answering a portal page used to end the measurement — speed
-// shown as 0.00 or lost to a failure that said nothing about the node. With the mirrors,
-// a source that does not measure speaks in its error, and the next one still can.
-func downloadSpeedThrough(ctx context.Context, proxyPort int, primary string, timeout time.Duration) (float64, error) {
-	seen := map[string]bool{}
-	var urls []string
-	add := func(u string) {
-		if u != "" && !seen[u] {
-			seen[u] = true
-			urls = append(urls, u)
-		}
-	}
-	add(primary)
-	add("http://cachefly.cachefly.net/10mb.test")
-	add("https://speed.cloudflare.com/__down?bytes=25000000")
-	var last error
-	for _, u := range urls {
-		if err := ctx.Err(); err != nil {
-			// A cancelled run does not try the next source: the mirrors are there for
-			// a source that cannot measure, not for a run nobody is waiting on.
-			return 0, err
-		}
-		s, err := downloadSpeed(ctx, proxyPort, u, timeout)
-		if err == nil {
-			return s, nil
-		}
-		last = err
-	}
-	if last == nil {
-		last = fmt.Errorf("no usable source")
-	}
-	return 0, last
 }
 
 // inboundIP reports the address this machine reaches the internet as, asked without a

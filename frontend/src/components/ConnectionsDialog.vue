@@ -6,7 +6,7 @@ import {errText} from "../lib/shared";
 import {fmtBytes} from "../lib/format";
 import {type PanelExit} from "../lib/subdraw";
 import Modal from "./Modal.vue";
-import {CloseCircleFilled} from '../lib/icons';
+import {CellphoneFilled, CloseCircleFilled} from '../lib/icons';
 
 // onClose -> 'close'; notify -> 'notify'; onClosing -> 'closing'.
 // exiting is the rail and status-bar buttons asking for the same thing the × does:
@@ -117,10 +117,19 @@ const hiddenConns = computed(() => Math.max(0, conns.value.length - shownConns.v
 
 const targetOf = (c: any) => `${c.metadata?.host || c.metadata?.destinationIP}:${c.metadata?.destinationPort}`;
 const chainOf = (c: any) => Array.isArray(c.chains) ? c.chains.join(' ← ') : '';
+
+// A connection born on another machine: the source address is what the inbound
+// saw, and every local path — the system proxy's dials, the TUN front-end's
+// forwards — carries 127.0.0.1. Anything else dialed in from outside, which is
+// the phone the Wi-Fi icon's badge is counting; the tooltip names the device.
+const isLan = (c: any) => {
+    const ip: string = c.metadata?.sourceIP ?? '';
+    return ip !== '' && ip !== '127.0.0.1' && ip !== '::1';
+};
 </script>
 
 <template>
-    <Modal :title="t('dlg.conn.title')" @close="emit('close')" flip
+    <Modal :title="t('dlg.conn.title')" headless @close="emit('close')" flip
            :exit="exiting ?? escExit ?? null" @closing="emit('closing', $event)"
            extra-class="conn-modal" :body-scroll="false" :closable="false">
         <template #bar>
@@ -146,6 +155,14 @@ const chainOf = (c: any) => Array.isArray(c.chains) ? c.chains.join(' ← ') : '
         <div class="conn-list">
             <div class="conn-row" v-for="c in shownConns" :key="c.id">
                 <div class="conn-row-head">
+                    <!-- The phone marks whose traffic this row is: a connection
+                        whose source is another machine on the network, not this
+                        one. The device's own address is in the tooltip, where
+                        the reader can check it against the phone's settings. -->
+                    <span v-if="isLan(c)" class="conn-lan"
+                          :title="t('conn.lanSrc', c.metadata?.sourceIP)">
+                        <CellphoneFilled class="ic"/>
+                    </span>
                     <span class="addr" :title="targetOf(c)">{{ targetOf(c) }}</span>
                     <button class="btn tiny danger" :title="t('btn.close')"
                             @click="closeConn(c.id)">

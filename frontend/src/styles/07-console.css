@@ -140,7 +140,7 @@
 .log-level:hover,
 .log-level:focus-visible {
     border-color: var(--line);
-    background: var(--bg-3);
+    background: var(--hover-bg);
 }
 
 .log-level[data-lvl='normal'] { color: var(--accent); }
@@ -229,7 +229,7 @@
 }
 
 .log-filter-item:hover {
-    background: var(--bg-3);
+    background: var(--hover-bg);
 }
 
 /* The label is a word, not a tag: the routes are named in the app's own

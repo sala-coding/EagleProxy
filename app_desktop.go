@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"eagle/internal/configbuilder"
 	"eagle/internal/core"
 	"eagle/internal/util"
 
@@ -89,22 +90,10 @@ func (a *App) GetAbout() map[string]string {
 // milliseconds, and one that does not is not worth a stalled card.
 const coreVersionWindow = 2 * time.Second
 
-// CoreVersion asks the kernel binary what it is, for the About card's 内核 row.
-//
-// The core is an external executable (see GetCorePath), so its version is not
-// something this build can know — the answer has to come from running it.
-// `version` is the subcommand every sing-box-shaped core answers, and it prints
-// one line ("sing-box version 1.9.0") above the environment block the card has no
-// room for, so the first line is taken and the number is its last field.
-//
-// Empty means the card stays silent rather than guessing: no core on disk, a
-// binary that does not answer, or one that overran the window. Deliberately not
-// cached — the reader can point the app at another core between two openings.
-func (a *App) CoreVersion() string {
-	exe, err := core.ResolveCore(resolveAppPath(a.curCorePathRaw()), a.curDataDir())
-	if err != nil {
-		return ""
-	}
+// probeCoreVersion runs the version subcommand (see CoreVersion) — the shared
+// implementation behind the About card's uncached ask and the config builder's
+// cached one.
+func probeCoreVersion(exe string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), coreVersionWindow)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, exe, "version")
@@ -124,6 +113,42 @@ func (a *App) CoreVersion() string {
 		return f[0]
 	}
 	return ""
+}
+
+// refreshCoreVersion re-asks the core what it is and hands the answer to the
+// config builder, which needs it on every build to decide whether the tun stack
+// may be the core's own (sing-box 1.15+). Cached by the core it came from: a
+// process spawn per build is a cost no start should pay for a number that
+// changes only when the reader points the app at another core. An empty answer
+// is not cached — the next build probes again, because the reader may have just
+// fixed the path.
+func (a *App) refreshCoreVersion() {
+	exe, err := core.ResolveCore(resolveAppPath(a.curCorePathRaw()), a.curDataDir())
+	if err != nil {
+		return
+	}
+	if v := probeCoreVersion(exe); v != "" {
+		configbuilder.SetCoreVersion(v)
+	}
+}
+
+// CoreVersion asks the kernel binary what it is, for the About card's 内核 row.
+//
+// The core is an external executable (see GetCorePath), so its version is not
+// something this build can know — the answer has to come from running it.
+// `version` is the subcommand every sing-box-shaped core answers, and it prints
+// one line ("sing-box version 1.9.0") above the environment block the card has no
+// room for, so the first line is taken and the number is its last field.
+//
+// Empty means the card stays silent rather than guessing: no core on disk, a
+// binary that does not answer, or one that overran the window. Deliberately not
+// cached — the reader can point the app at another core between two openings.
+func (a *App) CoreVersion() string {
+	exe, err := core.ResolveCore(resolveAppPath(a.curCorePathRaw()), a.curDataDir())
+	if err != nil {
+		return ""
+	}
+	return probeCoreVersion(exe)
 }
 
 // OpenURL opens a URL in the default browser.

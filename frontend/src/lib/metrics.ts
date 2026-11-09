@@ -100,9 +100,9 @@ export const MODE_HAS_SPEED = (m: number) => m === 2 || m === 3;
 // td.name).
 export const LIVE_SLACK = 1.5;
 // Column indices, with the protocol back in front of the name: type, name, address,
-// port, transport, TLS, latency, speed, traffic, group.
-export const LIVE_COLS = new Set([0, 6, 7, 8]);
-export const TEXT_COLS = new Set([1, 2, 9]);
+// port, transport, TLS, latency, down, up, traffic, group.
+export const LIVE_COLS = new Set([0, 6, 7, 8, 9]);
+export const TEXT_COLS = new Set([1, 2, 10]);
 // How long the window has to hold still before the things measured off it are measured
 // again, in milliseconds. A maximise is a few hundred milliseconds of resize events
 // stacked on each other, and a measurement taken in the middle of them buys a re-render

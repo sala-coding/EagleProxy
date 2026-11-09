@@ -78,7 +78,7 @@
 }
 
 .sidebar li:hover {
-    background: var(--bg-3);
+    background: var(--hover-bg);
 }
 
 /* separator between subscription entries; the adjacent-sibling selector keeps
@@ -243,7 +243,7 @@
 }
 
 .titlebar .tb-btn:hover {
-    background: var(--bg-3);
+    background: var(--hover-bg);
     color: var(--text);
 }
 
@@ -316,7 +316,11 @@
 .titlebar-egress {
     position: relative;
     display: inline-flex;
-    align-items: center;
+    /* stretch, not centre: the wrapper's height is the button's height, and a
+       centred wrapper collapses it to the glyph — the hover background read as a
+       34×18 rectangle where every other entry on the bar answers with a full-band
+       square. The glyph itself is centred by the button's own flex. */
+    align-items: stretch;
     margin-left: 10px;
     color: var(--text-dim);
     --wails-draggable: no-drag;
@@ -328,6 +332,22 @@
 .titlebar .titlebar-egress .egress-trigger::after {
     border-bottom: none;
     border-top: 4px solid currentColor;
+}
+
+/* The same 34px square the add and test entries wear: the default tb-btn width
+   is 46px, and that is the window controls' width — an egress hover that ran the
+   full 46 read as a rectangle lying on its side rather than the square the other
+   icons answer with. */
+.titlebar-egress .tb-btn {
+    width: 34px;
+}
+
+/* The LAN switch, the last of the four: it had no width of its own and took the
+   window controls' 46px, which made its hover the one rectangle among four
+   squares. 34 like the rest, and the row is one height and one width from end
+   to end. */
+.tb-btn.lan-toggle {
+    width: 34px;
 }
 
 /* No floor of their own either: the batch words and the mode words are short,

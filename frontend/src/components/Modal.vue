@@ -83,6 +83,11 @@ const props = withDefaults(defineProps<{
     // button: its way out is that button and Escape, and a second ✕ beside them read
     // as two doors to the same room.
     closable?: boolean;
+    // headless removes the heading bar outright. The dialog still carries its
+    // title — it is the pane's aria-label — but draws no bar for it: a panel
+    // that re-opens on the same rail press every time and holds one list has
+    // nothing for a caption to say that the seat does not already say.
+    headless?: boolean;
 }>(), {bodyScroll: true, closable: true});
 
 // onClose -> 'close'; onClosing -> 'closing' (fires the moment the exit begins,
@@ -303,7 +308,7 @@ const modalClass = computed(() =>
              :aria-label="title"
              :class="modalClass"
              @click.stop>
-            <div class="modal-head">
+            <div v-if="!headless" class="modal-head">
                 <h2>{{ title }}</h2>
                 <div class="modal-head-actions">
                     <slot name="head"/>

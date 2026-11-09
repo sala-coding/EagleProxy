@@ -265,6 +265,11 @@
 .ui-scale-label,
 .theme-tag {
     flex: 0 0 auto;
+    /* One fixed width for every label on the card: the fields beside them all
+       start at the same x, so both rows draw the same width instead of two
+       lengths of it. Four characters is the longest (主题颜色), and em keeps the
+       width honest if the face changes. */
+    width: 4.4em;
     font-size: 10px;
     line-height: 1;
     color: var(--text-dim);
@@ -356,14 +361,11 @@
     cursor: pointer;
 }
 
-/* The part of the capsule that is the slider: the nine stops, driven by press, drag,
-   arrows and a double-click. It is named apart from the frame because the frame holds one
-   more thing that is not a stop (see .theme-custom) — a slider's children are its stops,
-   and a focusable control among them would put two things in one tab stop. The nine take
-   nine shares of the frame and the custom cell takes the tenth, which is what makes every
-   cell the same width as its neighbour — the custom one included. */
+/* The part of the capsule that is the slider: the built-in palettes, driven by press,
+   drag, arrows and a double-click. A slider's children are its stops, which is why the
+   reader's own colour is not one of them — it is the field under the bar. */
 .theme-cells {
-    flex: 9 1 0;
+    flex: 1 1 0;
     min-width: 0;
     display: flex;
     align-items: stretch;
@@ -371,40 +373,9 @@
     cursor: pointer;
 }
 
-/* The bar's tenth cell: the reader's own palette, which is not one of the eighteen but
-   belongs to both bars — so it is drawn as what it is, a cell, rather than as a button
-   standing beside them. It wears what a cell wears (see .theme-swatch): its own ground
-   with its accent as the dot, and until there is a palette to paint, the wheel the panel
-   offers. It opens the panel instead of switching on the spot: its theme is not known
-   until the two choices in it are made, and a save is what wears it. */
-.theme-custom {
-    padding: 0;
-    cursor: pointer;
-}
-
-/* Nothing made yet: the dot is the wheel the panel offers, a size larger than the others'
-   because a conic wheel at seven pixels is a smudge. */
-.theme-custom:not(.made)::after {
-    width: 10px;
-    height: 10px;
-    background: conic-gradient(from 0deg,
-        hsl(0, 62%, 55%), hsl(30, 62%, 55%), hsl(60, 62%, 55%), hsl(90, 62%, 55%),
-        hsl(120, 62%, 55%), hsl(150, 62%, 55%), hsl(180, 62%, 55%), hsl(210, 62%, 55%),
-        hsl(240, 62%, 55%), hsl(270, 62%, 55%), hsl(300, 62%, 55%), hsl(330, 62%, 55%),
-        hsl(0, 62%, 55%));
-}
-
-/* A button of its own in the tab order, so it takes a ring of its own when the keyboard
-   reaches it — the same ring the slider takes (see below). */
-.theme-custom:focus-visible {
-    outline: 1px solid var(--accent);
-    outline-offset: 2px;
-}
-
-/* The palettes, as two labelled rows: the cool nine over the warm nine, the tone's name
-   at the left of each bar naming it, the way a form row names the control beside it. The
-   pair stands as one block of palettes; the name is spoken too, for a reader who cannot
-   see the colours (see the aria-label in App.tsx). */
+/* The palettes, as one bar: cold and warm used to be two labelled rows, which made
+   finding a palette a two-step guess. The bar speaks its name for a reader who cannot
+   see the colours (see the aria-label in SettingsDialog.vue). */
 .theme-groups {
     display: flex;
     flex-direction: column;
@@ -413,68 +384,33 @@
     min-width: 0;
 }
 
-/* One row of the pair: the name, then the bar. The bar takes what is left of the width,
-   which is what keeps the two of them the same length. */
+/* One row of the card: the name, then what it names. The control takes what is left of
+   the width, which is what keeps the two rows the same length. */
 .theme-line {
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
-/* The cell's dropdown: its own panel, asking to be read as a small form of its own
-   rather than as an item in the theme card. It is fixed to the viewport because both
-   seats the card can sit in clip their overflow, and it is put under the cell it was
-   pressed at by hand — the 8px margins here are the ones that placement keeps it inside
-   of (see toneAnchor in SettingsDialog.vue). */
-.tone-pop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 320px;
-    max-width: calc(100vw - 16px);
-    max-height: calc(100vh - 16px);
-    overflow-y: auto;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    background: var(--bg-2);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.4);
-    z-index: 130;
-}
-
-.tone-pop-title {
-    font-weight: 600;
-}
-
-.tone-hues {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-}
-
-.tone-hue {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: hsl(var(--hue), 62%, 50%);
-    border: 2px solid transparent;
+/* The colour field and its ground, under the bar: the whole wheel in one control rather
+   than twelve discs of it, and no panel — picking is applying. The native swatch is
+   stretched to the field so the colour being worn is the size of the thing that changes
+   it. */
+.tone-color {
+    flex: 1 1 auto;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    background: var(--bg);
     cursor: pointer;
 }
 
-.tone-hue:hover { transform: scale(1.08); }
+.tone-color::-webkit-color-swatch-wrapper { padding: 2px; }
 
-.tone-hue.on {
-    border-color: var(--text);
-    box-shadow: inset 0 0 0 2px var(--bg-2);
-}
-
-.tone-pop-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
+.tone-color::-webkit-color-swatch {
+    border: none;
+    border-radius: 4px;
 }
 
 /* One cell of a bar: the palette itself, divided equally with its neighbours so the nine
@@ -507,7 +443,7 @@
 /* The slider is the control, so it carries the focus ring rather than each of its cells:
    one stop in the tab order, one ring, and the arrows move inside it — the same as the
    type scale above. The capsule keeps no ring of its own: a ring belongs to the part
-   that answers the keyboard (see .theme-cells and .theme-custom). */
+   that answers the keyboard (see .theme-cells). */
 .theme-cells:focus-visible {
     outline: 1px solid var(--accent);
     outline-offset: 2px;
@@ -593,20 +529,21 @@
     /* standing on the bar: its own edge rides the bar's top, the way the exit panel
        and the two menus beside it do. */
     bottom: var(--status-h, 30px);
-    /* 540 × 600, with the height filed to fit a short window so the panel never hangs
-       off its floor: the bar is the floor it stands on, not the window's. 540 rather
-       than the 500 it opened at: after the 138px nav and the frame, the card on the
-       right was ~360px wide, and that is the width the mode cards, the two resolver
-       catalogues and the raw-settings rows were being laid out in — forty more is the
-       difference between a column of ellipses and a column of values. */
-    width: min(540px, calc(100vw - 48px));
-    height: min(600px, calc(100vh - var(--status-h, 30px) - 24px));
-    /* The floor and the ceiling of a height the reader has dragged (see the grip below),
-       written here as well as in the drag itself (clampDockHeight in lib/layout.ts), so that
-       neither end of a height restored on another window is trusted: the drag and the
-       stylesheet have to agree on the numbers, and these are the ones that hold. */
-    min-height: 260px;
-    max-height: calc(100vh - var(--status-h, 30px) - 24px);
+    /* 1:1, taken from the window: both sides are the same expression — 540 at the
+       most, filed to fit the space between the rail and the window's edges and the
+       height left between the titlebar and the bar — so the panel is a square that
+       follows the window it stands in, the same answer for the same window every
+       time, and its top edge stops under the titlebar instead of covering the strip
+       the window controls and the search live in. 540 rather than the 500 it opened
+       at: after the 138px nav and the frame, the card on the right was ~360px wide,
+       and that is the width the mode cards, the two resolver catalogues and the
+       raw-settings rows were being laid out in — forty more is the difference
+       between a column of ellipses and a column of values. */
+    --dock-size: min(540px,
+        calc(100vw - 48px),
+        calc(100vh - var(--status-h, 30px) - var(--titlebar-h, 34px) - 12px));
+    width: var(--dock-size);
+    height: var(--dock-size);
     display: grid;
     grid-template-rows: auto 1fr;
     overflow: hidden;
@@ -676,53 +613,6 @@
     .settings-dock.closing {
         animation: fadeOut .14s ease both;
     }
-}
-
-/* The dock's top edge as a handle, the way the log panel's is: the panel stands on the
-   bar and grows up from it, so the edge that moves is the one at the top. It sits inside
-   the panel rather than straddling the border, because the dock clips its overflow and a
-   strip hanging above it would be half a row of dead pixels. A hairline along that edge
-   lights up on hover — the accent the app marks "live" with — and nothing more: the
-   border and the cursor over it are the affordance. */
-.dock-grip {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 10px;
-    /* over the head, which is the panel's first row and carries a background of its own */
-    z-index: 3;
-    cursor: ns-resize;
-    touch-action: none;
-}
-
-.dock-grip::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: 1px;
-    background: transparent;
-    transition: background .15s ease;
-}
-
-.dock-grip:hover::after,
-.settings-dock.resizing .dock-grip::after {
-    background: var(--accent);
-}
-
-.dock-grip:focus-visible {
-    outline: 1px solid var(--accent);
-    outline-offset: -2px;
-}
-
-/* Mid-drag the pointer is somewhere over the panel, so the resize cursor and the refusal
-   to select text have to hold for the whole dock, not just for the handle. */
-.settings-dock.resizing,
-.settings-dock.resizing * {
-    cursor: ns-resize !important;
-    user-select: none;
 }
 
 /* The head: the bar's own title strip. The subject of the panel is answered by the
@@ -845,67 +735,84 @@
     scrollbar-width: thin;
 }
 
-/* One name each, full width, stacked. */
+/* One name each, full width, stacked — drawn as a ruled table: a framed list,
+   hairline row rules, a numbered first column, and the section seam as a thicker
+   rule between the two halves. */
 .set-nav-list {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    overflow-y: visible;
+    gap: 0;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    counter-reset: nav;
 }
 
 .set-nav-item {
     position: relative;
     flex: none;
-    border: 1px solid transparent;
-    border-radius: 6px;
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    align-items: center;
+    border: 0;
+    border-radius: 0;
+    border-top: 1px solid var(--line);
     background: none;
     color: var(--text-dim);
-    /* the left padding clears the active card's own marker bar, so the words sit on
-       one column whether the entry is lit or not */
-    padding: 5px 10px 5px 14px;
+    padding: 7px 10px 7px 4px;
     font-size: 0.6875rem;
     text-align: left;
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
     cursor: pointer;
+}
+
+.set-nav-item:first-child {
+    border-top: 0;
+}
+
+/* The row's number, in its own column: a table of contents says where each entry
+   stands, and the figures make the two sections read as one continued list. */
+.set-nav-item::before {
+    counter-increment: nav;
+    content: counter(nav, decimal-leading-zero);
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-dim);
+    opacity: .7;
+    text-align: center;
 }
 
 .set-nav-item:hover {
     color: var(--text);
-    background: var(--bg-3);
+    background: var(--hover-bg);
 }
 
-/* The lit entry is the card on screen, and it wears the accent the group titles carry:
-   the same mark, saying the same thing about the same card. A wash behind the words
-   rather than a box around them — the entry is the thing being looked at, and a wash
-   reads as "here" where an outline reads as "pressable". */
+/* The lit entry is the card on screen: the accent wash across the whole row and a
+   2px bar on the row's left edge — the same mark the group titles carry, saying the
+   same thing about the same card. The number lights up with the row. */
 .set-nav-item.active {
     color: var(--accent);
-    border-color: transparent;
     background: var(--accent-soft);
+    box-shadow: inset 2px 0 0 var(--accent);
 }
 
-/* The marker bar, the same 3px pill the group titles open with: one motif, twice, is
-   what ties the two columns of the panel together. */
 .set-nav-item.active::before {
-    content: '';
-    position: absolute;
-    left: 4px;
-    top: 50%;
-    width: 3px;
-    height: 12px;
-    transform: translateY(-50%);
-    border-radius: 2px;
-    background: var(--accent);
+    color: var(--accent);
+    opacity: 1;
+    font-weight: 600;
 }
 
-/* The hairline between the hand-written cards and the raw-settings groups: the list
-   is a table of contents in two parts, and the seam is where the second begins. */
+/* The seam between the hand-written cards and the raw-settings groups: inside the
+   framed table it is a full-width band, one step darker than the rows around it —
+   the table of contents in two parts, and the seam is where the second begins. */
 .set-nav-sep {
-    height: 1px;
-    margin: 7px 6px;
-    background: var(--line);
+    height: 3px;
+    margin: 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-2);
 }
 
 /* The arrows are drawn in borders rather than loaded as glyphs — one arrow, two
@@ -1063,25 +970,10 @@
     grid-row: auto;
 }
 
-/* The rule sets, as a framed list rather than loose lines: the tag, its state and its
-   action sit on ruled rows the way the resolver catalogue below does, so the two lists
-   a reader compares wear the same face. */
-.settings-dock .rs-list {
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: var(--bg);
-    padding: 1px 8px;
-    max-height: 200px;
-    margin-bottom: 8px;
-}
-
-.settings-dock .rs-row {
-    padding: 4px 0;
-}
-
-.settings-dock .rs-row + .rs-row {
-    border-top: 1px solid var(--line);
-}
+/* The rule sets' framed list is not re-cut for the dock: the frame, the ruled rows
+   and the row height are the card's own geometry (see .rs-list in 10-panels.css), and
+   a second copy here is what made the same list two different shapes depending on
+   which seat it was drawn in. */
 
 /* The raw-settings cards, re-fit for a card ~380px wide. The hotkey and subscription
    grids can hold two columns here — a combination and a switch each want less than half
@@ -1616,7 +1508,7 @@
 
 .dns-obj-del:hover {
     color: var(--red);
-    background: var(--bg-3);
+    background: var(--hover-bg);
 }
 
 /* editor */
@@ -1878,7 +1770,7 @@
 }
 
 .picklist li:hover {
-    background: var(--bg-3);
+    background: var(--hover-bg);
 }
 
 .picklist li.active {
@@ -1918,20 +1810,18 @@
     overflow-y: auto;
 }
 
-/* Live rate readout, in the status bar with the rest of the session's state. It spent a
-   while as a capsule floating at the top of the window — centred on it, and ducking out
-   of sight whenever the pointer was over the app — and it is back on the bar, which is
-   the one strip of the window that is about the session rather than about the list, and
-/* The live rates, at the bar's far left against the rail's line: the floor is
-   where a figure the reader glances at belongs, and the left end is where the
-   eye lands first after the rail. It sits in the bar's left slot (see
-   .status-left) rather than among the right-hand group.
-   Bare figures, with no capsule drawn round them: the bar's own surface is the frame, and
-   a second one inside it read as a card somebody had dropped on the floor. The two
-   directions are told apart by weight and colour instead, which is all they ever needed. */
+/* The live rates, in the bar's right-hand group on the exit address's left (see
+   .status-right): a figure the reader glances at, seated with the session's other
+   addresses rather than holding the bar's floor on its own. It spent a while as a
+   capsule floating at the top of the window — centred on it, and ducking out of sight
+   whenever the pointer was over the app — and time at the bar's far left after that,
+   before this. Bare figures, with no capsule drawn round them: the bar's own surface is
+   the frame, and a second one inside it read as a card somebody had dropped on the
+   floor. The two directions are told apart by weight and colour instead, which is all
+   they ever needed. */
 .traffic {
-    /* A readout of what is moving, sitting in the bar's left slot. Its figure
-       rides the bar's middle without a slab of its own. */
+    /* A readout of what is moving, seated in the right group between the hairline
+       and the exit address. */
     display: flex;
     align-items: center;
     height: 22px;
@@ -1965,29 +1855,33 @@
     text-align: center;
 }
 
-/* The bar's left slot: the live rates. The transient WORDS that used to speak
-   here (the run state on hover, the app's notices) are lines of the console now,
-   and the test-in-progress words have moved to the bar's centre (see
-   .status-center). Positioned rather than laid out with the bar's own flex,
-   which ends at the right edge: an in-flow child of the bar would be carried
-   there, half a window away from the rail's line that this slot grows out of.
-   Its width is its contents', so an empty slot takes no clicks. A step off the
-   rail's vertical line, which is drawn at rail-w - 1: flush against it the first
-   glyph looked bolted to the rule, and type that touches a line is harder to
-   read than type a few pixels away from it. */
-.status-left {
-    position: absolute;
-    left: calc(var(--rail-w, 40px) + 5px);
-    top: 0;
-    bottom: 0;
-    display: flex;
-    align-items: center;
-    /* what stands between the two when both are out: the toast's own trailing space
-       used to do this job, and it went with the position */
-    gap: 10px;
-    /* the readout is figures on a 30px bar: a wrap here would be a second line
-       with nowhere to go */
-    white-space: nowrap;
+/* The readout is permanent (always mounted, see StatusDock): the idle state is
+   "0 B/s" on both directions rather than an absent block, and that reading
+   keeps the dim rate colour — a lit green nought would read as traffic that is
+   not there. The down rule below re-colours it only once real movement shows. */
+.traffic.idle .rate.down {
+    color: var(--text-dim);
+    font-weight: 500;
+}
+
+/* The machine's own LAN address, at the bar's far right in the right-hand group
+   (see .status-right), last against the window edge: the one figure there that
+   does not follow the node. Monospace like every other address, dim like the
+   rates — it is context, not news. A button now, because a press copies the
+   endpoint; the border and hover follow the node-ip button's lead. */
+.lan-ip {
+    font-size: 0.625rem;
+    color: var(--text-dim);
+    background: none;
+    border: none;
+    padding: 2px 4px;
+    cursor: pointer;
+    user-select: text;
+    font-family: var(--font-mono);
+}
+
+.lan-ip:hover {
+    color: var(--text);
 }
 
 /* The bar's centre slot: the test-in-progress words. They answer a question
@@ -2187,7 +2081,7 @@
 }
 
 .egress-trigger:hover {
-    background: var(--bg-3);
+    background: var(--hover-bg);
 }
 
 .egress-trigger:focus-visible {
@@ -2232,7 +2126,7 @@
 }
 
 .egress-menu button:hover {
-    background: var(--bg-3);
+    background: var(--hover-bg);
 }
 
 /* A rule inside one of these lists, where the items below it are a different kind of

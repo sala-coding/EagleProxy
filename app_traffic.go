@@ -6,6 +6,7 @@ import (
 	"eagle/internal/crashlog"
 	"eagle/internal/db"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -62,6 +63,75 @@ func (a *App) ResetMetrics() error {
 	// just cleared on the running node jumped straight to it, with a matching spike in
 	// the rate and one tick of nonsense in the status bar.
 	return a.curMgr().ClearMetrics()
+}
+
+// lanSources lists the source addresses in conns that belong to other machines:
+// everything that is not loopback (in either family, mapped or not) and not one
+// of this machine's own addresses (`self`, every adapter, not just the LAN one).
+// Every local path arrives as 127.0.0.1 — the system proxy's dials, and the TUN
+// front-end's forwards — so "not loopback, not us" is exactly "someone else's
+// device", however many connections each one holds open.
+func lanSources(conns []clash.Connection, self map[string]bool) []string {
+	out := make([]string, 0, len(conns))
+	for _, cn := range conns {
+		raw := cn.Metadata.SourceIP
+		if raw == "" {
+			continue
+		}
+		// Normalised before it is compared: the core may write an IPv4 address in
+		// its mapped IPv6 form ("::ffff:127.0.0.1"), and this machine's own
+		// addresses are held in one spelling.
+		ip := net.ParseIP(raw)
+		if ip == nil || ip.IsLoopback() || ip.IsUnspecified() {
+			continue
+		}
+		s := ip.String()
+		if self[s] {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// countLanDevices counts the distinct machines behind the live connections.
+func countLanDevices(conns []clash.Connection, self map[string]bool) int {
+	seen := map[string]bool{}
+	for _, ip := range lanSources(conns, self) {
+		seen[ip] = true
+	}
+	return len(seen)
+}
+
+// lanDeviceTTL is how long a machine stays counted after its last connection
+// closed. The count is read off live connections, and a phone that loaded one
+// page then went quiet dropped out of the badge between two ticks — a device
+// leaving and a device sitting there read as the same thing.
+const lanDeviceTTL = 60 * time.Second
+
+// lanDevices is the badge's number: the machines seen through the shared
+// inbound, remembered for lanDeviceTTL. Zero while sharing is off — nothing on
+// the LAN can dial in, so any address in the connections is not a shared-inbound
+// device. Written and read only by the traffic loop.
+func (a *App) lanDevices(conns []clash.Connection) int {
+	s := a.curSetting()
+	if s == nil || !s.LANShare {
+		a.lanSeen = nil
+		return 0
+	}
+	now := time.Now()
+	if a.lanSeen == nil {
+		a.lanSeen = map[string]time.Time{}
+	}
+	for _, ip := range lanSources(conns, localAddrs()) {
+		a.lanSeen[ip] = now
+	}
+	for ip, at := range a.lanSeen {
+		if now.Sub(at) > lanDeviceTTL {
+			delete(a.lanSeen, ip)
+		}
+	}
+	return len(a.lanSeen)
 }
 
 // trafficLoop polls the Clash API and emits "traffic" events. It also attributes
@@ -187,11 +257,12 @@ func (a *App) trafficLoop() {
 		}
 
 		runtime.EventsEmit(a.curCtx(), "traffic", map[string]interface{}{
-			"up":       resp.UploadTotal,
-			"down":     resp.DownloadTotal,
-			"upRate":   upRate,
-			"downRate": downRate,
-			"count":    len(resp.Connections),
+			"up":         resp.UploadTotal,
+			"down":       resp.DownloadTotal,
+			"upRate":     upRate,
+			"downRate":   downRate,
+			"count":      len(resp.Connections),
+			"lanDevices": a.lanDevices(resp.Connections),
 		})
 
 		if dUp < 0 || dDown < 0 || (dUp == 0 && dDown == 0) {

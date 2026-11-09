@@ -42,15 +42,16 @@ func (a *App) logSpeedtest(category, line string) {
 }
 
 // SpeedTestResult is the outcome for a single profile. Mode tells the frontend
-// which of Latency / Speed this run measured, so a live update only touches the
-// column that the test produced.
+// which of Latency / DownSpeed / UpSpeed this run measured, so a live update only
+// touches the columns that the test produced.
 type SpeedTestResult struct {
-	ID      int     `json:"id"`
-	Mode    int     `json:"mode"`
-	Latency int     `json:"latency"`
-	Speed   float64 `json:"speed"`
-	Error   string  `json:"error"`
-	Report  string  `json:"report"`
+	ID        int     `json:"id"`
+	Mode      int     `json:"mode"`
+	Latency   int     `json:"latency"`
+	DownSpeed float64 `json:"downSpeed"`
+	UpSpeed   float64 `json:"upSpeed"`
+	Error     string  `json:"error"`
+	Report    string  `json:"report"`
 }
 
 // SpeedtestProfiles tests the given profiles with the chosen mode.
@@ -155,10 +156,13 @@ func (a *App) speedtestResultLine(r SpeedTestResult) string {
 	if ent := a.curMgr().SnapshotProfile(r.ID); ent != nil {
 		label = fmt.Sprintf("#%d %s %s", ent.ID, ent.DisplayName(), ent.DisplayAddress())
 	}
-	// The speed test reports a rate, the other modes report a latency.
-	value := fmt.Sprintf("%.2f MB/s", r.Speed)
-	if r.Speed <= 0 {
-		value = fmt.Sprintf("%d ms", r.Latency)
+	// The speed modes report rates, the latency mode reports a milliseconds count.
+	value := fmt.Sprintf("%d ms", r.Latency)
+	if r.Mode != speedtest.ModeURLTest {
+		value = fmt.Sprintf("↓ %.2f MB/s", r.DownSpeed)
+		if r.UpSpeed != 0 {
+			value = fmt.Sprintf("%s ↑ %.2f MB/s", value, r.UpSpeed)
+		}
 	}
 	switch {
 	case r.Error != "":
@@ -225,6 +229,10 @@ func (a *App) speedtest(ids []int, mode int, title string) ([]SpeedTestResult, e
 	if n <= 0 {
 		n = 1
 	}
+	// One line the reader can hold the run against: "并发 N" is what the scheduler
+	// is doing, so a run that reads slow can be told apart from one that is wide
+	// but waiting on slow nodes.
+	a.logSpeedtest(category, fmt.Sprintf(">>> 并发 %d · %d 个节点", n, len(ids)))
 
 	sem := make(chan struct{}, n)
 	var wg sync.WaitGroup
@@ -284,12 +292,19 @@ loop:
 			a.curMgr().UpdateProfile(ent.ID, true, func(e *db.ProxyEntity) {
 				// Each column keeps the newest measurement of its own metric: a
 				// speed test never wipes the latency and vice versa. -1 marks a
-				// failed measurement of that metric, 0 means "never measured".
+				// failed measurement of that metric, 0 means "never measured", and a
+				// direction that was never reached keeps what it had.
 				switch mode {
 				case speedtest.ModeSpeedTest:
-					e.Speed = r.Speed
+					e.DownSpeed = r.DownSpeed
+					if r.UpSpeed != 0 {
+						e.UpSpeed = r.UpSpeed
+					}
 				case speedtest.ModeFullTest:
-					e.Latency, e.Speed = r.Latency, r.Speed
+					e.Latency, e.DownSpeed = r.Latency, r.DownSpeed
+					if r.UpSpeed != 0 {
+						e.UpSpeed = r.UpSpeed
+					}
 				default:
 					e.Latency = r.Latency
 				}
@@ -330,21 +345,20 @@ func runSpeedTest(r *speedtest.Runner, ent *db.ProxyEntity, mode int) SpeedTestR
 	res := SpeedTestResult{ID: ent.ID, Mode: mode}
 	switch mode {
 	case speedtest.ModeFullTest:
-		ms, speed, report, err := r.RunFullTest(ent)
-		res.Latency = ms
-		res.Speed = speed
+		ms, down, up, report, err := r.RunFullTest(ent)
+		res.Latency, res.DownSpeed, res.UpSpeed = ms, down, up
 		res.Report = report
 		if err != nil {
 			res.Error = err.Error()
-			res.Latency, res.Speed = -1, -1
+			res.Latency, res.DownSpeed = -1, -1
 		}
 	case speedtest.ModeSpeedTest:
-		speed, report, err := r.RunSpeedTest(ent)
-		res.Speed = speed
+		down, up, report, err := r.RunSpeedTest(ent)
+		res.DownSpeed, res.UpSpeed = down, up
 		res.Report = report
 		if err != nil {
 			res.Error = err.Error()
-			res.Speed = -1
+			res.DownSpeed = -1
 		}
 	default:
 		ms, err := r.RunURLTest(ent)

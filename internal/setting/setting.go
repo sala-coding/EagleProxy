@@ -173,15 +173,28 @@ func (r *Routing) Normalize() {
 	}
 }
 
+// Speed test engines (TestEngine). ndt7 is M-Lab's protocol, the default; cloudflare
+// is Cloudflare's own endpoints, which a node with no route to M-Lab can still reach.
+const (
+	SpeedEngineNDT7       = "ndt7"
+	SpeedEngineCloudflare = "cloudflare"
+)
+
 // Setting is the full nekoray DataStore.
 type Setting struct {
 	ExtraCore   *ExtraCore   `json:"extraCore,omitempty"`
 	InboundAuth *InboundAuth `json:"inbound_auth,omitempty"`
 
-	UserAgent           string `json:"user_agent2,omitempty"`
-	TestLatencyURL      string `json:"test_url,omitempty"`
-	TestDownloadURL     string `json:"test_url_dl,omitempty"`
-	TestDownloadTimeout int    `json:"test_dl_timeout"`
+	UserAgent      string `json:"user_agent2,omitempty"`
+	TestLatencyURL string `json:"test_url,omitempty"`
+	TestEngine     string `json:"test_engine,omitempty"`
+	// TestWindow is how long one direction of a speed test runs, in seconds. It is
+	// the whole cost of testing a node, so it is the reader's dial: a longer window
+	// measures a link that is still ramping up, a shorter one finishes the list.
+	TestWindow int `json:"test_window"`
+	// TestUpload asks for the upload direction as well. Off, a node costs one
+	// window instead of two.
+	TestUpload          bool   `json:"test_upload"`
 	CurrentGroup        int    `json:"current_group"`
 	InboundAddress      string `json:"inbound_address,omitempty"`
 	InboundSocksPort    int    `json:"inbound_socks_port"`
@@ -279,7 +292,13 @@ type Setting struct {
 	VPNRuleProcess    string `json:"vpn_bypass_process,omitempty"`
 	VPNRuleCIDR       string `json:"vpn_bypass_cidr,omitempty"`
 	VPNRuleWhite      bool   `json:"vpn_rule_white"`
-	CheckIncludePre   bool   `json:"check_include_pre"`
+	// LANShare lets other machines on the LAN use this app's proxy: on, the mixed
+	// inbound listens on every interface (0.0.0.0) instead of the loopback only, so a
+	// phone on the same Wi-Fi can be pointed at this machine's address and port. It
+	// restarts the running core when it changes, which is why it is a switch of its own
+	// rather than a row of the settings dialog's port card (see SetLANShare).
+	LANShare        bool   `json:"lan_share"`
+	CheckIncludePre bool   `json:"check_include_pre"`
 	SystemProxyFormat string `json:"sp_format,omitempty"`
 	// SystemProxyBypass is the semicolon-separated list Windows is told never to send
 	// through the proxy. Empty means the built-in default — loopback and single-label
@@ -453,8 +472,9 @@ func defaultSetting(baseDir string) *Setting {
 		InboundAuth:         &InboundAuth{},
 		UserAgent:           strings.Join(DefaultUserAgents(), "\n"),
 		TestLatencyURL:      "http://cp.cloudflare.com/",
-		TestDownloadURL:     "http://cachefly.cachefly.net/10mb.test",
-		TestDownloadTimeout: 30,
+		TestEngine:          SpeedEngineNDT7,
+		TestWindow:          5,
+		TestUpload:          true,
 		CurrentGroup:        0,
 		InboundAddress:      "127.0.0.1",
 		InboundSocksPort:    2080,

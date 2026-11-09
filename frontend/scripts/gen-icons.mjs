@@ -17,6 +17,7 @@ const aliases = {
     AddFilled: 'add-fill',
     ArrowRightFilled: 'arrow-right-fill',
     BookmarksFilled: 'bookmarks-fill',
+    CellphoneFilled: 'cellphone-fill',
     Layout4Filled: 'layout-4-fill',
     LayoutBottomCloseFilled: 'layout-bottom-close-fill',
     LayoutBottomLine: 'layout-bottom-line',
@@ -63,6 +64,7 @@ const aliases = {
     TerminalBoxFilled: 'terminal-box-fill',
     ThumbUpFilled: 'thumb-up-fill',
     TransferHorizontalFilled: 'transfer-horizontal-fill',
+    WifiFilled: 'wifi-fill',
 };
 
 const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');

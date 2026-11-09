@@ -34,7 +34,7 @@ export interface AppActionsDeps {
     setTesting: (v: boolean) => void;
     testingMode: Ref<number>;
     testProgress: Ref<{ done: number; total: number }>;
-    sort: Ref<{ key: 'latency' | 'speed'; dir: 1 | -1 } | null>;
+    sort: Ref<{ key: 'latency' | 'downSpeed' | 'upSpeed'; dir: 1 | -1 } | null>;
     spMode: Ref<{ vpn: boolean; systemProxy: boolean }>;
     spBusyRef: Ref<boolean>;
     setSpBusyBoth: (v: 'vpn' | 'systemProxy' | null) => void;
@@ -61,7 +61,6 @@ export interface AppActionsDeps {
     connExit: Ref<PanelExit | null>;
     showLogs: Ref<boolean>;
     openLogsOnce: () => void;
-    batchOpen: Ref<boolean>;
     editor: Ref<{ title: string; initial: Dict; onSave: (v: Dict) => Promise<void>; onDiscard?: () => Promise<void> } | null>;
     notify: (text: string, kind?: 'ok' | 'err') => void;
     loadFileCats: () => Promise<void>;
@@ -279,7 +278,6 @@ export function useActions(deps: AppActionsDeps) {
     };
 
     const runBatch = async (kind: 'dedupe' | 'failed' | 'resolve') => {
-        deps.batchOpen.value = false;
         try {
             const n = kind === 'dedupe' ? await API.DeduplicateGroup(deps.gid.value)
                 : kind === 'failed' ? await API.RemoveFailedProfiles(deps.gid.value)
@@ -337,7 +335,7 @@ export function useActions(deps: AppActionsDeps) {
             // — behind everything that measured something — so the list grows its
             // good end upwards instead of shuffling placeholders around.
             const speedMode = MODE_HAS_SPEED(mode);
-            deps.sort.value = {key: speedMode ? 'speed' : 'latency', dir: speedMode ? -1 : 1};
+            deps.sort.value = {key: speedMode ? 'downSpeed' : 'latency', dir: speedMode ? -1 : 1};
             stopHandWatch = watch(deps.sort, () => { handSorted = true; });
             // "Test current" means the node the mouse picked: the row whose menu
             // this is, or — for any caller that names no node — the row that is
@@ -370,7 +368,8 @@ export function useActions(deps: AppActionsDeps) {
                 return {
                     ...p,
                     latency: clearsLatency ? 0 : p.latency,
-                    speed: clearsSpeed ? 0 : p.speed,
+                    downSpeed: clearsSpeed ? 0 : p.downSpeed,
+                    upSpeed: clearsSpeed ? 0 : p.upSpeed,
                 };
             });
             let res: main.SpeedTestResult[];
@@ -403,7 +402,7 @@ export function useActions(deps: AppActionsDeps) {
             // measured column on top when it finishes. A hand-sorted list is the
             // reader's own.
             if (!handSorted) {
-                deps.sort.value = {key: speedMode ? 'speed' : 'latency', dir: speedMode ? -1 : 1};
+                deps.sort.value = {key: speedMode ? 'downSpeed' : 'latency', dir: speedMode ? -1 : 1};
             }
             // The run wrote a new file behind one of the test categories, and the
             // panel reads that file rather than watching it: re-read, so an open
@@ -642,7 +641,7 @@ export function useActions(deps: AppActionsDeps) {
     // frame — so the form shows the rest, and every one of these is merged back
     // untouched at save, from the read this dialog opened with (an edit must not
     // reset the counters it hid).
-    const EDITOR_HIDDEN_KEYS = ['id', 'gid', 'yc', 'report', 'speed', 'traffic'];
+    const EDITOR_HIDDEN_KEYS = ['id', 'gid', 'yc', 'report', 'downSpeed', 'upSpeed', 'traffic'];
 
     const editProfile = async (id: number, onDiscard?: () => Promise<void>) => {
         try {

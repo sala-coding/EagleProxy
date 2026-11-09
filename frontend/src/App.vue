@@ -4,7 +4,7 @@
 // the logic is split into composables (src/composables) and template sections
 // (src/sections), each named after the block of App.tsx it came from. The
 // original comments are kept at their corresponding positions.
-import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties, type Ref} from 'vue';
+import {computed, onBeforeUnmount, onMounted, ref, watch, type CSSProperties, type Ref} from 'vue';
 import './styles/index.ts';
 import * as API from "../wailsjs/go/main/App";
 import {main, setting} from "../wailsjs/go/models";
@@ -14,7 +14,7 @@ import {loadTips, tip} from "./tips";
 import {errText} from "./lib/shared";
 import {FILTER_ICONS, nowStamp} from "./lib/logfilter";
 import {hueFor, metricGroup, MODE_HAS_LATENCY, MODE_HAS_SPEED, SPEED_MODES, PROTOCOLS, setRegionLocale} from "./lib/metrics";
-import {clampScale, CUSTOM_VARS, LIGHT_THEMES, THEMES, THEME_REMAP, UI_SCALE_MAX, UI_SCALE_MIN, wearCustom} from "./lib/theme";
+import {clampScale, CUSTOM_VARS, LIGHT_THEMES, readHover, THEMES, THEME_REMAP, UI_SCALE_MAX, UI_SCALE_MIN, wearCustom, wearHover} from "./lib/theme";
 import {startLanguage} from "./lib/settings-meta";
 import {SMART_PICK_MINUTES, SMART_TICK_MS, pickFastestDNS, roundChoice} from "./lib/dns";
 import {warmSettingsCache} from "./components/SettingsDialog.vue";
@@ -28,7 +28,8 @@ import {type PanelExit} from "./lib/subdraw";
 import {FolderFilled, AddFilled, RightFilled, PlayFilled, StopFilled, TransferHorizontalFilled,
     DashboardFilled, FlashFilled, FileImportFilled, Edit2Filled, CopyFilled, Link2Filled,
     Link3Filled, CodeFilled, FileExportFilled, QrcodeFilled, Delete2Filled,
-    CloseFilled, Download3Filled} from "./lib/icons";
+    CloseFilled, Download3Filled, WifiFilled, EraserFilled, ShuffleFilled,
+    ArrowRightFilled, EarthFilled} from "./lib/icons";
 import {STOPPED} from "./composables/shared-consts";
 import {useLogs} from "./composables/useLogs";
 import {useConsoleDrag} from "./composables/useConsoleDrag";
@@ -57,6 +58,17 @@ const winMax = ref(false);
 const syncWinMax = () => { WindowIsMaximised().then(v => { winMax.value = v; }).catch(() => {}); };
 const winMinimise = () => { WindowMinimise(); };
 const winToggleMax = () => { WindowToggleMaximise(); window.setTimeout(syncWinMax, 80); };
+// Double-click on the strip toggles maximise, the way a real caption does. The OS
+// cannot do it for us: the strip is not a caption, Wails fakes the drag with a
+// WM_NCLBUTTONDOWN, and its own listener starts a move only on the first press of a
+// sequence (it skips e.detail !== 1) — so the second press reaches the page as an
+// ordinary dblclick. The test is the one Wails applies to that press: a child that
+// opted out of the drag (--wails-draggable: no-drag — the buttons, the search box)
+// keeps its own double-clicks.
+const titlebarDblClick = (e: MouseEvent) => {
+    const drag = getComputedStyle(e.target as HTMLElement).getPropertyValue('--wails-draggable').trim();
+    if (drag === 'drag') winToggleMax();
+};
 const winClose = () => { WindowHide(); };
 onMounted(() => {
     syncWinMax();
@@ -74,16 +86,15 @@ onBeforeUnmount(() => window.removeEventListener('resize', syncWinMax));
 // one thing a press can land on, which is what "searching" has to look like on a strip
 // this crowded. The window controls stay — they are the window, not the list.
 const searchOpen = ref(false);
-const searchInput = ref<HTMLInputElement | null>(null);
 
 function openSearch() {
-    // Every list on the bar closes with the entries it hangs off.
-    batchOpen.value = false;
+    // Every list on the bar closes with the entries it hangs off. The field's own
+    // focus is the status dock's business now (see searchInput in StatusDock) —
+    // the cluster moved down there with the state staying here.
     egressOpen.value = false;
     titleAddOpen.value = false;
     titleTestOpen.value = false;
     searchOpen.value = true;
-    nextTick(() => searchInput.value?.focus());
 }
 
 // Collapsing is allowed only with nothing typed: a query left behind a closed field is a
@@ -125,10 +136,13 @@ const onTitleSearchKey = (e: KeyboardEvent) => {
 // The sink is bound the moment the log composable exists below — every notify
 // call after that is a line, and the ones before it (none: the earliest
 // notify runs in a mounted effect) are simply not yet wired.
-let pushNoticeLine: ((line: string) => void) | null = null;
+let pushNoticeLine: ((line: string, open: boolean) => void) | null = null;
+// Every notice opens the console, receipts included: the window's answers live there
+// now, and a reader who has closed the panel still gets to see what the app said —
+// including the "saved" they did not press anything to read.
 const notify = (text: string, kind: 'ok' | 'err' = 'ok') => {
     void kind;
-    pushNoticeLine?.(`[app] ${text}`);
+    pushNoticeLine?.(`[app] ${text}`, true);
 };
 
 const groupsChangedSeq = {current: 0};
@@ -175,10 +189,10 @@ const L = useLogs(notify);
 // rides the window's own list (queueAppLine), not the backend's streamed
 // buffer, so reopening the panel re-reads the backend without erasing the
 // sentences this window said.
-pushNoticeLine = (line: string) => {
+pushNoticeLine = (line: string, open: boolean) => {
     const d = new Date();
     const p = (n: number, w: number) => String(n).padStart(w, '0');
-    L.queueAppLine(`${p(d.getHours(), 2)}:${p(d.getMinutes(), 2)}:${p(d.getSeconds(), 2)}.${p(d.getMilliseconds(), 3)} ${line}`);
+    L.queueAppLine(`${p(d.getHours(), 2)}:${p(d.getMinutes(), 2)}:${p(d.getSeconds(), 2)}.${p(d.getMilliseconds(), 3)} ${line}`, open);
 };
 const {
     logs, showLogs, logFilter, logLevel, logPaused, shownLogs, catLive, logCtx,
@@ -220,14 +234,58 @@ const theme = ref<string>('dark');
 // has to show it with no dialog open, and refetched whenever the settings are
 // saved (see refreshEgress).
 const egress = ref('rule');
+// One glyph per mode, the name in the tooltip: rules on the forked arrow — traffic
+// taking one of two roads by what the rules say, which is what the mode does — the
+// straight arrow for direct, the globe for everything through the node. The colour
+// still carries the mode (see .titlebar-egress[data-mode] in 05-layout.css).
+const EGRESS_ICONS: Record<string, any> = {rule: ShuffleFilled, direct: ArrowRightFilled, global: EarthFilled};
 const egressOpen = ref(false);
 const egressRef = ref<HTMLSpanElement | null>(null);
-// The batch menu above the node table, and the button it hangs off. Declared up
-// here with the other menus' state because the listener that closes it on an
-// outside press lives near the top of the component, and a `const` cannot be read
-// above the line that declares it.
-const batchOpen = ref(false);
-const batchRef = ref<HTMLSpanElement | null>(null);
+// LAN sharing: the titlebar capsule that lets a phone on the same Wi-Fi use this
+// machine's proxy. The flag is the backend's (a restart carries it into the core's
+// config), read once at boot and after every press; the press itself is the same
+// read-the-answer contract the mode switches keep — the switch shows what the
+// backend says, not what was asked.
+const lanShare = ref(false);
+const lanShareBusy = ref(false);
+const statusDockEl = ref<InstanceType<typeof StatusDock> | null>(null);
+const refreshLanShare = () => {
+    API.LANShare().then(v => { lanShare.value = !!v; }).catch(() => {});
+};
+// The press answers in facts — on, running, endpoint, listening, auth (see
+// LANState) — and the sentences are the dictionaries', so the notice speaks the
+// window's language instead of the backend's.
+const lanNotice = (st: {on: boolean; running: boolean; endpoint: string; listening: boolean; auth: boolean}) => {
+    if (!st.on) return notify(t('lan.msg.off'));
+    if (!st.running) return notify(t(st.auth ? 'lan.msg.pending' : 'lan.msg.pendingOpen'));
+    if (!st.endpoint) return notify(t('lan.msg.noAddr'), 'err');
+    if (!st.listening) return notify(t('lan.msg.noListen', st.endpoint), 'err');
+    notify(t(st.auth ? 'lan.msg.on' : 'lan.msg.onOpen', st.endpoint));
+};
+// The other half of the same contract: failures arrive as keys (lan.err.*), and
+// anything else is passed through as it came.
+const lanErrText = (e: unknown) => {
+    const s = String(errText(e));
+    const i = s.indexOf(':');
+    const key = (i < 0 ? s : s.slice(0, i)).trim();
+    return key.startsWith('lan.err.') ? t(key, s.slice(i + 1).trim()) : s;
+};
+const toggleLanShare = async () => {
+    if (lanShareBusy.value) return;
+    lanShareBusy.value = true;
+    try {
+        lanNotice(await API.SetLANShare(!lanShare.value));
+    } catch (e) {
+        notify(lanErrText(e), 'err');
+    } finally {
+        // The flag is written before the restart, so a restart that failed leaves
+        // it set: the switch always shows the backend's answer, never the one that
+        // asked for (see SetLANShare).
+        lanShareBusy.value = false;
+        refreshLanShare();
+        statusDockEl.value?.loadLan();
+    }
+};
 // The titlebar's own add-node entry, moved up out of the node context menu:
 // adding a node is about the list rather than about a row, and the bar on top
 // is where the whole-list controls live now. Declared here because the
@@ -243,13 +301,9 @@ const titleMenuEl = ref<HTMLDivElement | null>(null);
 const titleTestOpen = ref(false);
 const titleTestRef = ref<HTMLSpanElement | null>(null);
 const titleTestMenuEl = ref<HTMLDivElement | null>(null);
-// The batch sweeps and the outbound mode, moved up from the status bar: both
-// are whole-list controls — what may be done to every node, and how traffic
-// leaves — and the bar on top is where those live. Their open state is the
-// same refs the status-bar menus used; the clusters themselves are new, and
-// their lists dock under the buttons like the add and test lists beside them.
-const titleBatchRef = ref<HTMLSpanElement | null>(null);
-const titleBatchMenuEl = ref<HTMLDivElement | null>(null);
+// The outbound mode, moved up from the status bar: how traffic leaves is a fact
+// about the whole window, not about a row. Its list docks under the button like
+// the add and test lists beside it.
 const titleEgressRef = ref<HTMLSpanElement | null>(null);
 const titleEgressMenuEl = ref<HTMLDivElement | null>(null);
 
@@ -356,7 +410,6 @@ watch(settingsOpen, s => {
     if (connOpen.value) connExit.value = 'flip';
     if (subsDrop.value) subsClosing.value = 'flip';
     egressOpen.value = false;
-    batchOpen.value = false;
     titleAddOpen.value = false;
     titleTestOpen.value = false;
     infoOpen.value = false;
@@ -432,6 +485,21 @@ const testingMode = ref(0);
 const testProgress = ref<{ done: number; total: number }>({done: 0, total: 0});
 const traffic = ref<{ up: number; down: number; upRate: number; downRate: number; count: number }>({up: 0, down: 0, upRate: 0, downRate: 0, count: 0});
 
+// The LAN devices riding the shared inbound: the poll's count of distinct
+// non-loopback sources among the live connections. The badge on the Wi-Fi
+// icon reads it; zero draws nothing.
+const lanDevices = ref(0);
+
+// The window-resize gate for the traffic poll's list re-render (see the
+// profile:traffic handler): every resize event pushes the deadline out, and
+// the poll held behind it lands once the edge has stood still.
+const profileTrafficGate = {
+    until: 0,
+    pending: null as null | {r: {id: number; up: number; down: number}, apply: (p: main.ProfileInfo) => main.ProfileInfo},
+    flush: 0,
+};
+window.addEventListener('resize', () => { profileTrafficGate.until = Date.now() + 200; }, {passive: true});
+
 // Result sorting: the first press on a column puts the better value on top — the
 // lowest latency and the highest speed — the second press turns it over, and a
 // third returns the list to its natural order. The arrow over the column's name
@@ -442,13 +510,14 @@ const traffic = ref<{ up: number; down: number; upRate: number; downRate: number
 // and a high speed are both "better", so each column is read with its best
 // values on top. A speed column sorted the other way would put the slowest node
 // in the first row, which is the one row the reader is looking at.
-const sort = ref<{ key: 'latency' | 'speed'; dir: 1 | -1 } | null>(null);
+const sort = ref<{ key: 'latency' | 'downSpeed' | 'upSpeed'; dir: 1 | -1 } | null>(null);
 
 // The direction each column's first press sorts in: latency ascending (the
-// lowest first), speed descending (the highest first).
-const FIRST_SORT_DIR: Record<'latency' | 'speed', 1 | -1> = {latency: 1, speed: -1};
+// lowest first), both speeds descending (the highest first).
+const FIRST_SORT_DIR: Record<'latency' | 'downSpeed' | 'upSpeed', 1 | -1> =
+    {latency: 1, downSpeed: -1, upSpeed: -1};
 
-const toggleSort = (key: 'latency' | 'speed') => {
+const toggleSort = (key: 'latency' | 'downSpeed' | 'upSpeed') => {
     const cur = sort.value;
     const first = FIRST_SORT_DIR[key];
     if (!cur || cur.key !== key) sort.value = {key, dir: first};
@@ -474,7 +543,7 @@ const A = useActions({
     refreshEgress: () => refreshEgress(),
     exitTick, gConfirm, importOpen, importText, scanErr, previewOpen, previewText,
     qrOpen, qrDataUrl, moveOpen, listKey, query, subBusy, subsDrop, connOpen, connExit,
-    showLogs, openLogsOnce, batchOpen, editor, notify, loadFileCats,
+    showLogs, openLogsOnce, editor, notify, loadFileCats,
     openSubs, closeSubs, hardCloseSubs,
 });
 const {
@@ -642,8 +711,23 @@ const syncUi = async () => {
 // go straight onto the document. Picking any other theme takes the
 // footprint off again — an inline var would otherwise outshout the picked
 // palette's own rule.
+// The window's own surface — the strip that shows for the instant a resize or
+// a maximise has grown the window but the webview's next frame has not landed
+// — is painted by the backend in the theme's base colour. Read from the
+// document itself rather than from a name→colour table, so a custom palette
+// and every shipped one answer the same way and none can drift. Declared ahead
+// of the theme watcher below: that one runs immediately, on the setup itself.
+const syncWindowBackground = () => {
+    const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+    if (!bg) return;
+    API.SetWindowBackground(bg).catch(() => { /* an old backend without the binding */ });
+};
+
 watch(theme, t2 => {
-    if (t2 === 'custom' && wearCustom()) return;
+    // The hover surface is the reader's own preference and travels across themes —
+    // which is why it is re-worn here rather than being taken off with CUSTOM_VARS.
+    wearHover(readHover());
+    if (t2 === 'custom' && wearCustom()) return syncWindowBackground();
     // fresh entry, nothing saved yet: fall through and wear the default until
     // the reader saves a first palette.
     for (const k of CUSTOM_VARS) document.documentElement.style.removeProperty(k);
@@ -652,6 +736,7 @@ watch(theme, t2 => {
     // the two is what App.css's shared light arithmetic keys on (see
     // LIGHT_THEMES), so every pale palette inherits it without restating it.
     document.documentElement.setAttribute('data-variant', LIGHT_THEMES.has(t2) ? 'light' : 'dark');
+    syncWindowBackground();
 }, {immediate: true});
 
 // The bar's outbound mode is a setting, not a property of the active routing
@@ -924,10 +1009,9 @@ const watchTitleMenu = (open: Ref<boolean>, cluster: Ref<HTMLSpanElement | null>
 
 watchTitleMenu(titleAddOpen, titleAddRef, titleMenuEl);
 watchTitleMenu(titleTestOpen, titleTestRef, titleTestMenuEl);
-// The two that moved up from the status bar join the same machinery: outside
-// click, Escape, and the dock-under-the-button pass — one behaviour for every
-// list the bar holds.
-watchTitleMenu(batchOpen, titleBatchRef, titleBatchMenuEl);
+// The outbound mode moved up from the status bar and joins the same machinery:
+// outside click, Escape, and the dock-under-the-button pass — one behaviour for
+// every list the bar holds.
 watchTitleMenu(egressOpen, titleEgressRef, titleEgressMenuEl);
 
 // Keep the node menu inside the window, measured after mount. It lists every
@@ -1174,6 +1258,18 @@ const submenus = computed<Record<string, { items: { key: string; label: string; 
             run: (id?: number) => speedTest(mode, false, id),
         })),
     },
+    // The sweeps over the whole group, behind one row here rather than on a
+    // button of their own on the bar: they are done to the list the right click
+    // landed in. Three of the four destroy nodes and the last one only clears
+    // what is known about them, which is why it comes after the others.
+    batch: {
+        items: [
+            {key: 'batch.dedupe', label: t('batch.dedupe'), run: () => void runBatch('dedupe')},
+            {key: 'batch.removeFailed', label: t('batch.removeFailed'), run: () => void runBatch('failed')},
+            {key: 'batch.resolve', label: t('batch.resolve'), run: () => void runBatch('resolve')},
+            {key: 'batch.resetData', label: t('batch.resetData'), run: () => void resetMetrics()},
+        ],
+    },
     };
 });
 
@@ -1284,7 +1380,7 @@ onBeforeUnmount(() => statusRo?.disconnect());
 // 模板表达式会把顶层 setup ref 解包成值，而各 section 需要拿到 ref 本体
 // （由子组件写入 .value），所以经一个普通对象转发。
 const fwd = {subsBtnRef, panelRef, consoleRef, logRef, statusbarRef,
-    egressRef, batchRef, nodeIpRef, infoRef};
+    egressRef, nodeIpRef, infoRef};
 
 // The root style: the same three blocks the React version wrote, plus the read of
 // langTick that makes a language change re-render this component (Vue's render
@@ -1343,6 +1439,7 @@ onMounted(() => {
             const logDir = await API.GetLogDir();
             if (logDir) logs.value = [...logs.value, {line: `${nowStamp()} >>> ${t('log.dirLine')}: ${logDir}`, cat: 'core'}];
             spMode.value = await API.GetSPMode() as { vpn: boolean; systemProxy: boolean };
+            refreshLanShare();
             await syncUi();
         } catch (e) { console.error('startup bootstrap failed:', e); }
     })();
@@ -1427,30 +1524,55 @@ onMounted(() => {
                 .then(m => spMode.value = m as { vpn: boolean; systemProxy: boolean })
                 .catch(() => { /* the next press reads the mode anyway */ });
         }),
-        EventsOn("traffic", (tv: { up: number; down: number; upRate: number; downRate: number; count: number }) => traffic.value = {
-            // tolerate a backend that predates the rate fields
-            up: tv.up ?? 0,
-            down: tv.down ?? 0,
-            upRate: tv.upRate ?? 0,
-            downRate: tv.downRate ?? 0,
-            count: tv.count ?? 0,
+        EventsOn("traffic", (tv: { up: number; down: number; upRate: number; downRate: number; count: number; lanDevices?: number }) => {
+            traffic.value = {
+                // tolerate a backend that predates the rate fields
+                up: tv.up ?? 0,
+                down: tv.down ?? 0,
+                upRate: tv.upRate ?? 0,
+                downRate: tv.downRate ?? 0,
+                count: tv.count ?? 0,
+            };
+            // tolerate a backend that predates the device count
+            lanDevices.value = tv.lanDevices ?? 0;
         }),
         EventsOn("profile:traffic", (r: { id: number; up: number; down: number }) => {
             // Both pools: with the search box up, rows from other subscriptions are
             // on screen too, and a counter that only maps the current group's rows
             // leaves those frozen.
+            // Held while the window is being resized: a poll landing mid-drag
+            // re-renders every row inside the resize's own frame budget, and the
+            // resize drops that frame — the same freeze the log's drain learned
+            // to dodge (see useLogs). Only the latest poll is kept; the counters
+            // are totals, so the last one standing is the current one, and it is
+            // applied once the edge has stood still.
             const apply = (p: main.ProfileInfo) => p.id === r.id ? {...p, up: r.up, down: r.down} : p;
+            const now = Date.now();
+            if (now < profileTrafficGate.until) {
+                profileTrafficGate.pending = {r, apply};
+                if (!profileTrafficGate.flush) {
+                    profileTrafficGate.flush = window.setTimeout(() => {
+                        profileTrafficGate.flush = 0;
+                        const held = profileTrafficGate.pending;
+                        profileTrafficGate.pending = null;
+                        if (held) { profiles.value = profiles.value.map(held.apply); otherProfiles.value = otherProfiles.value.map(held.apply); }
+                    }, profileTrafficGate.until - now + 20);
+                }
+                return;
+            }
             profiles.value = profiles.value.map(apply);
             otherProfiles.value = otherProfiles.value.map(apply);
         }),
-        EventsOn("speedtest:result", (r: { id: number; mode: number; latency: number; speed?: number }) => {
+        EventsOn("speedtest:result", (r: { id: number; mode: number; latency: number; downSpeed?: number; upSpeed?: number }) => {
             if (testProgress.value.total > 0) testProgress.value = {...testProgress.value, done: Math.min(testProgress.value.done + 1, testProgress.value.total)};
             const apply = (p: main.ProfileInfo) => {
                 if (p.id !== r.id) return p;
                 const next = {...p};
-                // refresh only the column this mode actually measured
+                // refresh only the columns this mode actually measured; an upload
+                // that was never attempted keeps what the row already had
                 if (MODE_HAS_LATENCY(r.mode)) next.latency = r.latency;
-                if (MODE_HAS_SPEED(r.mode)) next.speed = r.speed ?? 0;
+                if (MODE_HAS_SPEED(r.mode)) next.downSpeed = r.downSpeed ?? 0;
+                if (MODE_HAS_SPEED(r.mode) && r.upSpeed) next.upSpeed = r.upSpeed;
                 return next;
             };
             profiles.value = profiles.value.map(apply);
@@ -1538,57 +1660,11 @@ onBeforeUnmount(() => {
         <!-- Custom titlebar for the frameless window: the strip is the drag
              surface, the cluster on the right holds min / max / close. No
              caption text on the left, matching the system frame's Title: "". -->
-        <div class="titlebar">
-            <!-- The node search, at the bar's left end and folded away until it is
-                asked for: a magnifier wearing the window controls' own button shape,
-                which is the whole of the search until a press opens the field. The
-                cluster opts out of the drag hit-test so typing and the clear button
-                stay live over a draggable strip. -->
-            <span :class="`status-search${searchOpen ? ' open' : ''}`">
-                <button v-if="!searchOpen" class="tb-btn search-open" type="button"
-                        :title="t('search.placeholder')"
-                        :aria-label="t('search.placeholder')"
-                        @click="openSearch">
-                    <!-- A bare magnifier, drawn here rather than glyphed: a library
-                        glyph would carry a baseline into a box whose only job is to
-                        sit on the bar's centre line. -->
-                    <svg class="search-glyph" viewBox="0 0 16 16" aria-hidden="true">
-                        <circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
-                        <path d="M10.6 10.6L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-                    </svg>
-                </button>
-                <template v-else>
-                    <span class="search-field">
-                        <svg class="search-ic" viewBox="0 0 16 16" aria-hidden="true">
-                            <circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
-                            <path d="M10.6 10.6L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-                        </svg>
-                        <input ref="searchInput"
-                               :class="`node-search${subBusy ? ' busy' : ''}`"
-                               v-model="query"
-                               :placeholder="t('search.placeholder')"
-                               :aria-label="t('search.placeholder')"
-                               @keydown="onTitleSearchKey"
-                               @blur="closeSearch"/>
-                    </span>
-                    <template v-if="query.trim() !== ''">
-                        <span class="status-search-count" :title="t('search.scope')">
-                            {{ shownProfiles.length }}/{{ searchPool.length }}
-                        </span>
-                        <!-- The press is kept off the button so the field keeps the
-                            caret: clearing is followed by the next word, and a field
-                            that drops focus as it is emptied makes the reader click
-                            back into it for every correction. -->
-                        <button class="status-search-x"
-                                :title="t('search.clear')"
-                                :aria-label="t('search.clear')"
-                                @mousedown.prevent
-                                @click="query = ''">
-                            <CloseFilled class="ic"/>
-                        </button>
-                    </template>
-                </template>
-            </span>
+        <div class="titlebar" @dblclick="titlebarDblClick">
+            <!-- The node search lives at the bottom status bar's left end now (see
+                StatusDock): the titlebar keeps only the entries that act on the
+                list, and the floor it freed goes to the window controls' breathing
+                room. -->
             <!-- About lives at the rail's foot now (see NavRail): a fact about the
                 program rather than about the list, and the bar's left end belongs to
                 what acts on the list. -->
@@ -1597,7 +1673,7 @@ onBeforeUnmount(() => {
                 where the whole-list controls live. The list is the protocol
                 choice itself — the same one the old submenu held — opening
                 downwards, the bar being the window's top edge. -->
-            <span v-if="!searchOpen" class="titlebar-add" ref="titleAddRef">
+            <span class="titlebar-add" ref="titleAddRef">
                 <button class="tb-btn add" type="button"
                         aria-haspopup="menu"
                         :aria-expanded="titleAddOpen"
@@ -1624,7 +1700,7 @@ onBeforeUnmount(() => {
                 opened downwards for the same reason the add list is. Resident
                 only on a list with something in it — a sweep over nothing is a
                 button with no room behind it. -->
-            <span v-if="!searchOpen && profiles.length > 0" class="titlebar-test" ref="titleTestRef">
+            <span v-if="profiles.length > 0" class="titlebar-test" ref="titleTestRef">
                 <button class="tb-btn" type="button"
                         aria-haspopup="menu"
                         :aria-expanded="titleTestOpen"
@@ -1645,60 +1721,19 @@ onBeforeUnmount(() => {
                     </button>
                 </div>
             </span>
-            <!-- The batch sweeps, moved up from the status bar: they are
-                sweeps over the list as a whole, which is what the bar on top
-                is for. Three of the four destroy nodes, so they stay behind a
-                list rather than bare buttons in the open — the same shape the
-                status-bar entry had, its list now opening downwards. The
-                fourth is the measurement reset, which used to stand beside
-                this entry as a button of its own: it clears what is KNOWN
-                about the nodes rather than the nodes, so it is the last item
-                of the same list — one place for everything done to the whole
-                list, and one fewer button on a bar that is short of room. -->
-            <span v-if="!searchOpen" class="titlebar-batch" ref="titleBatchRef">
-                <button class="egress-trigger" type="button"
-                        aria-haspopup="menu"
-                        :aria-expanded="batchOpen"
-                        :title="t('batch.title')"
-                        :aria-label="t('batch.title')"
-                        @click="batchOpen = !batchOpen">
-                    {{ t('batch.title') }}
-                </button>
-                <div v-if="batchOpen" class="egress-menu titlebar-menu" role="menu"
-                     ref="titleBatchMenuEl"
-                     :aria-label="t('batch.title')">
-                    <button role="menuitem" @click="() => { batchOpen = false; runBatch('dedupe'); }">
-                        {{ t('batch.dedupe') }}
-                    </button>
-                    <button role="menuitem" @click="() => { batchOpen = false; runBatch('failed'); }">
-                        {{ t('batch.removeFailed') }}
-                    </button>
-                    <button role="menuitem" @click="() => { batchOpen = false; runBatch('resolve'); }">
-                        {{ t('batch.resolve') }}
-                    </button>
-                    <!-- A rule, because the three above change which nodes exist
-                        and this one only changes what is known about them. -->
-                    <div v-if="profiles.length > 0" class="menu-sep"/>
-                    <button v-if="profiles.length > 0" role="menuitem"
-                            :title="t('btn.resetMetrics')"
-                            @click="() => { batchOpen = false; resetMetrics(); }">
-                        {{ t('btn.reset') }}
-                    </button>
-                </div>
-            </span>
-            <!-- The outbound mode, up beside the batch sweeps for the same
-                reason: how traffic leaves is a fact about the whole window,
-                not about the bar's floor. The list is the mode choice itself,
-                opening downwards like the other lists on this bar; the colour
-                carries the mode, as it did below. -->
-            <span v-if="!searchOpen" class="titlebar-egress" :data-mode="egress" ref="titleEgressRef">
-                <button class="egress-trigger" type="button"
+            <!-- The outbound mode, moved up from the status bar: how traffic
+                leaves is a fact about the whole window, not about the bar's
+                floor. The list is the mode choice itself, opening downwards
+                like the other lists on this bar; the colour carries the mode,
+                as it did below. -->
+            <span class="titlebar-egress" :data-mode="egress" ref="titleEgressRef">
+                <button class="tb-btn" type="button"
                         aria-haspopup="listbox"
                         :aria-expanded="egressOpen"
-                        :title="t('egress.title')"
+                        :title="`${t('egress.title')} · ${t(`egress.${egress}`)}`"
                         :aria-label="t('egress.title')"
                         @click="egressOpen = !egressOpen">
-                    {{ t(`egress.${egress}`) }}
+                    <component :is="EGRESS_ICONS[egress]" class="ic"/>
                 </button>
                 <div v-if="egressOpen" class="egress-menu titlebar-menu" role="listbox"
                      ref="titleEgressMenuEl"
@@ -1711,6 +1746,31 @@ onBeforeUnmount(() => {
                     </button>
                 </div>
             </span>
+            <!-- The LAN-share switch, beside the outbound mode: letting a phone on the
+                same Wi-Fi dial this machine's port is a fact about the whole window and
+                its one listening socket, which is why it sits on the bar rather than in
+                the settings dialog. One glyph now, the Wi-Fi waves the phone dials
+                through — the label and the capsule it rode on went with the words, and
+                the state reads in the green the bar's other live things wear. The name
+                is in the tooltip, where a bare icon keeps its subject; the press
+                restarts the node when one is up, so a busy flag keeps a second press
+                off the first. -->
+            <button type="button"
+                    class="tb-btn lan-toggle"
+                    :class="lanShare ? 'on' : ''"
+                    :disabled="lanShareBusy"
+                    role="switch"
+                    :aria-checked="lanShare"
+                    :title="lanShare ? `${t('lan.title')} · ${t('lan.devices', lanDevices)}` : t('lan.title')"
+                    :aria-label="t('lan.title')"
+                    @click="toggleLanShare">
+                <WifiFilled class="ic"/>
+                <!-- The devices riding the shared inbound, on the icon's corner:
+                     the poll's count of distinct non-loopback sources. Zero draws
+                     nothing; past 99 the digits stop, the way a counter that
+                     mostly says "a lot" should. -->
+                <span v-if="lanDevices > 0" class="lan-count" aria-hidden="true">{{ lanDevices > 99 ? '99+' : lanDevices }}</span>
+            </button>
             <div class="titlebar-controls">
                 <button class="tb-btn" type="button" @click="winMinimise" aria-label="minimize">
                     <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg>
@@ -1777,10 +1837,15 @@ onBeforeUnmount(() => {
                                 {{ t('col.latency') }}
                                 <span v-if="sort?.key === 'latency'" class="sort-mark">{{ sort.dir === 1 ? '▲' : '▼' }}</span>
                             </th>
-                            <th :class="`speed sortable${sort?.key === 'speed' ? ' sorted' : ''}`"
-                                @click="toggleSort('speed')">
-                                {{ t('col.speed') }}
-                                <span v-if="sort?.key === 'speed'" class="sort-mark">{{ sort.dir === 1 ? '▲' : '▼' }}</span>
+                            <th :class="`speed sortable${sort?.key === 'downSpeed' ? ' sorted' : ''}`"
+                                @click="toggleSort('downSpeed')">
+                                {{ t('col.speedDown') }}
+                                <span v-if="sort?.key === 'downSpeed'" class="sort-mark">{{ sort.dir === 1 ? '▲' : '▼' }}</span>
+                            </th>
+                            <th :class="`speed sortable${sort?.key === 'upSpeed' ? ' sorted' : ''}`"
+                                @click="toggleSort('upSpeed')">
+                                {{ t('col.speedUp') }}
+                                <span v-if="sort?.key === 'upSpeed'" class="sort-mark">{{ sort.dir === 1 ? '▲' : '▼' }}</span>
                             </th>
                             <th class="ptraffic">{{ t('col.traffic') }}</th>
                             <th>{{ t('col.group') }}</th>
@@ -1830,15 +1895,23 @@ onBeforeUnmount(() => {
                   @scroll="onLogScroll"
                   @body-ctx="at => logCtx = at" @line-ctx="at => logCtx = at"/>
 
-        <StatusDock :traffic="traffic"
+        <StatusDock ref="statusDockEl" :traffic="traffic"
                     :testing="testing" :testing-mode="testingMode" :test-progress="testProgress"
                     :running="running"
                     :exit-ip="exitIP" :info-open="infoOpen"
                     :statusbar-ref="fwd.statusbarRef"
                     :node-ip-ref="fwd.nodeIpRef" :info-ref="fwd.infoRef" :lang-tick="langTick"
+                    :search-open="searchOpen" :query="query"
+                    :search-shown="shownProfiles.length" :search-pool="searchPool.length"
+                    @open-search="openSearch"
+                    @set-query="v => query = v"
+                    @search-key="onTitleSearchKey"
+                    @search-blur="closeSearch"
+                    @clear-query="query = ''"
                     @toggle-info="infoOpen = !infoOpen"
                     @copied="ok => notify(tip(ok ? 'copied' : 'log.copyFailed'), ok ? 'ok' : 'err')"
-                    @stop-test="stopSpeedtest"/>
+                    @stop-test="stopSpeedtest"
+                    @logs="!showLogs && toggleLogs()"/>
 
         <!-- The bar's text slot and the floating message window are gone: the
             app's own words — notices, the wait of a mode switch, the run state
@@ -1916,6 +1989,18 @@ onBeforeUnmount(() => {
             </button>
             <button class="ctx-item" @click="closeCtxRun(showQR)">
                 <QrcodeFilled class="ic"/>{{ t('btn.qr') }}
+            </button>
+            <div class="ctx-sep"/>
+            <!-- The sweeps over the group, grouped behind one row: they are
+                done to the list rather than to the node under the cursor, and
+                they used to live on a button of their own on the top bar. -->
+            <button class="ctx-item ctx-item-sub"
+                    tabindex="0"
+                    aria-haspopup
+                    :aria-expanded="sub === 'batch'"
+                    v-on="subRow('batch')">
+                <EraserFilled class="ic"/>{{ t('batch.title') }}
+                <RightFilled class="ic ctx-sub-caret"/>
             </button>
             <div class="ctx-sep"/>
             <button class="ctx-item danger" @click="closeCtxRun(deleteProfile)">
@@ -2143,9 +2228,6 @@ onBeforeUnmount(() => {
         <Modal v-if="qrOpen" :title="t('dlg.qr.title')" @close="qrOpen = false">
             <div class="qr-wrap">
                 <img :src="qrDataUrl" alt="QR"/>
-            </div>
-            <div class="modal-foot">
-                <button class="btn primary" @click="qrOpen = false">{{ t('btn.close') }}</button>
             </div>
         </Modal>
     </div>

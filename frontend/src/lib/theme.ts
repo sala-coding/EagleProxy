@@ -25,20 +25,33 @@ export const scaleFromIndex = (i: number) =>
 // reader still has the slider for the last mile.
 export const clampScale = (v: number) => Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, v));
 
-// The hues the custom-palette popover offers, one disc per stop of the wheel:
-// twelve is enough to aim with, and the aim is at a colour family, not at a
-// colour — the derivation turns the aim into a whole palette.
-export const TONE_HUES = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
+// The hue a picked colour stands for, in the units buildCustomPalette takes. The
+// picker hands back any colour at all; a palette is derived from one hue and one
+// ground, so the pick is read for where it sits on the wheel and nothing else —
+// its own lightness and saturation belong to the ground and to the derived ladder,
+// and taking them as well would be a second opinion about the same thing.
+export function hueOf(hex: string): number {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+    if (!m) return 210;
+    const n = parseInt(m[1], 16);
+    const r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    if (d === 0) return 210;
+    const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return Math.round((h * 60 + 360) % 360);
+}
 
-// The two grounds a custom palette can stand on, as the panel counts them (see
-// readCustomPalette, which is what a saved one is read back through). They are drawn as
-// the named answers they are — a capsule with the word in it, the chosen one filled —
-// rather than as two pictures of a ground: the panel already shows twelve colours of the
-// hue, and two more swatches beside them said nothing the words do not.
-export const TONE_GROUNDS = [
-    {value: 'deep', label: 'settings.customGround.deep'},
-    {value: 'pale', label: 'settings.customGround.pale'},
-];
+// The colour the picker opens on, from a hue: the accent's own lightness, so the
+// field shows the palette's accent rather than an unrelated chip of the wheel.
+export function hueHex(h: number): string {
+    const s = 0.62, l = 0.62;
+    const k = (n: number) => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    const hex = (v: number) => Math.round(v * 255).toString(16).padStart(2, '0');
+    return `#${hex(f(0))}${hex(f(8))}${hex(f(4))}`;
+}
+
 
 // The palettes the app ships, in the order the picker shows them. Two things read
 // this list and nothing else duplicates it: the index is what the settings file's
@@ -126,58 +139,92 @@ export type CustomPalette = Record<string, string>;
 // custom palette is on.
 export const CUSTOM_GROUND = '--custom-ground';
 
-// h is 0–359; ground is a deep report or a pale one. The hue alone drives the
-// derivation: surfaces are the hue's own ink at a ladder of lightness, the
-// accent is the hue at its clearest, and the signal colours and the latency
-// scale keep the neutral legs the built-in palettes use — a clock red has to
-// stay believable in every palette, so that is not the place for cleverness.
-export function buildCustomPalette(h: number, ground: 'deep' | 'pale'): CustomPalette {
-    const core: CustomPalette = ground === 'pale' ? {
-        '--bg': `hsl(${h}, 45%, 96%)`,
-        '--bg-2': `hsl(${h}, 42%, 92%)`,
-        '--bg-3': `hsl(${h}, 40%, 88%)`,
-        '--line': `hsl(${h}, 30%, 80%)`,
-        '--line-strong': `hsl(${h}, 28%, 68%)`,
-        '--text': `hsl(${h}, 25%, 25%)`,
-        '--text-dim': `hsl(${h}, 15%, 45%)`,
-        '--accent': `hsl(${h}, 55%, 38%)`,
-        '--accent-soft': `hsla(${h}, 55%, 38%, 0.14)`,
-        '--accent-edge': `hsla(${h}, 55%, 38%, 0.45)`,
-        '--on-fill': '#ffffff',
-        '--green': '#279c56',
-        '--red': '#d64545',
-        '--amber': '#c98a00',
-        '--green-bg': 'rgba(39, 156, 86, 0.14)',
-        '--green-bg-hover': 'rgba(39, 156, 86, 0.20)',
-        '--lat-1': '#279c56',
-        '--lat-2': '#4aa96a',
-        '--lat-3': '#c98a00',
-        '--lat-4': '#cf6a1e',
-        '--lat-5': '#d64545',
-    } : {
-        '--bg': `hsl(${h}, 20%, 7%)`,
-        '--bg-2': `hsl(${h}, 20%, 11%)`,
-        '--bg-3': `hsl(${h}, 20%, 15%)`,
-        '--line': `hsl(${h}, 18%, 22%)`,
-        '--line-strong': `hsl(${h}, 20%, 30%)`,
-        '--text': `hsl(${h}, 30%, 88%)`,
-        '--text-dim': `hsl(${h}, 15%, 63%)`,
-        '--accent': `hsl(${h}, 62%, 62%)`,
-        '--accent-soft': `hsla(${h}, 62%, 62%, 0.18)`,
-        '--accent-edge': `hsla(${h}, 62%, 62%, 0.50)`,
-        '--on-fill': 'var(--bg)',
-        '--green': '#4fd489',
-        '--red': '#ff6b6b',
-        '--amber': '#ffc266',
-        '--green-bg': 'rgba(79, 212, 137, 0.16)',
-        '--green-bg-hover': 'rgba(79, 212, 137, 0.24)',
-        '--lat-1': '#4fd489',
-        '--lat-2': '#6fe0a5',
-        '--lat-3': '#ffc266',
-        '--lat-4': '#ff8a5c',
-        '--lat-5': '#ff6b6b',
+// The hue the palette was built from, kept the same way: it is what the picker
+// opens on, so a saved palette comes back to the colour it was made with.
+export const CUSTOM_HUE = '--custom-hue';
+
+// The picked colour itself, in hex, kept beside the hue: the field reopens on the
+// colour the window is actually wearing rather than on a reconstruction of it.
+export const CUSTOM_COLOR = '--custom-color';
+
+// The three numbers the derivation works in. All of them are used: the hue tints the
+// surfaces, and the picked colour's own saturation and lightness drive the accent — so
+// a muted slate and a vivid blue are two different palettes, not one hue family.
+export function toneOf(hex: string): {h: number; s: number; l: number} {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+    if (!m) return {h: 210, s: 62, l: 62};
+    const n = parseInt(m[1], 16);
+    const r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    const l = (max + min) / 2;
+    if (d === 0) return {h: 210, s: 0, l: Math.round(l * 100)};
+    const sat = d / (1 - Math.abs(2 * l - 1));
+    const raw = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return {
+        h: Math.round((raw * 60 + 360) % 360),
+        s: Math.round(Math.min(1, sat) * 100),
+        l: Math.round(l * 100),
     };
-    core[CUSTOM_GROUND] = ground;
+}
+
+// hsl → #rrggbb, for the record of the colour a palette was made from.
+export function hexOf(h: number, s: number, l: number): string {
+    const sn = s / 100, ln = l / 100;
+    const k = (n: number) => (n + h / 30) % 12;
+    const a = sn * Math.min(ln, 1 - ln);
+    const f = (n: number) => ln - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    const hex = (v: number) => Math.round(v * 255).toString(16).padStart(2, '0');
+    return `${hex(f(0))}${hex(f(8))}${hex(f(4))}`;
+}
+
+// A colour is the whole palette. The picked colour is the ground itself — not a hue
+// it is distilled down to and then pinned at a fixed lightness — and everything drawn
+// on it is derived from how light that colour is: a light colour gets dark ink, a dark
+// one gets light ink, and the two secondary surfaces step away from it rather than
+// being a second guess at it.
+//
+// What the colour cannot supply is an accent legible on top of itself, so the accent is
+// the same hue pushed away from the ground: lighter on a dark ground, darker on a pale
+// one. The signal colours and the latency scale keep the neutral legs the built-in
+// palettes use — a clock red has to stay believable in every palette, so that is not
+// the place for cleverness.
+export function buildCustomPalette(tone: string | {h: number; s: number; l: number}): CustomPalette {
+    const {h, s, l} = typeof tone === 'string' ? toneOf(tone) : tone;
+    const pale = l >= 55;
+    const pc = (v: number) => Math.min(100, Math.max(0, Math.round(v)));
+    // A surface `step` away from the ground: down when the ground is pale, up when it
+    // is dark, so both "raised" surfaces read as raised.
+    const surf = (step: number, sat = 1) => `hsl(${h}, ${pc(s * sat)}%, ${pc(l + (pale ? -step : step))}%)`;
+    const acc = {h, s: pc(Math.max(45, s)), l: pc(pale ? Math.max(18, l - 32) : Math.min(88, l + 30))};
+    const accent = `hsl(${acc.h}, ${acc.s}%, ${acc.l}%)`;
+    const core: CustomPalette = {
+        '--bg': `hsl(${h}, ${pc(s)}%, ${pc(l)}%)`,
+        '--bg-2': surf(4),
+        '--bg-3': surf(8),
+        '--line': surf(12, 0.7),
+        '--line-strong': surf(20, 0.85),
+        '--text': `hsl(${h}, ${pc(Math.min(s, 25))}%, ${pale ? 12 : 94}%)`,
+        '--text-dim': `hsl(${h}, ${pc(Math.min(s, 18))}%, ${pale ? 38 : 68}%)`,
+        '--accent': accent,
+        '--accent-soft': `hsla(${acc.h}, ${acc.s}%, ${acc.l}%, ${pale ? 0.14 : 0.18})`,
+        '--accent-edge': `hsla(${acc.h}, ${acc.s}%, ${acc.l}%, ${pale ? 0.45 : 0.50})`,
+        '--on-fill': pale ? '#ffffff' : `hsl(${h}, ${pc(Math.min(s, 25))}%, 10%)`,
+        '--green': pale ? '#279c56' : '#4fd489',
+        '--red': pale ? '#d64545' : '#ff6b6b',
+        '--amber': pale ? '#c98a00' : '#ffc266',
+        '--green-bg': pale ? 'rgba(39, 156, 86, 0.14)' : 'rgba(79, 212, 137, 0.16)',
+        '--green-bg-hover': pale ? 'rgba(39, 156, 86, 0.20)' : 'rgba(79, 212, 137, 0.24)',
+        '--lat-1': pale ? '#279c56' : '#4fd489',
+        '--lat-2': pale ? '#4aa96a' : '#6fe0a5',
+        '--lat-3': pale ? '#c98a00' : '#ffc266',
+        '--lat-4': pale ? '#cf6a1e' : '#ff8a5c',
+        '--lat-5': pale ? '#d64545' : '#ff6b6b',
+    };
+    // The ground attribute the rest of the app keys its light/dark arithmetic on, taken
+    // from the colour rather than asked for separately.
+    core[CUSTOM_GROUND] = pale ? 'pale' : 'deep';
+    core[CUSTOM_HUE] = String(h);
+    core[CUSTOM_COLOR] = hexOf(h, s, l);
     return core;
 }
 
@@ -210,6 +257,44 @@ export function wearCustom(): boolean {
     document.documentElement.setAttribute('data-theme', 'custom');
     return true;
 }
+
+// ---- the hover surface ----
+// The colour a hovered row, menu item or button paints. One variable for the whole
+// app (--hover-bg, see 01-theme.css), defaulted to the theme's own raised surface and
+// overridable from the settings' colour field. Kept beside the custom palette rather
+// than in it: it is a preference of its own that survives a theme change, which is
+// why the theme watcher must not take it off the document (it is not in CUSTOM_VARS).
+export const HOVER_KEY = 'hover-bg';
+export const HOVER_VAR = '--hover-bg';
+
+export function readHover(): string {
+    try {
+        return window.localStorage.getItem(HOVER_KEY) || '';
+    } catch {
+        return '';
+    }
+}
+
+// A computed colour (rgb()/rgba(), or hex — both forms the stylesheets use) as
+// #rrggbb, so the colour field opens on something that matches the window it sits in.
+export function computedHex(varName: string, fallback: string): string {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+    const m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(v) || /^#([0-9a-f]{6})$/i.exec(v);
+    if (!m) return fallback;
+    if (m.length === 2) return `#${m[1].toLowerCase()}`;
+    const h = (n: string) => Math.round(Number(n)).toString(16).padStart(2, '0');
+    return `#${h(m[1])}${h(m[2])}${h(m[3])}`;
+}
+
+export function wearHover(hex: string): void {
+    try {
+        if (hex) window.localStorage.setItem(HOVER_KEY, hex);
+        else window.localStorage.removeItem(HOVER_KEY);
+    } catch { /* private mode keeps its silence: this lasts for the run */ }
+    if (hex) document.documentElement.style.setProperty(HOVER_VAR, hex);
+    else document.documentElement.style.removeProperty(HOVER_VAR);
+}
+
 export const THEME_REMAP: Record<number, number> = {
     9: 8, 10: 6, 11: 9, 12: 9, 13: 9,
     14: 10, 15: 11, 16: 12, 17: 13, 18: 14,

@@ -90,6 +90,14 @@ var assets embed.FS
 //go:embed frontend/public/fa/icon/eagle.ico
 var trayIcon []byte
 
+// trayIconActive is the tray's second face, worn while the machine is actually
+// proxied — system proxy or TUN on (see tray.SetModes). A different drawing in a
+// colour of its own, so a glance at the notification area says whether traffic is
+// going through the node without opening anything.
+//
+//go:embed frontend/public/fa/icon/eagle_active.ico
+var trayIconActive []byte
+
 func main() {
 	defer crashlog.Install("")
 
@@ -166,7 +174,14 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour:  &options.RGBA{R: 27, G: 38, B: 54, A: 1},
+		// The window's own surface behind the webview: the frame the reader sees
+		// in the instant a resize or a maximise has grown the window but the
+		// webview's next frame has not landed yet. It is the default theme's
+		// --bg (see 01-theme.css) — and it is kept in step with whichever theme
+		// is active at runtime, the frontend re-issuing it through
+		// SetWindowBackground on every theme switch, so the moment reads as the
+		// content extending rather than as a foreign band appearing beside it.
+		BackgroundColour:  &options.RGBA{R: 22, G: 27, B: 34, A: 255},
 		HideWindowOnClose: runtime.GOOS == "windows",
 		OnStartup: func(ctx context.Context) {
 			app.startup(ctx)
@@ -175,7 +190,7 @@ func main() {
 			// happens, so a failure brings the window back rather than leaving
 			// the click unanswered. The message itself comes from the backend as
 			// an app:message toast.
-			tray.Setup(trayIcon, tray.Callbacks{
+			tray.Setup(trayIcon, trayIconActive, tray.Callbacks{
 				OnShow: app.ShowWindow,
 				OnStart: func() {
 					if err := app.StartLastProfile(); err != nil {

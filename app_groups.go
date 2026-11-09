@@ -36,9 +36,10 @@ type ProfileInfo struct {
 	Address string `json:"address"`
 	Latency int    `json:"latency"`
 	Report  string `json:"report"`
-	// Speed is the download-speed result in MB/s (0 = not measured). The list
-	// shows Speed when it is set, otherwise Latency.
-	Speed float64 `json:"speed"`
+	// DownSpeed / UpSpeed are the speed-test results in MB/s per direction
+	// (0 = not measured, negative = the last measurement failed).
+	DownSpeed float64 `json:"downSpeed"`
+	UpSpeed   float64 `json:"upSpeed"`
 	// Up / Down are the bytes this profile has carried in total.
 	Up   int64 `json:"up"`
 	Down int64 `json:"down"`
@@ -204,10 +205,11 @@ func (a *App) ListProfiles(gid int) []ProfileInfo {
 			Type:     e.DisplayType(),
 			Name:     e.DisplayName(),
 			Address:  e.DisplayAddress(),
-			Latency:  e.Latency,
-			Report:   e.Report,
-			Speed:    e.Speed,
-			Up:       e.Traffic.Int64("up"),
+			Latency:   e.Latency,
+			Report:    e.Report,
+			DownSpeed: e.DownSpeed,
+			UpSpeed:   e.UpSpeed,
+			Up:        e.Traffic.Int64("up"),
 			Down:     e.Traffic.Int64("down"),
 			Port:     e.ServerPort(),
 			Network:  network,
@@ -263,7 +265,8 @@ func (a *App) CloneProfile(id int) (int, error) {
 	// accumulated traffic over made it show numbers it never earned — and, with both
 	// listed, read as twice the traffic the subscription actually moved.
 	cp.Latency = 0
-	cp.Speed = 0
+	cp.DownSpeed = 0
+	cp.UpSpeed = 0
 	cp.Report = ""
 	cp.Ensure()
 	cp.Traffic.Set("up", 0)

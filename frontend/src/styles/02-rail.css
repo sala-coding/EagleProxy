@@ -14,17 +14,24 @@
     position: fixed;
     left: 0;
     top: 0;
-    /* It stands on the status bar, not through it, and the join between the two is not
-       drawn: no border here and none on the bar's top edge (see .statusbar), so the strip
-       and the floor read as one surface. What is left of the corner block is the single
-       vertical edge at the rail's right. */
-    bottom: var(--status-h, 30px);
+    /* The strip runs all the way to the window's floor: its last entry (About)
+       rides the statusbar's own band — see the last-child rule below — so the
+       icon ends up level with the bar's content instead of hovering a step
+       above it. The join is not drawn — no border on the bar's top edge (see
+       .statusbar) — so strip and bar still read as one surface, and the rail's
+       right border now overlaps the very line the bar's ::after carries down
+       through it: same pixel column, same colour, one line still. */
+    bottom: 0;
     z-index: 90;
     width: var(--rail-w, 40px);
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 6px 0;
+    /* No vertical padding: the head entry's box is the titlebar's own band and
+       the last entry's is the statusbar's (see the first/last-child rules
+       below), so padding here would lift the one off the window's top edge and
+       sink the other off its floor. */
+    padding: 0;
     gap: 2px;
     /* the stack is a column of bare buttons, so it carries the strip's own
        background and the rule that separates it from the content */
@@ -47,6 +54,31 @@
     justify-content: center;
     gap: 2px;
     width: 100%;
+}
+
+/* The rail's head entry, settings: its box is the titlebar's own band, so the
+   gear sits on the same centre line as the search, add and test icons beside
+   it — the rail's old 6px top padding put the button's centre five pixels
+   below the bar's, and the gear read as hanging off the row it heads. The
+   bar's height rather than the button's usual 32px, because the band is what
+   the icon is now aligned to; the hover pill fills that band exactly, the same
+   lift the bar's own buttons answer with. The rail's flex column starts at the
+   window's top and has no top padding (see .appnav), so this box IS the
+   titlebar's band. */
+.appnav > .appnav-btn:first-child {
+    height: var(--titlebar-h, 34px);
+}
+
+/* The rail's last entry, About: its box is the statusbar's own band, so the
+   glyph centres on the same line as the bar's content — the LAN endpoint and
+   the exit address one bar away read at the same height, and the icon no
+   longer hovers a step above the floor. The bar's height rather than the
+   button's usual 32px, because the band is what the icon is now aligned to;
+   the hover pill fills that band exactly, and nothing hangs off the window's
+   edge to be clipped. The rail's flex column ends at the window's bottom and
+   has no bottom padding (see .appnav), so this box IS the bar's band. */
+.appnav > .appnav-btn:last-child {
+    height: var(--status-h, 30px);
 }
 
 /* A hairline between the rail's groups. A step lighter than the strip's own outer
@@ -81,7 +113,7 @@
 }
 
 .appnav-btn:hover {
-    background: var(--bg-3);
+    background: var(--hover-bg);
     color: var(--text);
 }
 

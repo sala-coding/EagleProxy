@@ -158,6 +158,18 @@ export function ImportRuleSets(arg1, arg2) {
   return window['go']['main']['App']['ImportRuleSets'](arg1, arg2);
 }
 
+export function LANEndpoint() {
+  return window['go']['main']['App']['LANEndpoint']();
+}
+
+export function LANIP() {
+  return window['go']['main']['App']['LANIP']();
+}
+
+export function LANShare() {
+  return window['go']['main']['App']['LANShare']();
+}
+
 export function ListGroups() {
   return window['go']['main']['App']['ListGroups']();
 }
@@ -266,12 +278,20 @@ export function SetDataDir(arg1) {
   return window['go']['main']['App']['SetDataDir'](arg1);
 }
 
+export function SetLANShare(arg1) {
+  return window['go']['main']['App']['SetLANShare'](arg1);
+}
+
 export function SetSystemProxyMode(arg1) {
   return window['go']['main']['App']['SetSystemProxyMode'](arg1);
 }
 
 export function SetVPNMode(arg1) {
   return window['go']['main']['App']['SetVPNMode'](arg1);
+}
+
+export function SetWindowBackground(arg1) {
+  return window['go']['main']['App']['SetWindowBackground'](arg1);
 }
 
 export function ShowWindow() {

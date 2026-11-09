@@ -149,12 +149,15 @@ const emit = defineEmits<{
             <PluginFilled class="ic"/>
         </button>
         </div><!-- /appnav-main -->
-        <!-- About, at the rail's foot: what this build is from and where it keeps
-            its things. It was on the titlebar's left end for a while, which put a
-            fact about the program among the controls for the list; the rail's
-            floor is where the rail's own referential entries live, and the strip
-            is a column of them from head to foot. The rule above says it is its
-            own group — the same rule the rail draws between every other pair. -->
+        <!-- About, at the rail's foot and level with the statusbar: what this
+            build is from and where it keeps its things. It was on the titlebar's
+            left end for a while, which put a fact about the program among the
+            controls for the list; the rail's floor is where the rail's own
+            referential entries live, and the strip is a column of them from head
+            to foot. The button's box is the bar's own band (see
+            .appnav > .appnav-btn:last-child), so the glyph sits on the same line
+            as the bar's content. The rule above says it is its own group — the
+            same rule the rail draws between every other pair. -->
         <span class="appnav-divider"/>
         <button class="appnav-btn"
                 :title="t('btn.about')"

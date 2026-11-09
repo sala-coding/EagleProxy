@@ -193,7 +193,7 @@ const swallowCtx = (e: MouseEvent) => {
              @dblclick="emit('gripDbl')"/>
         <div class="subdrop-scroll">
             <!-- The subscription list, drawn as the table it borrows its
-                look from: a sticky caption row over zebra rows, each
+                look from: zebra rows under the panel's own top edge, each
                 one a type tag in the subscription's own hue — the
                 count riding inside the tag, to the right of the
                 glyph, because the tag is the row's badge and the
@@ -203,37 +203,12 @@ const swallowCtx = (e: MouseEvent) => {
                 it: they used to need a right click to surface, which
                 hid a row's whole vocabulary behind a gesture nothing
                 on the row advertised. Click to switch (and close),
-                hover to sweep through them. -->
+                hover to sweep through them. The caption row this
+                table used to open with — the list's own name — is
+                gone: the panel is opened and named by the rail button
+                that drops it, and a heading inside it said the same
+                thing twice a hand's width apart. -->
             <table class="subdrop-table">
-                <thead>
-                    <tr>
-                        <!-- The list's own name, and it sits at the row's left
-                            edge rather than in the cell beside it: the column
-                            this pocket belongs to is a count of nodes with no
-                            heading over it, and a caption indented past an
-                            empty pocket reads as the label of a third column
-                            that is not there. -->
-                        <th class="cap-name">{{ t('groups.title') }}</th>
-                        <!-- The caption row carries the controls that belong to
-                            the list rather than to the app: re-reading it,
-                            re-fetching every subscription in it, and creating
-                            another one are all acts on this list, and the top bar
-                            is the wrong address for them — it is a strip of global
-                            controls, and these mean anything only while the list is
-                            in front of you. Held at the right of the caption so they
-                            sit above the allowance bars and the row actions they
-                            act on, lighter action first. -->
-                        <th class="cap-act">
-                            <span class="cap-acts">
-                                <!-- Refreshing the list and re-fetching every
-                                    subscription are background timers now (the
-                                    settings card carries their intervals) — the
-                                    acts are no buttons. An act that no longer
-                                    starts on the list has no button on it. -->
-                            </span>
-                        </th>
-                    </tr>
-                </thead>
                 <tbody>
                     <template v-for="d in rows" :key="d.g.id">
                         <!-- only here so the pending hover switch can ask, when its delay
@@ -264,13 +239,6 @@ const swallowCtx = (e: MouseEvent) => {
                                     brackets of the app's own. -->
                                 <span class="sub-label" dir="auto"
                                       :title="d.g.name || t('groups.unnamed')"><Flag v-if="d.flagISO" :iso="d.flagISO"/>{{ d.nameFit.text }}<span aria-hidden="true">{{ d.nameFit.pad }}</span></span>
-                                <!-- The hairline between the name and the
-                                    slot: the same weight as the rule between
-                                    the card's two columns, and full height, so
-                                    it divides the row rather than marking a
-                                    point in it. Decorative: it says nothing a
-                                    reader needs. -->
-                                <span class="sub-sep" aria-hidden="true"/>
                                 <!-- One slot at the end of the name, read two
                                     ways. At rest it is the allowance: that is
                                     the figure a column of cards is scanned
@@ -281,7 +249,12 @@ const swallowCtx = (e: MouseEvent) => {
                                     moment they can be used. The two are
                                     stacked in the same grid cell so the slot
                                     takes the wider of them and nothing
-                                    shifts as they trade places. -->
+                                    shifts as they trade places. The hairline
+                                    that used to stand before the slot is gone
+                                    with the card's other interior lines: the
+                                    card is one surface, and the slot's place
+                                    is said by the bar and the buttons that
+                                    live in it. -->
                                 <span class="row-tail">
                                     <span v-if="d.usage && d.usage.total > 0" class="sub-quota"
                                           role="img"
@@ -374,14 +347,11 @@ const swallowCtx = (e: MouseEvent) => {
                                     <span class="sub-meta-item">
                                         {{ t('sub.lastUpdate') }} {{ fmtTime(d.g.subLastUpdate) }}
                                     </span>
-                                    <!-- The one divider on the line. The update
-                                        time is a fact about this
-                                        subscription's own bookkeeping; the
-                                        figures after it are the account
-                                        behind it, and only that change of
-                                        kind is worth a mark. -->
-                                    <span v-if="d.hasQuota" class="sub-meta-sep">|</span>
-                                    <!-- No "used" figure, deliberately. What is
+                                    <!-- No divider on the line: the figures sit at
+                                        the two ends of the card now, and the space
+                                        between them is the division — a pipe mid-card
+                                        would only mark where the eye already stopped.
+                                        No "used" figure, deliberately. What is
                                         left of the allowance is the number a
                                         subscription is judged by, and it is
                                         the only one of the two that can act

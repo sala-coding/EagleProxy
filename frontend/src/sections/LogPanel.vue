@@ -68,6 +68,17 @@ const views = computed(() => props.shownLogs.map(l => {
     const cls = `logline${head === null ? ` cat-${l.cat}` : ' section'}${bad ? ' err' : warn ? ' warn' : ''}`;
     return {l, stamp, head, msg, cls};
 }));
+
+// Double-clicking the head strip folds the panel away, the way the same gesture on a
+// title bar folds a window — the collapse button's gesture, without having to aim at
+// it. The controls on the strip keep their own double-clicks: a press on a button is
+// about that button, and folding the panel under it would answer a question nobody
+// asked.
+const headDbl = (e: MouseEvent) => {
+    const el = e.target as HTMLElement | null;
+    if (el?.closest('button, select, input, a')) return;
+    emit('collapse');
+};
 </script>
 
 <template>
@@ -92,12 +103,12 @@ const views = computed(() => props.shownLogs.map(l => {
              @pointercancel="emit('gripUp', $event)"
              @keydown="emit('gripKey', $event)"
              @dblclick="emit('gripDbl')"/>
-        <div class="console-head">
+        <div class="console-head" @dblclick="headDbl">
             <!-- The head is the panel's own strip and nothing else: what it
                 is, and the one way out of it. Everything about the lines —
                 which of them are showing, and what their colours mean — is
                 down in the log itself, where the lines are. -->
-            <span class="console-title">{{ t('log.title') }}</span>
+            <span class="console-title" :title="t('log.collapse')">{{ t('log.title') }}</span>
             <!-- Holding the stream still, at the head of the right-hand
                 group. The glyph is the state rather than the action: a
                 pause bar while the panel is following, a play triangle
@@ -219,8 +230,8 @@ const views = computed(() => props.shownLogs.map(l => {
                         <span class="stamp">{{ v.stamp }}</span>
                         <span class="msg">{{ v.head ?? v.msg }}</span>
                     </div>
-                    <div v-if="shownLogs.length === 0" class="logline dim">
-                        {{ logFilter === 'all' ? t('log.empty') : t('log.noMatch') }}
+                    <div v-if="logFilter !== 'all' && shownLogs.length === 0" class="logline dim">
+                        {{ t('log.noMatch') }}
                     </div>
                 </div>
             </div>

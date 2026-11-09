@@ -27,11 +27,14 @@ export function useColumnWidths(deps: {
     // it never reaches the screen: the browser lays out once for the measurement and
     // then once for the frozen table, both before the first paint.
     // The widths the last measurement produced, and the root font size they were taken
-    // at. They are what a resize scales from: every type size in the sheet is a fraction
-    // of that one number, so a column's natural width is proportional to it and to
-    // nothing else — not to the window's width, which is the whole point. Scaling the
-    // frozen widths by the ratio of the two sizes is the answer the measurement would
-    // give, for none of its cost.
+    // at. They are what a font-size change scales from: every type size in the sheet is
+    // a fraction of that one number, so a column's natural width is proportional to it
+    // and to nothing else — not to the window's width, which is the whole point. Scaling
+    // the frozen widths by the ratio of the two sizes is the answer the measurement
+    // would give, for none of its cost. (The base font size is fixed — see style.css —
+    // so a plain window resize runs this with a ratio of 1: the write is a pure
+    // redistribution over the new width, which is why the table tracks the window edge
+    // frame for frame.)
     const natural: {current: {widths: number[]; fs: number} | null} = {current: null};
     // The widest metric text seen since the last calibration, as the signature
     // the widening watcher below compares against: bytes in one unit are the
@@ -118,10 +121,11 @@ export function useColumnWidths(deps: {
 
     // The measurement itself, taken at the two moments that need it: the list arriving
     // under the table, and the window holding still after being resized (see the resize
-    // effect). The root font size follows the window (see style.css), so the columns'
-    // natural widths do too, and a list measured at one window is out at another — but
-    // only in proportion to that one number, which is what lets the resize scale from the
-    // last measurement instead of repeating this.
+    // effect). The base font size no longer follows the window (see style.css), so the
+    // columns' natural widths are the same at every window size, and a resize's own
+    // re-measure measures what the scaled write already wrote — it is kept for the case
+    // that does change the content's width: a --ui-scale change between one resize and
+    // the next, which the ratio below then answers in one step.
     //
     // What neither moment does is re-render. This used to be a counter in state that the
     // window's resize event incremented, and an effect keyed on it, which meant every
@@ -226,7 +230,8 @@ export function useColumnWidths(deps: {
         if (!t || !t.querySelector('tbody tr[data-pid]')) return;
         let sig = 0;
         for (const p of profiles) {
-            const len = trafficCell(p.up, p.down).length + speedCell(p.speed).length;
+            const len = trafficCell(p.up, p.down).length
+                + speedCell(p.downSpeed).length + speedCell(p.upSpeed).length;
             if (len > sig) sig = len;
         }
         if (measuredForGid !== deps.gid.value) {

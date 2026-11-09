@@ -404,9 +404,28 @@ export function useLogs(notify: Notify) {
     const pendingLogs: LogLine[] = [];
     let logTimer: number | undefined;
 
+    // The window-resize gate. A drag on the window's edge lays the whole app
+    // out every frame, and a drain landing inside that — a filter and a level
+    // pass over up to a thousand lines, then a re-render — is the frame the
+    // resize drops: mid-drag the content froze outright until the drag ended
+    // (measured, ~300ms of nothing while the stream kept running). While the
+    // edge is moving the drain holds its breath — the queue keeps every line,
+    // nothing is lost — and the beat resumes once the edge has stood still.
+    let resizeUntil = 0;
+    const onWindowResize = () => {
+        resizeUntil = Date.now() + 200;
+    };
+    window.addEventListener('resize', onWindowResize, {passive: true});
+    onScopeDispose(() => window.removeEventListener('resize', onWindowResize));
+
     // One update for the lines that arrived since the last beat (see pendingLogs).
     const drainLogs = () => {
         logTimer = undefined;
+        if (Date.now() < resizeUntil) {
+            // mid-resize: hold the lines in the queue and re-beat shortly.
+            logTimer = window.setTimeout(drainLogs, 60);
+            return;
+        }
         // The batch is the queue's own contents, taken out of it. Truncating
         // the queue in place does not empty a copy of it: `batch` and
         // `pendingLogs` are one and the same array, so `pendingLogs.length = 0`
@@ -434,6 +453,19 @@ export function useLogs(notify: Notify) {
             for (const c of cats) next[c] = [...(next[c] ?? []), ...byCat[c]];
             catLogs.value = next;
         }
+        // Only a [dns] line stands the panel up on its own: the resolver's words are
+        // the ones that change how the machine answers, and a reader who has closed
+        // the panel still gets to see them. The core's routine stream — connections,
+        // handshakes, the traffic of a working node — is read by whoever opened the
+        // panel, and a panel that stood up for every handshake would never stay down.
+        // (The window's own [app] sentences arrive through queueAppLine, which opens
+        // on its own.) The open re-reads the buffer (loadAllLogs), which is what the
+        // panel shows anyway — the batch above is already in `logs`, and the read
+        // brings it back with the rest of the day.
+        if (!showLogs.value && batch.some(l => l.line.includes('[dns]'))) {
+            showLogs.value = true;
+            void loadAllLogs();
+        }
     };
 
     // The core:log:batch event handler (App.vue wires it): the backend hands
@@ -453,8 +485,17 @@ export function useLogs(notify: Notify) {
     // these are the app's sentences, not the core's stream, and a dozen across
     // a session is a lot. They join the panel through appLogs and survive the
     // re-read that opens it — which is why they are not pushed into `logs`.
-    const queueAppLine = (line: string) => {
+    //
+    // `open` is the caller's: every notice the window raises asks for the panel to be
+    // on screen, because that is where its answers live now. The flag stays a parameter
+    // rather than being taken for granted, so a caller that only wants the line kept —
+    // a receipt nobody asked to read — can still say so.
+    const queueAppLine = (line: string, open = false) => {
         appLogs.value = [...appLogs.value.slice(-299), {line, cat: 'core'}];
+        if (open && !showLogs.value) {
+            showLogs.value = true;
+            void loadAllLogs();
+        }
     };
 
     // The teardown of the event wiring in App.vue: the lines still in the batch

@@ -24,7 +24,7 @@ func SetModes(systemProxy, tun bool, egress string) {}
 func SetCurrent(name string) {}
 
 // Setup is a no-op on non-Windows platforms.
-func Setup(icon []byte, cb Callbacks) {}
+func Setup(icon, activeIcon []byte, cb Callbacks) {}
 
 // Quit is a no-op on non-Windows platforms.
 func Quit() {}

@@ -452,6 +452,12 @@ func (a *App) RuleSetUpdates() (map[string]bool, error) {
 	}
 	versions := a.loadRuleSetVersions()
 	out := map[string]bool{}
+	// Records that were written in the source's other dialect — a weak etag from an
+	// older build, before the downloads asked for a flat answer — are rewritten with
+	// what this check just read, once it has confirmed the file on disk is that same
+	// file. Without this the reader's existing rule sets would never be compared
+	// again: shapes that do not match are answered "no news", for ever.
+	heals := map[string]ruleSetVersion{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -480,10 +486,26 @@ func (a *App) RuleSetUpdates() (map[string]bool, error) {
 			// field existed) is unverifiable for the same reason, and is answered "no
 			// news" until a download through this app renews the record with its source.
 			changed := false
-			if ask := saved.Source; ask != "" {
+			// The source the copy came from, or — for a record written before this
+			// field existed — the file's own first source, which is the best guess
+			// there is. The comparison below still refuses to believe it when the two
+			// etags are not the same shape (see sameEtagsShape).
+			ask := saved.Source
+			if ask == "" {
+				ask = rs.URL
+			}
+			if ask != "" {
 				req, err := http.NewRequest(http.MethodHead, ask, nil)
 				if err == nil {
 					req.Header.Set("User-Agent", "Eagle-Go")
+					// The same encoding the download asks for: raw.githubusercontent
+					// writes a different ETag for a compressed answer (a weak one, over
+					// a git blob hash) than for a flat one (a strong content hash), and
+					// Go adds Accept-Encoding: gzip to a GET but not to a HEAD. Saved
+					// against either and compared with the other, every rule set this
+					// app downloaded read as "newer at its source" for ever — the update
+					// button stood under a file that was the newest there was.
+					req.Header.Set("Accept-Encoding", "identity")
 					resp, derr := client.Do(req)
 					if derr == nil {
 						_, _ = io.Copy(io.Discard, resp.Body)
@@ -491,14 +513,25 @@ func (a *App) RuleSetUpdates() (map[string]bool, error) {
 						if resp.StatusCode == http.StatusOK {
 							etag := resp.Header.Get("ETag")
 							lastMod := resp.Header.Get("Last-Modified")
-							// Both headers move together at these sources; either one
-							// differing from what was saved is a copy that has moved
-							// under the reader. Headers neither serve give nothing to
-							// compare against, which reads as no news rather than as
-							// newer.
-							if etag != "" && saved.ETag != "" && etag != saved.ETag {
+							size := resp.ContentLength
+							switch {
+							case sameEtagsShape(etag, saved.ETag):
+								// Both headers move together at these sources; either one
+								// differing from what was saved is a copy that has moved
+								// under the reader.
+								changed = etag != saved.ETag
+							case etag != "" && size > 0 && size == rs.Size:
+								// Same file, other dialect: the bytes on disk are the
+								// bytes the source is serving, so there is nothing to
+								// fetch — the record is the stale part. Rewritten below.
+								mu.Lock()
+								heals[tag] = ruleSetVersion{ETag: etag, LastMod: lastMod, Source: ask}
+								mu.Unlock()
+							case etag != "" && size > 0:
+								// A different size under a different name for it: the
+								// source's copy has moved on.
 								changed = true
-							} else if etag == "" && lastMod != "" && saved.LastMod != "" && lastMod != saved.LastMod {
+							case etag == "" && lastMod != "" && saved.LastMod != "" && lastMod != saved.LastMod:
 								changed = true
 							}
 						}
@@ -511,7 +544,30 @@ func (a *App) RuleSetUpdates() (map[string]bool, error) {
 		}(rs.Tag, v)
 	}
 	wg.Wait()
+	if len(heals) > 0 {
+		// One write for the batch, under the same lock as every other mutation of
+		// versions.json (see ruleSetMu): the reader's own download may be finishing
+		// beside this check, and two read-modify-writes interleaving lose one.
+		ruleSetMu.Lock()
+		fresh := a.loadRuleSetVersions()
+		for tag, v := range heals {
+			fresh[tag] = v
+		}
+		_ = a.saveRuleSetVersions(fresh)
+		ruleSetMu.Unlock()
+	}
 	return out, nil
+}
+
+// sameEtagsShape reports whether two etags are the same kind of thing and can
+// therefore be compared at all: a weak one (W/"…") names a git object, a strong one a
+// content hash, and the two are different strings for the same file. Anything else —
+// either side empty — is unverifiable and reads as no news.
+func sameEtagsShape(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	return strings.HasPrefix(a, "W/") == strings.HasPrefix(b, "W/")
 }
 
 // fetchRuleSet downloads a tag's rule set from its sources in order — the core's own
@@ -592,6 +648,11 @@ func (a *App) fetchRuleSetFrom(url, path string) (string, string, error) {
 		return "", "", err
 	}
 	req.Header.Set("User-Agent", "Eagle-Go")
+	// Flat, not compressed: raw.githubusercontent answers a compressed GET with a weak
+	// ETag over the git blob hash and a flat one with a strong content hash, and the
+	// freshness check reads the flat form (see RuleSetUpdates). Asking for the same
+	// answer both times is what makes the two comparable at all.
+	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", "", err

@@ -27,13 +27,23 @@
     justify-content: flex-end;
     gap: 0;
     padding: 0;
-    /* No top edge: the bar shares its surface with the window above it, and the only
-       lines drawn here are the vertical one carried down past the rail and the dividers
-       between the chips. Relative for that vertical edge (::after) alone. */
+    /* One top edge of its own, at the weight the rail's carried-down edge uses: above
+       this line sat three different lines — the table's last faint row rule, the log
+       panel's border and shadow, the vertical edge — and together they read as a mess
+       of stray strokes. The bar now owns the line, and everything above stops short
+       of it (the table's last row rule is removed for the same reason). */
+    border-top: 1px solid var(--line-strong, #46566e);
     position: relative;
     background: var(--bg-2);
     /* The bar drives its own height from the chips it holds; this is the floor. */
     min-height: 30px;
+}
+
+/* The table's last row carried a faint rule of its own, and it sat directly on the
+   bar's new crisp edge — two lines for one boundary. The row rule ends the list; the
+   bar's edge is the window's. */
+table.profiles tbody tr:last-child td {
+    border-bottom: 0;
 }
 
 /* The rail's right border carried on down through the bar: the same line, at the same
@@ -345,7 +355,7 @@ table.profiles tbody tr {
    of nodes is read by scanning down a column, and a row that shifts under the pointer
    breaks the line the eye is following. The surface carries the whole answer now. */
 table.profiles tbody tr:hover {
-    background: var(--bg-3);
+    background: var(--hover-bg);
 }
 
 table.profiles tbody tr.selected {

@@ -394,14 +394,15 @@ func (m *Manager) MoveProfile(id, gid int) error {
 	return nil
 }
 
-// ClearMetrics zeroes the stored latency, speed and traffic counters on every
+// ClearMetrics zeroes the stored latency, speeds and traffic counters on every
 // profile under the lock and persists each one.
 func (m *Manager) ClearMetrics() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, e := range m.profiles {
 		e.Latency = 0
-		e.Speed = 0
+		e.DownSpeed = 0
+		e.UpSpeed = 0
 		e.Report = ""
 		e.Ensure()
 		e.Traffic.Set("up", 0)

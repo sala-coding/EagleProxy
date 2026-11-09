@@ -225,11 +225,30 @@ func (b *builder) buildSingBox(ent *db.ProxyEntity) (map[string]interface{}, err
 	// inbounds
 	if b.vpn {
 		b.inbounds = append(b.inbounds, b.tunInbound(true))
-	} else if util.IsValidPort(b.s.InboundSocksPort) && !b.forTest {
+	}
+	// LAN sharing widens the listen from the loopback to every interface: a phone
+	// on the same Wi-Fi dials this machine's LAN address and the port (see
+	// SetLANShare, which restarts the core so this lands).
+	//
+	// The TUN shape has no mixed inbound of its own — the tunnel captures this
+	// machine's traffic, and the phone's packets never enter it — so LAN sharing
+	// used to be a switch with nothing behind it there: the flag on, no listener,
+	// and an endpoint the bar happily showed. The inbound is therefore added
+	// beside the tunnel, but only while the switch is on, so a TUN config without
+	// LAN sharing is exactly what it always was.
+	if util.IsValidPort(b.s.InboundSocksPort) && !b.forTest && (!b.vpn || b.s.LANShare) {
+		listen := b.s.InboundAddress
+		if b.s.LANShare {
+			// "::" rather than "0.0.0.0": every platform this ships on binds it
+			// dual-stack, so a phone on an IPv6-only network can dial in as well as
+			// one on IPv4 — and 0.0.0.0 alone leaves that phone with a port that
+			// never answers.
+			listen = "::"
+		}
 		in := map[string]interface{}{
 			"tag":         "mixed-in",
 			"type":        "mixed",
-			"listen":      b.s.InboundAddress,
+			"listen":      listen,
 			"listen_port": b.s.InboundSocksPort,
 		}
 		b.noteSniffing("mixed-in")
@@ -1625,7 +1644,13 @@ func (b *builder) tunInbound(autoRoute bool) map[string]interface{} {
 	tunName := TunAdapterName()
 	stacks := []string{"gvisor", "system", "mixed"}
 	idx := s.VPNImplementation
-	if idx < 0 || idx >= len(stacks) {
+	// 3 is the core's own stack — sing-box 1.15's sing-tun, which reads an absent
+	// stack field as "use yours" and outperforms every entry in this list. It only
+	// means that on a core new enough to carry it: on an older core the picked
+	// answer does not exist, and the build falls back to gvisor rather than naming
+	// a stack the core does not know (see NativeStackSupported).
+	native := idx == 3 && NativeStackSupported()
+	if idx < 0 || idx >= len(stacks) || idx == 3 {
 		idx = 0
 	}
 	in := map[string]interface{}{
@@ -1635,12 +1660,14 @@ func (b *builder) tunInbound(autoRoute bool) map[string]interface{} {
 		"auto_route":               autoRoute,
 		"endpoint_independent_nat": true,
 		"mtu":                      TunMTU(s),
-		"stack":                    stacks[idx],
 		"strict_route":             s.VPNStrictRoute,
 		// sing-box 1.10 merged inet4_address / inet6_address into a single
 		// `address` list, and the old pair is gone in 1.12 — the merged form is
 		// what the bundled 1.14 core wants.
 		"address": []string{vpnTunIPv4},
+	}
+	if !native {
+		in["stack"] = stacks[idx]
 	}
 	if tunIPv6(s) {
 		in["address"] = []string{vpnTunIPv4, vpnTunIPv6}

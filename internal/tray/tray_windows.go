@@ -84,6 +84,17 @@ var (
 	// first node start or mode change.
 	stateEgress string
 
+	// The tray's two faces: the idle one and the one worn while the machine is
+	// actually proxied. iconShownActive is what is on screen, so the picture is
+	// repainted only when it changes — SetIcon writes a temp file and calls
+	// Shell_NotifyIcon, which is not something a mode refresh should repeat when
+	// nothing moved. iconReady guards the first paints, which arrive before Setup
+	// has published anything (same race as the tooltip).
+	iconIdle        []byte
+	iconActive      []byte
+	iconReady       bool
+	iconShownActive bool
+
 	// trayMu guards the four items: Setup builds them on its own goroutine
 	// while SetModes/SetCurrent read from any goroutine the backend calls
 	// from — including in the same instant main() snugly follows Setup with
@@ -110,6 +121,27 @@ func refreshTooltipLocked() {
 		modes = " · 系统代理"
 	}
 	systray.SetTooltip("Eagle — " + who + modes)
+	setIconLocked()
+}
+
+// setIconLocked paints the tray icon for the modes in force: the green bird while
+// traffic is actually going through the machine's proxy (system proxy or TUN),
+// the white one otherwise. Called from the same painter as the tooltip, under
+// trayMu, so the picture and the words can never disagree about which mode is on.
+func setIconLocked() {
+	if !iconReady || iconIdle == nil || iconActive == nil {
+		return
+	}
+	active := stateProxy || stateTun
+	if active == iconShownActive {
+		return
+	}
+	iconShownActive = active
+	if active {
+		systray.SetIcon(iconActive)
+		return
+	}
+	systray.SetIcon(iconIdle)
 }
 
 func setChecked(item *systray.MenuItem, on bool) {
@@ -180,7 +212,7 @@ func egressMode(egress string) string {
 // the menu still popped up (the shell delivers the click notification while the
 // queue is being peeked) but the WM_COMMAND produced by selecting an item was
 // never dispatched, so every menu item silently did nothing.
-func Setup(icon []byte, cb Callbacks) {
+func Setup(icon, activeIcon []byte, cb Callbacks) {
 	go func() {
 		runtime.LockOSThread()
 		systray.Run(func() {
@@ -258,6 +290,8 @@ func Setup(icon []byte, cb Callbacks) {
 			// directly follows Setup), so the items go live only once fully built
 			// and every Click is already registered.
 			trayMu.Lock()
+			iconIdle, iconActive = icon, activeIcon
+			iconReady = true
 			itemCurrent = icCur
 			itemProxy = icProxy
 			itemTun = icTun
@@ -271,6 +305,10 @@ func Setup(icon []byte, cb Callbacks) {
 			for mode, item := range egress {
 				setChecked(item, mode == want)
 			}
+			// The face that belongs to those modes: a start that turns the proxy on
+			// before this line would otherwise leave the white bird up until the
+			// next mode change.
+			setIconLocked()
 			trayMu.Unlock()
 		}, func() {
 			go call(cb.OnQuit)

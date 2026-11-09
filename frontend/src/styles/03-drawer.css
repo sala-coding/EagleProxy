@@ -774,7 +774,7 @@
 }
 
 .subdrop-table tbody tr:hover {
-    background: var(--bg-3);
+    background: var(--hover-bg);
 }
 
 /* A card is one object, so hovering its lower half must light the upper half too.
@@ -782,6 +782,6 @@
    comes first in the DOM, so no ordinary combinator can be told "the row after me
    is under the pointer". */
 .subdrop-table tbody tr.sub-card:has(+ .sub-detail:hover) {
-    background: var(--bg-3);
+    background: var(--hover-bg);
 }
 

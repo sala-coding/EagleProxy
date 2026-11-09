@@ -211,6 +211,26 @@ export namespace main {
 	        this.error = source["error"];
 	    }
 	}
+	export class LANState {
+	    on: boolean;
+	    running: boolean;
+	    endpoint: string;
+	    listening: boolean;
+	    auth: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new LANState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.on = source["on"];
+	        this.running = source["running"];
+	        this.endpoint = source["endpoint"];
+	        this.listening = source["listening"];
+	        this.auth = source["auth"];
+	    }
+	}
 	export class ProfileInfo {
 	    id: number;
 	    gid: number;
@@ -219,7 +239,8 @@ export namespace main {
 	    address: string;
 	    latency: number;
 	    report: string;
-	    speed: number;
+	    downSpeed: number;
+	    upSpeed: number;
 	    up: number;
 	    down: number;
 	    port: number;
@@ -241,7 +262,8 @@ export namespace main {
 	        this.address = source["address"];
 	        this.latency = source["latency"];
 	        this.report = source["report"];
-	        this.speed = source["speed"];
+	        this.downSpeed = source["downSpeed"];
+	        this.upSpeed = source["upSpeed"];
 	        this.up = source["up"];
 	        this.down = source["down"];
 	        this.port = source["port"];
@@ -279,7 +301,8 @@ export namespace main {
 	    id: number;
 	    mode: number;
 	    latency: number;
-	    speed: number;
+	    downSpeed: number;
+	    upSpeed: number;
 	    error: string;
 	    report: string;
 	
@@ -292,7 +315,8 @@ export namespace main {
 	        this.id = source["id"];
 	        this.mode = source["mode"];
 	        this.latency = source["latency"];
-	        this.speed = source["speed"];
+	        this.downSpeed = source["downSpeed"];
+	        this.upSpeed = source["upSpeed"];
 	        this.error = source["error"];
 	        this.report = source["report"];
 	    }
@@ -387,8 +411,9 @@ export namespace setting {
 	    inbound_auth?: InboundAuth;
 	    user_agent2?: string;
 	    test_url?: string;
-	    test_url_dl?: string;
-	    test_dl_timeout: number;
+	    test_engine?: string;
+	    test_window: number;
+	    test_upload: boolean;
 	    current_group: number;
 	    inbound_address?: string;
 	    inbound_socks_port: number;
@@ -436,6 +461,7 @@ export namespace setting {
 	    vpn_bypass_process?: string;
 	    vpn_bypass_cidr?: string;
 	    vpn_rule_white: boolean;
+	    lan_share: boolean;
 	    check_include_pre: boolean;
 	    sp_format?: string;
 	    sp_bypass?: string;
@@ -467,8 +493,9 @@ export namespace setting {
 	        this.inbound_auth = this.convertValues(source["inbound_auth"], InboundAuth);
 	        this.user_agent2 = source["user_agent2"];
 	        this.test_url = source["test_url"];
-	        this.test_url_dl = source["test_url_dl"];
-	        this.test_dl_timeout = source["test_dl_timeout"];
+	        this.test_engine = source["test_engine"];
+	        this.test_window = source["test_window"];
+	        this.test_upload = source["test_upload"];
 	        this.current_group = source["current_group"];
 	        this.inbound_address = source["inbound_address"];
 	        this.inbound_socks_port = source["inbound_socks_port"];
@@ -516,6 +543,7 @@ export namespace setting {
 	        this.vpn_bypass_process = source["vpn_bypass_process"];
 	        this.vpn_bypass_cidr = source["vpn_bypass_cidr"];
 	        this.vpn_rule_white = source["vpn_rule_white"];
+	        this.lan_share = source["lan_share"];
 	        this.check_include_pre = source["check_include_pre"];
 	        this.sp_format = source["sp_format"];
 	        this.sp_bypass = source["sp_bypass"];

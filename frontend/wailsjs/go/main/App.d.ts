@@ -86,6 +86,12 @@ export function ImportLinks(arg1:string,arg2:number):Promise<Array<number>>;
 
 export function ImportRuleSets(arg1:Array<string>,arg2:string):Promise<number>;
 
+export function LANEndpoint():Promise<string>;
+
+export function LANIP():Promise<string>;
+
+export function LANShare():Promise<boolean>;
+
 export function ListGroups():Promise<Array<main.GroupInfo>>;
 
 export function ListProfiles(arg1:number):Promise<Array<main.ProfileInfo>>;
@@ -140,9 +146,13 @@ export function SetCurrentGroup(arg1:number):Promise<void>;
 
 export function SetDataDir(arg1:string):Promise<void>;
 
+export function SetLANShare(arg1:boolean):Promise<main.LANState>;
+
 export function SetSystemProxyMode(arg1:boolean):Promise<void>;
 
 export function SetVPNMode(arg1:boolean):Promise<void>;
+
+export function SetWindowBackground(arg1:string):Promise<void>;
 
 export function ShowWindow():Promise<void>;
 

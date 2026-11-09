@@ -11,7 +11,7 @@ import {AddFilled} from '../../lib/icons';
 // React -> Vue mapping：所有动作（toggle/add/download/remove/downloadAll/
 // openDir/addCat）都是事件，后端调用留在 SettingsDialog；rsCatsOpen 由父级
 // 持有（它还兼管 localStorage）。
-defineProps<{
+const props = defineProps<{
     // Rule sets are the one part of routing that fails without saying so (see
     // refreshRuleSets in SettingsDialog, which reads this list back).
     ruleSets: {tag: string; url: string; needed: boolean; local: boolean; size: number; modified: string; country: string}[];
@@ -29,6 +29,11 @@ defineProps<{
     // new value re-renders the card, so its t() words are re-spoken.
     langTick?: number;
 }>();
+
+// One category's files, and how many of them: the bar's count and the list under it
+// read the same answer, so the two can never disagree about what the bar holds.
+const ruleSetsIn = (key: string) => props.ruleSets.filter(rs => rsCategoryOf(rs).key === key);
+const rsCount = (key: string) => ruleSetsIn(key).length;
 
 const emit = defineEmits<{
     toggle: [key: string];
@@ -49,7 +54,7 @@ const emit = defineEmits<{
         after one country's rules does not read another's. The card-level
         actions (the downloads for the active profile and the directory) ride
         under the list, where they always were. -->
-    <template v-for="cat in rsCats" :key="cat.key">
+    <div v-for="cat in rsCats" :key="cat.key" class="rs-group">
         <div class="rs-nav">
             <!-- The fold itself, drawn as the bar's left item rather
                 than as a summary on its own line: the name is still
@@ -67,6 +72,10 @@ const emit = defineEmits<{
                 <template v-else>{{ `${cat.label} · ${t('settings.group.rulesets')}` }}</template>
                 <span :class="`rs-caret${rsCatsOpen[cat.key] ? ' open' : ''}`" aria-hidden="true"/>
             </button>
+            <!-- The count, right of the caret and ahead of the add: how many files
+                this bar holds, so a folded bar still says something about what is
+                behind it. -->
+            <span class="rs-count">{{ rsCount(cat.key) }}</span>
             <!-- The right end of the bar: the category's own add.
                 The country the files are filed under is the name this
                 read off the bar, prefilled rather than asked. -->
@@ -76,14 +85,18 @@ const emit = defineEmits<{
             </button>
         </div>
         <div v-if="rsCatsOpen[cat.key]" class="rs-list">
-            <template v-for="rs in ruleSets" :key="rs.tag">
-                <div v-if="rsCategoryOf(rs).key === cat.key" class="rs-row">
-                    <span class="rs-tag">{{ rs.tag }}</span>
-                    <span :class="`rs-state ${rs.local ? (rs.needed ? 'local' : 'orphan') : 'missing'}`">
-                        {{ rs.local
-                            ? `${rs.needed ? t('ruleset.local') : t('ruleset.orphan')} · ${(rs.size / 1024).toFixed(1)} KB`
-                            : t('ruleset.remote') }}
-                    </span>
+            <div v-for="rs in ruleSetsIn(cat.key)" :key="rs.tag" class="rs-row">
+                <span class="rs-tag" :title="rs.tag">{{ rs.tag }}</span>
+                <span :class="`rs-state ${rs.local ? (rs.needed ? 'local' : 'orphan') : 'missing'}`">
+                    {{ rs.local
+                        ? `${rs.needed ? t('ruleset.local') : t('ruleset.orphan')} · ${(rs.size / 1024).toFixed(1)} KB`
+                        : t('ruleset.remote') }}
+                </span>
+                <!-- The actions as one cell: a row can carry one button or two, and
+                    three columns for them put the second one on a line of its own
+                    under the first. The cell holds however many there are, right
+                    aligned, so every row's text lines up down the list. -->
+                <span class="rs-actions">
                     <template v-if="rs.local">
                         <button v-if="rsUpdates[rs.tag]" class="btn tiny"
                                 :title="t('ruleset.updateHint')"
@@ -96,16 +109,14 @@ const emit = defineEmits<{
                             {{ t('ruleset.remove') }}
                         </button>
                     </template>
-                    <template v-else>
-                        <button class="btn tiny" :disabled="rsBusy || !rs.needed"
-                                @click="emit('download', rs.tag)">
-                            {{ t('ruleset.download') }}
-                        </button>
-                    </template>
-                </div>
-            </template>
+                    <button v-else class="btn tiny" :disabled="rsBusy || !rs.needed"
+                            @click="emit('download', rs.tag)">
+                        {{ t('ruleset.download') }}
+                    </button>
+                </span>
+            </div>
         </div>
-    </template>
+    </div>
     <div v-if="ruleSets.length === 0 && rsCatsOpen['']" class="rs-empty">{{ t('ruleset.empty') }}</div>
     <div class="input-row">
         <button class="btn" :disabled="rsBusy" @click="emit('downloadAll')">

@@ -18,6 +18,8 @@ export const ArrowRightFilled = mk('arrow-right-fill', "<path fill=\"none\" stro
 
 export const BookmarksFilled = mk('bookmarks-fill', "<path fill=\"currentColor\" d=\"M17 2a3 3 0 0 1 3 3v13.019c0 1.225-1.39 1.933-2.382 1.212l-.618-.45v2.238c0 1.225-1.39 1.933-2.382 1.212L10.5 19.236l-4.118 2.995C5.39 22.952 4 22.244 4 21.02V8a3 3 0 0 1 3-3a3 3 0 0 1 3-3zm-7 2a1 1 0 0 0-1 1h5a3 3 0 0 1 3 3v8.309l1 .727V5a1 1 0 0 0-1-1z\"/>");
 
+export const CellphoneFilled = mk('cellphone-fill', "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M5 4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2zm6 13a1 1 0 0 1 1-1h.01a1 1 0 1 1 0 2H12a1 1 0 0 1-1-1\" clip-rule=\"evenodd\"/>");
+
 export const Layout4Filled = mk('layout-4-fill', "<path fill=\"currentColor\" d=\"M8 3v18H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm6 12a1 1 0 1 0 0 2h3a1 1 0 1 0 0-2zm0-4a1 1 0 1 0 0 2h3a1 1 0 1 0 0-2zm0-4a1 1 0 1 0 0 2h3a1 1 0 1 0 0-2zm5-4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-9V3z\"/>");
 
 export const LayoutBottomCloseFilled = mk('layout-bottom-close-fill', "<path fill=\"currentColor\" d=\"M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM5 19h14v-3H5zm9.828-11.207a1 1 0 0 0-1.414 0L12 9.207l-1.414-1.414a1 1 0 0 0-1.414 1.414l2.121 2.121a1 1 0 0 0 1.414 0l2.121-2.121a1 1 0 0 0 0-1.414\"/>");
@@ -109,3 +111,5 @@ export const TerminalBoxFilled = mk('terminal-box-fill', "<path fill=\"currentCo
 export const ThumbUpFilled = mk('thumb-up-fill', "<path fill=\"currentColor\" d=\"M10.5 2.5c-.769 0-1.433.392-1.868.901c-.437.513-.716 1.23-.625 1.998c.04.343.03.91-.05 1.547c-.08.632-.218 1.248-.39 1.694c-.152.394-.68.36-1.067.36c-1.108 0-2.028.621-2.624 1.609c-.58.96-.876 2.285-.876 3.891c0 1.607.297 2.932.876 3.892C4.472 19.379 5.392 20 6.5 20q.173 0 .345-.01c.357-.022.71.11.965.361C8.87 21.394 10.349 22 11.904 22h2.013a7 7 0 0 0 6.905-5.85l.776-4.657A3 3 0 0 0 18.64 8h-4.647a17 17 0 0 0-.093-1.508c-.075-.653-.213-1.357-.504-1.94c-.6-1.2-1.54-2.052-2.895-2.052\"/>");
 
 export const TransferHorizontalFilled = mk('transfer-horizontal-fill', "<path fill=\"currentColor\" d=\"M6.44 4.149C7.383 3.204 9 3.873 9 5.209v1.793h2a1 1 0 0 1 1 1V11h2v.002h.996V9.21c0-1.336 1.616-2.005 2.56-1.06L20.409 11h.003l1.94 1.94c.293.293.44.676.439 1.06c0 .385-.146.77-.44 1.063l-1.939 1.94h-.003l-2.851 2.85c-.945.945-2.56.276-2.56-1.06V17h-2a1 1 0 0 1-1-1v-3H9v1.793c0 1.336-1.616 2.005-2.56 1.06l-2.852-2.85h-.003l-1.94-1.94A1.5 1.5 0 0 1 1.207 10c0-.384.147-.767.44-1.06L3.585 7h.003z\"/>");
+
+export const WifiFilled = mk('wifi-fill', "<path fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-width=\"3\" d=\"M12 18h.01m-2.839-2.828A4 4 0 0 1 12 14c1.104 0 2.104.448 2.828 1.172m-8.485-2.829A7.98 7.98 0 0 1 12 10c2.209 0 4.209.895 5.657 2.343M3.515 9.515A11.96 11.96 0 0 1 12 6c3.314 0 6.314 1.343 8.485 3.515\"/>");

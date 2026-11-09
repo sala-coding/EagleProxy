@@ -55,7 +55,8 @@ const rowClass = () => [props.selected ? 'selected' : '', props.running ? 'runni
             {{ latencyText(p.latency) }}
             <ThumbUpFilled v-if="isLowLatency(p.latency)" class="ic lat-ok"/>
         </td>
-        <td class="speed" :title="p.report || ''">{{ speedCell(p.speed) }}</td>
+        <td class="speed" :title="p.report || ''">{{ speedCell(p.downSpeed) }}</td>
+        <td class="speed" :title="p.report || ''">{{ speedCell(p.upSpeed) }}</td>
         <td class="ptraffic"
             :title="p.up || p.down ? t('traffic.upDown', fmtBytes(p.up), fmtBytes(p.down)) : ''">
             {{ trafficCell(p.up, p.down) }}

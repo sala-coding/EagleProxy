@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import {computed} from 'vue';
+import {computed, onMounted, ref} from 'vue';
 import {t} from '../../i18n';
 import {type Dict} from '../../lib/metrics';
+import * as API from '../../../wailsjs/go/main/App';
 
 // The TUN card's body (the two kind frames); the slide div and the card's own
 // title stay with SettingsDialog, which owns the carousel.
@@ -74,6 +75,37 @@ const onIpv6Change = (e: Event) => {
 
 const flag = (key: string) => (e: Event) =>
     emit('patch', {[key]: (e.target as HTMLInputElement).checked});
+
+// The stack the tun adapter runs on, as the answers sing-box takes. The number is
+// what the settings file stores (vpn_impl) and what the builder indexes the stack
+// list with (see configbuilder.tunInbound); an out-of-range or missing value reads
+// as gvisor there, and the field shows the same answer. The fourth answer is the
+// core's own stack (sing-box 1.15+), which the builder writes by leaving the stack
+// field out — it only exists on a core new enough to have it, which is why the
+// version is asked once here and the option stands down when it does not.
+const TUN_STACKS = [
+    {value: 0, label: 'gvisor（用户态栈）'},
+    {value: 1, label: 'system（系统栈）'},
+    {value: 2, label: 'mixed（混合栈）'},
+    {value: 3, label: 'Sing 15（1.15+ 自有栈）'},
+];
+const coreVersion = ref('');
+onMounted(() => {
+    API.CoreVersion().then(v => { coreVersion.value = v || ''; }).catch(() => {});
+});
+// A version at or above 1.15 is where sing-tun ships its own TCP/IP stack; anything
+// unanswerable reads as older, the side the option stands down on.
+const nativeStack = computed(() => {
+    const m = /^(\d+)\.(\d+)/.exec(coreVersion.value || '');
+    if (!m) return false;
+    const major = Number(m[1]), minor = Number(m[2]);
+    return major > 1 || (major === 1 && minor >= 15);
+});
+const tunStack = () => {
+    const n = Number(props.obj.vpn_impl);
+    if (n === 3) return nativeStack.value ? 3 : 0;
+    return TUN_STACKS.some(s => s.value === n) ? n : 0;
+};
 </script>
 
 <template>
@@ -83,6 +115,21 @@ const flag = (key: string) => (e: Event) =>
             <label>{{ t('cfg.vpn_mtu') }}</label>
             <input type="number" :min="obj.vpn_ipv6 ? 1280 : 1000" max="10000"
                    :value="vpnMtu" @input="onMtuInput"/>
+        </div>
+        <!-- The stack, as a choice rather than a number: the file holds an index
+            and the builder turns it into one of the three, so the field shows the
+            name and writes the number back (see TUN_STACKS). -->
+        <div :class="`jf-field${tunIdle}`">
+            <label :title="t('hint.vpn_impl')">{{ t('cfg.vpn_impl') }}</label>
+            <select class="rt-urlselect wide" :value="tunStack()"
+                    :aria-label="t('cfg.vpn_impl')"
+                    @change="emit('patch', {vpn_impl: Number(($event.target as HTMLSelectElement).value)})">
+                <option v-for="st in TUN_STACKS" :key="st.value" :value="st.value"
+                        :disabled="st.value === 3 && !nativeStack"
+                        :title="st.value === 3 && !nativeStack ? t('hint.vpn_impl_old') : st.label">
+                    {{ st.label }}
+                </option>
+            </select>
         </div>
         <!-- The two lists, a row each: they are the tall controls on the
             card and they hold one entry per line, so the control column

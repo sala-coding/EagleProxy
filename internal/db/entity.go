@@ -16,13 +16,14 @@ type ProxyEntity struct {
 	GID     int    `json:"gid"`
 	Latency int    `json:"yc"`
 	Report  string `json:"report"`
-	// Speed is the last download-speed result in MB/s. 0 means never measured,
-	// a negative value means the last measurement of it failed. It is kept
-	// independently of Latency: each column shows the newest result of its own
-	// metric.
-	Speed   float64   `json:"speed"`
-	Bean    bean.Bean `json:"bean"`
-	Traffic bean.Bean `json:"traffic"`
+	// DownSpeed / UpSpeed are the last speed-test result per direction, in MB/s.
+	// 0 means never measured, a negative value means the last measurement of that
+	// direction failed. Each is kept independently of the others: a column shows
+	// the newest result of its own metric.
+	DownSpeed float64   `json:"downSpeed"`
+	UpSpeed   float64   `json:"upSpeed"`
+	Bean      bean.Bean `json:"bean"`
+	Traffic   bean.Bean `json:"traffic"`
 }
 
 // Ensure initialises nested objects if they are nil.

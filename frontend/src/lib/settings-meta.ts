@@ -33,7 +33,7 @@ export const SETTING_GROUPS: {title: string; keys: string[]; note?: string}[] = 
     },
     {
         title: 'settings.group.test',
-        keys: ['test_dl_timeout', 'test_concurrent',
+        keys: ['test_window', 'test_upload', 'test_concurrent',
             'traffic_loop_interval'],
     },
     {
@@ -120,12 +120,12 @@ export const GROUP_IN_STARTUP = 'settings.group.ui';
 // table.
 export const SETTING_HIDDEN = new Set([
     'extraCore', 'pending_tun', 'pending_tun_profile', 'current_group', 'theme_schema',
-    'test_url', 'test_url_dl',
+    'test_url', 'test_engine',
     'active_routing', 'mw_size', 'splitter_state', 'remember_id',
     'theme', 'language', 'inbound_address', 'inbound_socks_port', 'custom_route', 'egress_mode',
     'vpn_internal_tun', 'vpn_impl', 'vpn_mtu', 'vpn_ipv6', 'ipv6_auto', 'vpn_strict_route', 'fakedns',
     'vpn_hide_console', 'vpn_rule_white', 'vpn_bypass_process', 'vpn_bypass_cidr',
-    'core_box_cache_file', 'sniffing_mode',
+    'core_box_cache_file', 'sniffing_mode', 'lan_share',
 ]);
 
 // The languages the interface is written in, as the settings file counts them (see

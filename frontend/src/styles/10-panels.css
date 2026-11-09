@@ -235,6 +235,16 @@
     margin-left: auto;
 }
 
+/* How many files the bar holds, at its right end ahead of the add: the one number a
+   folded bar can still say, and the reason the caret is worth pressing. Tabular so a
+   column of counts does not shuffle as the figures change. */
+.rs-count {
+    margin-left: auto;
+    color: var(--text-dim);
+    font-size: 0.625rem;
+    font-variant-numeric: tabular-nums;
+}
+
 /* The caret the browser's own marker stood in for: a chevron that turns with the fold,
    so the state is readable from the shape rather than from remembering which way the
    triangle faced. */
@@ -276,28 +286,60 @@
     overflow-wrap: anywhere;
 }
 
+/* One category: its bar, and the files filed under it. The block is the unit that
+   keeps the card orderly — bar and list together, one gap between blocks, so a
+   folded bar still reads as its own thing rather than as a heading over nothing. */
+.rs-group {
+    margin-bottom: 10px;
+}
+
 .rs-list {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    max-height: 170px;
+    max-height: 200px;
     overflow-y: auto;
-    margin-bottom: 6px;
+    padding: 2px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    margin-bottom: 8px;
 }
 
+/* Three columns and no more: the tag, its state, and one cell holding however many
+   actions the row has. Two columns for the buttons put the second of them on a line
+   of its own under the first, which is what made the list look ragged. */
 .rs-row {
     display: grid;
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: center;
     gap: 8px;
-    padding: 1px 0;
+    padding: 5px 0;
     font-size: 0.6875rem;
 }
 
+.rs-row + .rs-row {
+    border-top: 1px solid var(--line);
+}
+
+.rs-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.rs-actions .btn {
+    padding: 2px 7px;
+}
+
+/* One line, ellipsised: a tag long enough to wrap took the row's height with it and
+   the list's lines stopped lining up. The whole tag is in the row's tooltip. */
 .rs-tag {
     font-family: var(--font-mono);
     color: var(--text);
-    overflow-wrap: anywhere;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .rs-state {
@@ -479,7 +521,7 @@
 }
 
 .ctx-item:hover:not(:disabled) {
-    background: var(--bg-3);
+    background: var(--hover-bg);
 }
 
 /* An item that owns a submenu says so with a caret, not with a highlight: the

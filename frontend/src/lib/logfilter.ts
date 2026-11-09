@@ -12,7 +12,11 @@ import {ArrowRightFilled, CloudFilled, ForbidCircleFilled, LayersFilled} from '.
 export const LOG_CATEGORIES = [
     {id: 'core', label: 'logcat.core'},
     {id: 'speedtest-url', label: 'logcat.latency'},
-    {id: 'speedtest-tcp', label: 'logcat.tcp'},
+    // the TCP test's key is not in the legend: the reader asked the mark gone,
+    // and the lines it named still stream in their own colour — the legend is a
+    // key, not the set of things that exist, so removing an entry hides a name
+    // rather than a stream. Re-add the line above if the green is to be
+    // explained again: {id: 'speedtest-tcp', label: 'logcat.tcp'},
     {id: 'speedtest-full', label: 'logcat.full'},
     {id: 'speedtest-download', label: 'logcat.download'},
 ];

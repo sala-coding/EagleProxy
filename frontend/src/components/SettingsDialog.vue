@@ -44,15 +44,13 @@ import JsonForm from "../JsonForm.vue";
 import Modal from "./Modal.vue";
 import {applyRoute, errText} from "../lib/shared";
 import {rsCategoryOf, type Dict} from "../lib/metrics";
-import {clampDockHeight, DOCK_MIN_H} from "../lib/layout";
-import {buildCustomPalette, readCustomPalette, scaleFromIndex, scaleIndex, THEMES, TONE_GROUNDS, TONE_HUES, UI_SCALE_CELLS, UI_SCALE_MAX, UI_SCALE_MIN, wearCustom} from "../lib/theme";
+import {buildCustomPalette, computedHex, CUSTOM_COLOR, CUSTOM_GROUND, CUSTOM_HUE, CUSTOM_VARS, HOVER_VAR, hueHex, readCustomPalette, scaleFromIndex, scaleIndex, THEMES, UI_SCALE_CELLS, UI_SCALE_MAX, UI_SCALE_MIN, wearHover} from "../lib/theme";
 import {FRAME_KEYS, GROUP_FULL_ROW, GROUP_IN_STARTUP, LANGUAGES, rememberLanguage, ROUTING_SLIDE, SETTING_GROUPS, SETTING_HIDDEN, SETTING_SECTIONS} from "../lib/settings-meta";
 import {canonicalHotkey} from "../lib/jsonform";
 import TunCard from "./settings/TunCard.vue";
 import RoutingCard from "./settings/RoutingCard.vue";
 import DnsCard from "./settings/DnsCard.vue";
 import RuleSetsCard from "./settings/RuleSetsCard.vue";
-import SegmentedSwitch from "./SegmentedSwitch.vue";
 import {FolderOpenFilled} from '../lib/icons';
 
 // React -> Vue 迁移说明：
@@ -148,204 +146,88 @@ const autoStart = ref(false);
 // everything on any state change, so it never had this hole.
 const langTick = ref(0);
 watch(() => obj.value?.language, () => { langTick.value++; });
-// The custom-palette popover: open, and the two choices it edits — a hue
-// (one stop of the wheel) and a ground. The stored palette feeds the open
-// state its choices back, so reopening the popover shows what the reader
-// last wore; nothing stored yet aims at the centre of the cool half.
-const toneOpen = ref(false);
-const toneHue = ref(readCustomPalette()
-    ? Math.round(Number((readCustomPalette()!['--accent'] || '').match(/\((\d+),/)?.[1] || 210))
-    : 210);
-const toneGround = ref<'deep' | 'pale'>(readCustomPalette()?.['--custom-ground'] === 'pale' ? 'pale' : 'deep');
-// The stored palette, read once per render for its own swatch: a worn one
-// paints its disc in its own colours, an empty one keeps the blank uniform.
-// （Vue 侧：localStorage 不是响应式的，以 toneOpen 为依赖在弹层开合时重读
-// —— 保存调色板必然关掉弹层，与 React 每次渲染重读的可见效果一致。）
-const customPal = computed(() => {
-    void toneOpen.value;
-    return readCustomPalette();
-});
-// The cell the palette panel hangs from — the custom cell of whichever bar it was
-// pressed at — and the panel itself. The panel is fixed to the viewport and placed by
-// hand, because both seats this card can sit in clip their overflow — a panel
-// positioned as a child of the bar would be cut off at the card's edge, which is what
-// the dock's own scroll would do to it. The cell is state rather than a ref because
-// moving the panel to the other bar's cell is a change the placement has to answer.
-const toneAnchor = ref<HTMLElement | null>(null);
-const tonePop = ref<HTMLDivElement | null>(null);
-// Measured before it is placed, the same rule the two context menus follow: the panel
-// hangs under the cell it came out of, flips above it when the window's floor is
-// closer than the panel is tall, and is kept inside either edge of the window.
-watch([toneOpen, toneAnchor], (_, __, onCleanup) => {
-    if (!toneOpen.value) return;
-    const place = () => {
-        const el = tonePop.value, cell = toneAnchor.value;
-        if (!el || !cell) return;
-        const r = cell.getBoundingClientRect();
-        const w = el.offsetWidth, h = el.offsetHeight;
-        // The floor is the status bar's own top edge — the one the exit panel and the
-        // two menus hang from. Read rather than computed from --status-h, which a
-        // compact layout or a scaled UI can leave behind.
-        const bar = document.querySelector('.statusbar');
-        const floor = (bar ? bar.getBoundingClientRect().top : window.innerHeight) - 8;
-        const below = r.bottom + 6;
-        const top = below + h <= floor ? below : Math.max(8, Math.min(r.top - h - 6, floor - h));
-        const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
-        el.style.top = `${Math.round(top)}px`;
-        el.style.left = `${Math.round(left)}px`;
-    };
-    place();
-    // The card scrolls and the window resizes, and both move the pill out from under a
-    // panel that is fixed to the viewport — so both put the panel back.
-    window.addEventListener('resize', place);
-    window.addEventListener('scroll', place, true);
-    onCleanup(() => {
-        window.removeEventListener('resize', place);
-        window.removeEventListener('scroll', place, true);
-    });
-    // the cell too: pressing the other bar's cell while the panel is open moves it,
-    // which is a change of the same kind as opening it
-}, {flush: 'post'});
-// A press anywhere but the cell and its panel puts the dropdown away; the cell's own
-// press is left to its handler, which closes it or moves it to the other bar (see the
-// onClick above). Nothing here closes the seat itself — a press outside that is already
-// the dock's and the sheet's way out.
-watch(toneOpen, (open, _, onCleanup) => {
-    if (!open) return;
-    const onDown = (e: PointerEvent) => {
-        const el = e.target as HTMLElement | null;
-        if (el?.closest('.tone-pop, .theme-custom')) return;
-        toneOpen.value = false;
-    };
-    // Escape puts the palette away as well, and it stops here: this popover had
-    // no key of its own, so a reader who opened the hue picker, changed their
-    // mind and pressed Escape lost the whole settings dock instead of the
-    // popover. Captured, like the other layers inside this panel, so the dock's
-    // own window listener never sees the press (see hotkeyClash).
-    const onKey = (e: KeyboardEvent) => {
-        if (e.key !== 'Escape') return;
-        e.stopPropagation();
-        toneOpen.value = false;
-    };
-    document.addEventListener('pointerdown', onDown, true);
-    document.addEventListener('keydown', onKey, true);
-    onCleanup(() => {
-        document.removeEventListener('pointerdown', onDown, true);
-        document.removeEventListener('keydown', onKey, true);
-    });
-});
-
-// Saving derives the whole palette from the two choices, keeps it on this
-// machine, and wears it at once — the number the settings file will get is
-// the custom entry's own place in THEMES, like any other theme's.
-const saveTone = () => {
-    const pal = buildCustomPalette(toneHue.value, toneGround.value);
-    try { window.localStorage.setItem('custom-palette', JSON.stringify(pal)); } catch { /* private mode keeps its silence: this palette lives for the run */ }
-    theme.value = 'custom';
-    // Already wearing this theme: nothing changes state, so the re-derived
-    // set has to land by hand.
-    wearCustom();
-    if (obj.value) obj.value = {...obj.value, theme: String(THEMES.findIndex(x => x.id === 'custom'))};
-    toneOpen.value = false;
+// The reader's own palette: one colour and one ground, both edited in the card and
+// applied the moment either changes. There is nothing to save and no panel to
+// dismiss — a palette is one pick, and a pick that needed a dialog, a save and a
+// close to take effect read as a form rather than as a colour.
+const storedHue = (): number => {
+    const p = readCustomPalette();
+    if (!p) return 210;
+    const h = Number(p[CUSTOM_HUE] ?? (p['--accent'] || '').match(/\((\d+),/)?.[1]);
+    return Number.isFinite(h) ? h : 210;
 };
-
-// --- the theme bars ---
-// Each tone row is the type scale's control with the palettes in the cells, so it is
-// driven the same three ways: press and drag along the bar to the palette under the
-// pointer, step through it with the arrow keys, double-click for the default. A theme
-// is chosen by looking at it, which is why a press goes straight to what is under the
-// pointer rather than to a neighbouring step.
-// The index is the one THEMES is addressed by, because that is the number the settings
-// file holds; the bars are cut out of the same list, so a cell knows both.
-type ThemeCell = {th: typeof THEMES[number]; i: number};
-const TONES = ['cool', 'warm'] as const;
-// The bar's own nine, in the order the settings file counts
-// them: every cell keeps the index into THEMES it stands
-// for, and the bar knows which of them — if any — is worn.
-const toneList = (tone: typeof TONES[number]): ThemeCell[] =>
-    THEMES.map((th, i) => ({th, i})).filter(({th}) => th.tone === tone);
-const toneAt = (tone: typeof TONES[number]): number =>
-    toneList(tone).findIndex(({th}) => th.id === theme.value);
-
-const pickTheme = (i: number) => {
-    const at = Math.max(0, Math.min(THEMES.length - 1, i));
-    const th = THEMES[at];
-    if (theme.value === th.id) return;
-    theme.value = th.id;
-    // Both at once: the window changes now, and the object being edited carries the
-    // number so that 保存 is what writes it to the settings file.
-    if (obj.value) obj.value = {...obj.value, theme: String(at)};
+// The field opens on the colour the window is actually wearing: the picked hex while
+// the custom palette is in force, the worn theme's own accent otherwise. A leftover
+// pick from a palette nobody wears was a field showing a colour the window did not
+// have on — the very thing that read as "why light blue on a black theme".
+const storedColor = (): string => {
+    if (theme.value === 'custom') {
+        const saved = readCustomPalette()?.[CUSTOM_COLOR];
+        if (typeof saved === 'string' && /^#[0-9a-f]{6}$/i.test(saved)) return saved;
+    }
+    return computedHex('--accent', hueHex(storedHue()));
 };
+const toneColor = ref(storedColor());
+watch(theme, () => { toneColor.value = storedColor(); });
 
-// Which cell the pointer is over — the same arithmetic the cells are drawn with,
-// rounded rather than floored for the reason the type scale gives: the nearest cell is
-// the one being pointed at, and flooring would make a cell answer only over its
-// right-hand edge (see onScalePointer).
+// Derive, keep, wear. The settings file gets the custom entry's own place in THEMES,
+// like any other palette's number.
 //
-// The cell is clamped to the bar's own two ends. A drag that leaves the bar is the
-// ordinary way a pointer ends up outside it: the capture the press takes (see
-// onThemeDown) keeps the moves coming after the pointer has left, and the pointer
-// leaves whenever the reader drags past the end. Without the clamp the arithmetic
-// reaches past the list and picks out nothing at all, and taking a field off a
-// nothing is the one thing that cannot be recovered from — the whole window goes
-// down with it. The type scale's own arithmetic has the same shape and is safe for
-// the same reason: its value is clamped into the range (see scaleFromIndex).
-const onThemePointer = (e: PointerEvent, list: ThemeCell[]) => {
-    const r = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    if (r.width <= 0) return;
-    const at = Math.max(0, Math.min(list.length - 1,
-        Math.round((e.clientX - r.left) / r.width * (list.length - 1))));
-    pickTheme(list[at].i);
+// The picker streams a colour per mouse move, so three things are kept off that path:
+// the variables are written once per frame rather than once per event (a rAF that has
+// not run yet already owns the latest colour), the window's own background is told
+// once the dragging stops — it is an IPC call into the backend, each one repaint of a
+// window the pointer is not even over — and the settings object is only rewritten when
+// the theme id actually changes, which it does once. Without that the whole window
+// restyled and re-rendered for every pixel the pointer crossed, which is what read as
+// the program stuttering.
+const CUSTOM_INDEX = String(THEMES.findIndex(x => x.id === 'custom'));
+let toneFrame = 0;
+let toneSettle: number | undefined;
+
+const paintTone = () => {
+    toneFrame = 0;
+    const pal = buildCustomPalette(toneColor.value);
+    for (const k of CUSTOM_VARS) {
+        const v = pal[k];
+        if (typeof v === 'string') document.documentElement.style.setProperty(k, v);
+    }
+    document.documentElement.setAttribute('data-variant', pal[CUSTOM_GROUND] === 'pale' ? 'light' : 'dark');
+    document.documentElement.setAttribute('data-theme', 'custom');
+    // The frame edges are the system's and only follow the backend, so the background
+    // is handed over once the pick has settled.
+    clearTimeout(toneSettle);
+    toneSettle = window.setTimeout(() => {
+        const bg = pal['--bg'];
+        if (bg) API.SetWindowBackground(bg).catch(() => { /* an old backend without the binding */ });
+    }, 180);
 };
 
-// The keyboard half: one cell per press, Home and End for the two ends. A bar whose
-// current palette is not in it — the other tone's, or the reader's own — starts from
-// the end the key is walking away from rather than refusing to move.
-const onThemeKey = (e: KeyboardEvent, list: ThemeCell[]) => {
-    const back = e.key === 'ArrowLeft' || e.key === 'ArrowDown';
-    const fwd = e.key === 'ArrowRight' || e.key === 'ArrowUp';
-    if (!fwd && !back && e.key !== 'Home' && e.key !== 'End') return;
-    e.preventDefault();
-    if (e.key === 'Home') { pickTheme(list[0].i); return; }
-    if (e.key === 'End') { pickTheme(list[list.length - 1].i); return; }
-    const at = list.findIndex(({th}) => th.id === theme.value);
-    const cur = at < 0 ? (back ? list.length : -1) : at;
-    pickTheme(list[Math.max(0, Math.min(list.length - 1, cur + (back ? -1 : 1)))].i);
+const wearTone = () => {
+    // The palette is kept before the theme id moves: setting theme runs the watcher
+    // that re-reads the field's colour out of the stored palette (see storedColor),
+    // and a record still holding the previous pick would snap the field back to a
+    // colour nobody chose — the "picked black, field shows light blue" bug.
+    const pal = buildCustomPalette(toneColor.value);
+    try { window.localStorage.setItem('custom-palette', JSON.stringify(pal)); } catch { /* private mode keeps its silence: this palette lives for the run */ }
+    if (theme.value !== 'custom') theme.value = 'custom';
+    if (obj.value && String(obj.value.theme ?? '') !== CUSTOM_INDEX) {
+        obj.value = {...obj.value, theme: CUSTOM_INDEX};
+    }
+    if (!toneFrame) toneFrame = requestAnimationFrame(paintTone);
+};
+const pickTone = (e: Event) => {
+    toneColor.value = (e.target as HTMLInputElement).value;
+    wearTone();
 };
 
-const onThemeDown = (e: PointerEvent, tone: typeof TONES[number]) => {
-    // capture keeps the moves coming after the pointer
-    // leaves the bar, which is what makes dragging
-    // across it feel held rather than chased; the
-    // browser may refuse, and the drag still works
-    // without it
-    try {
-        (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
-    } catch { /* the drag runs without it */ }
-    onThemePointer(e, toneList(tone));
-};
-
-const onThemeMove = (e: PointerEvent, tone: typeof TONES[number]) => {
-    // dragging is the point of a control shaped like this, so
-    // the moves are followed while the button is held
-    if (e.buttons) onThemePointer(e, toneList(tone));
-};
-
-// The reader's own palette, as the bar's tenth cell rather than a button standing beside
-// them: it belongs to both bars, and a cell is what says so. It wears what a cell wears
-// — its own ground with its accent as the dot, and the wheel the panel offers until
-// there is a palette to paint. It opens the panel instead of switching on the spot: its
-// theme is not known until the two choices in it are made, and a save is what wears it.
-const onCustomClick = (e: MouseEvent) => {
-    // The cell it was pressed at, so the panel
-    // hangs from the one the reader reached for.
-    // Pressing the other bar's cell while it is
-    // open moves it rather than closing it:
-    // there are two ways to this panel, and only
-    // the one it already hangs from closes it.
-    const same = toneAnchor.value === e.currentTarget;
-    toneAnchor.value = e.currentTarget as HTMLElement;
-    toneOpen.value = toneOpen.value && same ? false : true;
+// The hover surface, as its own field: the colour a row, a menu item or a button
+// paints under the pointer (see --hover-bg in 01-theme.css). It follows the same
+// shape the theme colour keeps — a field, and it applies while it is being picked.
+const hoverColor = ref(computedHex(HOVER_VAR, '#232c38'));
+const pickHover = (e: Event) => {
+    hoverColor.value = (e.target as HTMLInputElement).value;
+    wearHover(hoverColor.value);
 };
 
 // The rule sets the active profile refers to, together with what is on disk. Loaded
@@ -943,86 +825,11 @@ onBeforeUnmount(() => {
     window.clearTimeout(closeTimer ?? undefined);
 });
 
-// --- the dock's own height ---
-// Null while the stylesheet's height still stands (600px, or the window's own where
-// that is shorter); a drag sets a number, and the number is remembered so the panel
-// comes back the size it was left at — the same arrangement as the log panel's
-// height (see consoleH) and the drawer's width, down to the guarded read: a value
-// left over from a taller window is clamped on the way in rather than trusted.
-const dockH = ref<number | null>((() => {
-    const saved = Number(window.localStorage.getItem('dock-height'));
-    return Number.isFinite(saved) && saved > 0 ? clampDockHeight(saved, window.innerHeight) : null;
-})());
-const dockDragging = ref(false);
-const dockRef = ref<HTMLElement | null>(null);
-// Where the drag began, kept out of the state: it changes on every move and nothing
-// on screen is drawn from it.
-let dockDrag: { y: number; h: number } | null = null;
-// The panel's height as the browser has actually laid it out, which is what the
-// handle reports — right even when the height came from the stylesheet rather than
-// from a drag (see the console's grip for the same).
-const dockNow = ref(0);
-watch([dockH, closing], () => {
-    dockNow.value = Math.round(dockRef.value?.getBoundingClientRect().height ?? 0);
-}, {flush: 'post', immediate: true});
-
-// Dragging the panel's top edge. The pointer is captured by the handle, so every
-// move and the release arrive there even once the pointer has left it — that is what
-// makes the panel feel held rather than chased.
-const onDockGripDown = (e: PointerEvent) => {
-    const el = dockRef.value;
-    if (!el) return;
-    e.preventDefault();          // no text selection along the dragged edge
-    try {
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    } catch { /* the drag runs without it */ }
-    dockDrag = { y: e.clientY, h: el.getBoundingClientRect().height };
-    dockDragging.value = true;
-};
-
-const onDockGripMove = (e: PointerEvent) => {
-    const d = dockDrag;
-    if (!d) return;
-    // Up makes the panel taller: the edge follows the pointer, and the panel grows
-    // away from the bar, which does not move.
-    dockH.value = clampDockHeight(d.h + (d.y - e.clientY), window.innerHeight);
-};
-
-const onDockGripUp = (e: PointerEvent) => {
-    if (!dockDrag) return;
-    dockDrag = null;
-    dockDragging.value = false;
-    try {
-        const el = e.currentTarget as HTMLElement;
-        if (el.hasPointerCapture?.(e.pointerId)) {
-            el.releasePointerCapture(e.pointerId);
-        }
-    } catch { /* nothing left to release */ }
-    // Written on release rather than on every move: localStorage is synchronous and a
-    // drag would otherwise hit it once per frame. What is stored is the state value,
-    // not the measured one — the measured height is the stylesheet clamping this draw
-    // to fit the window, and persisting that would quietly rewrite the reader's height
-    // down to whatever the window happened to allow, for good.
-    if (dockH.value) window.localStorage.setItem('dock-height', String(dockH.value));
-};
-
-// The same adjustment from the keyboard, because a separator you can only drag is a
-// separator some people cannot use. Shift for the larger step, and Home to hand the
-// height back to the stylesheet's own.
-const onDockGripKey = (e: KeyboardEvent) => {
-    const step = e.shiftKey ? 48 : 16;
-    const cur = dockRef.value?.getBoundingClientRect().height ?? 0;
-    let next: number | null = null;
-    if (e.key === 'ArrowUp') next = cur + step;
-    else if (e.key === 'ArrowDown') next = cur - step;
-    else if (e.key === 'Home') next = null;
-    else return;
-    e.preventDefault();
-    const h = next === null ? null : clampDockHeight(next, window.innerHeight);
-    dockH.value = h;
-    if (h === null) window.localStorage.removeItem('dock-height');
-    else window.localStorage.setItem('dock-height', String(h));
-};
+// --- the dock's own size ---
+// The panel keeps a 1:1 shape and takes it from the window: both sides are the same
+// expression in the stylesheet (see .settings-dock), so resizing the window resizes
+// the panel with it and the answer is always the same for the same window — there is
+// no remembered height to restore, and no drag to argue with the arithmetic.
 
 // Escape is the dock's dismissal, as it was the sheet's: the key is the one the
 // window's other panels answer to, and a reader who pushed the panel up wants the
@@ -1047,10 +854,7 @@ const onEscapeKey = (e: KeyboardEvent) => {
 // they were in the middle of editing.
 const onDocDown = (e: PointerEvent) => {
     const el = e.target as HTMLElement | null;
-    // .tone-pop is in the list because the palette dropdown is rendered at the
-    // body rather than inside the dock (see the portal in the theme row): a press
-    // inside it is a press inside this panel's business, not outside it.
-    if (el && el.closest('.settings-dock, .modal-mask, .tone-pop')) return;
+    if (el && el.closest('.settings-dock, .modal-mask')) return;
     requestClose();
 };
 
@@ -1374,41 +1178,44 @@ const setExtraCore = (k: string, e: Event) => {
     extraCores.value = {...extraCores.value, [k]: (e.target as HTMLInputElement).value};
 };
 
-// The test card's two URLs, drawn by hand rather than as generated rows: each wants
-// a row of presets under it — one press writes a source into the field — and a
-// generated row has no place to hang them. The chip carries the source's own host
-// (the full address rides its tooltip), which is what a reader tells the sources
-// apart by, and the press writes the whole URL into the field like any other row
-// would.
-const TEST_URL_PRESETS: Record<string, string[]> = {
-    test_url: [
-        'http://cp.cloudflare.com/generate_204',
-        'https://www.gstatic.com/generate_204',
-        'https://connectivitycheck.platform.hicloud.com/generate_204',
-        'http://connect.rom.miui.com/generate_204',
-        'http://wifi.vivo.com.cn/generate_204',
-        'https://www.google.com/generate_204',
-        'https://www.apple.com/library/test/success.html',
-        'http://detectportal.firefox.com/success.txt',
-    ],
-    test_url_dl: [
-        'http://cachefly.cachefly.net/10mb.test',
-        'http://cachefly.cachefly.net/100mb.test',
-        'https://speed.cloudflare.com/__down?bytes=25000000',
-        'https://speed.cloudflare.com/__down?bytes=100000000',
-        'http://speedtest.tele2.net/10MB.zip',
-        'https://proof.ovh.net/files/100Mb.dat',
-    ],
+// The speed test's engine: ndt7 measures against M-Lab, Cloudflare against
+// Cloudflare's edge for nodes that have no route to M-Lab (see internal/speedtest).
+const SPEED_ENGINES = [
+    {value: 'ndt7', label: 'M-Lab ndt7'},
+    {value: 'cloudflare', label: 'Cloudflare'},
+];
+const speedEngine = () => (obj.value?.test_engine as string) || 'ndt7';
+const setSpeedEngine = (e: Event) => {
+    const v = (e.target as HTMLSelectElement).value;
+    if (v && obj.value) obj.value = {...obj.value, test_engine: v};
 };
-const testLabel = (key: 'test_url' | 'test_url_dl') =>
-    key === 'test_url' ? t('cfg.test_url') : t('cfg.test_url_dl');
+
+// The ping source, drawn by hand rather than as a generated row: it is chosen from
+// a list rather than typed, and a generated row has no place to hang the list.
+const TEST_URL_PRESETS = [
+    'http://cp.cloudflare.com/generate_204',
+    'https://www.gstatic.com/generate_204',
+    'https://connectivitycheck.platform.hicloud.com/generate_204',
+    'http://connect.rom.miui.com/generate_204',
+    'http://wifi.vivo.com.cn/generate_204',
+    'https://www.google.com/generate_204',
+    'https://www.apple.com/library/test/success.html',
+    'http://detectportal.firefox.com/success.txt',
+];
+// The option names the source's own host — that is what a reader tells the sources
+// apart by; the whole address rides its tooltip.
 const hostOf = (v: string): string => { try { return new URL(v).host; } catch { return v; } };
-const onTestPreset = (key: 'test_url' | 'test_url_dl', e: Event) => {
-    const el = e.target as HTMLSelectElement;
-    const v = el.value;
-    // 受控 value="" 的等价回写：选完即回到占位项。
-    el.value = '';
-    if (v && obj.value) obj.value = {...obj.value, [key]: v};
+const currentTestURL = () => (obj.value?.test_url as string) ?? '';
+// A value that is not on the list — a store edited by hand, a source an older
+// build shipped — is offered as its own entry rather than dropped, so the row keeps
+// showing what is in use.
+const testURLOptions = () => {
+    const cur = currentTestURL();
+    return cur && !TEST_URL_PRESETS.includes(cur) ? [cur, ...TEST_URL_PRESETS] : TEST_URL_PRESETS;
+};
+const setTestURL = (e: Event) => {
+    const v = (e.target as HTMLSelectElement).value;
+    if (v && obj.value) obj.value = {...obj.value, test_url: v};
 };
 
 // The language, drawn rather than generated: the file holds a
@@ -1432,10 +1239,6 @@ const pickLanguage = (l: {value: string; label: string; flag: string}) => {
     emit('language', Number(l.value));
 };
 
-// The grip's aria ceiling follows the window; read at render, as the React
-// original did.（window 不在模板全局白名单里，经此函数转接。）
-const dockAriaMax = () => Math.round(window.innerHeight) - 54;
-
 // JsonForm 的 onChange：把该组写回整个设置对象。
 const onJsonChange = (v: Dict) => {
     if (obj.value) obj.value = {...obj.value, ...v};
@@ -1445,12 +1248,6 @@ const onJsonChange = (v: Dict) => {
 const pickRouteCard = (m: string) => {
     routeFocus.value = m;
     if (m !== 'block') egress.value = m;
-};
-
-// 双击把手高度还给样式表（原 onDoubleClick 内联逻辑）。
-const resetDockHeight = () => {
-    dockH.value = null;
-    window.localStorage.removeItem('dock-height');
 };
 
 // 端口盒的两个输入（原 JSX 内联 onChange）。
@@ -1484,31 +1281,9 @@ const onPortInput = (e: Event) => {
         a left column of subjects and a right column of their cards. The nav
         names what is on the right and the cards slide between them — the same
         carousel the sheet used to carry, now standing up. -->
-    <section :class="`settings-dock${dockDragging ? ' resizing' : ''}${closing ? ' closing' : ''}`"
+    <section :class="`settings-dock${closing ? ' closing' : ''}`"
              role="dialog"
-             ref="dockRef"
-             :style="dockH ? {height: `${dockH}px`} : undefined"
              :aria-label="t('dlg.settings.title')">
-        <!-- The panel's top edge is the handle, the way the log panel's is: the dock
-            stands on the bar and grows up from it, so the edge that moves is the one
-            at the top. It sits inside the panel rather than straddling the border —
-            the dock clips its overflow, and a strip hanging above it would be half a
-            row of dead pixels (see .dock-grip). -->
-        <div class="dock-grip"
-             role="separator"
-             aria-orientation="horizontal"
-             :title="t('dlg.settings.resize')"
-             :aria-label="t('dlg.settings.resize')"
-             :aria-valuenow="dockNow"
-             :aria-valuemin="DOCK_MIN_H"
-             :aria-valuemax="dockAriaMax()"
-             tabindex="0"
-             @pointerdown="onDockGripDown"
-             @pointermove="onDockGripMove"
-             @pointerup="onDockGripUp"
-             @pointercancel="onDockGripUp"
-             @keydown="onDockGripKey"
-             @dblclick="resetDockHeight"/>
         <!-- The header is a nameplate, not an action bar: the dock's ways out are the
             pointer (any press outside the panel) and Escape, and its changes save
             themselves — buttons here would promise a manual step that no longer
@@ -1583,92 +1358,34 @@ const onPortInput = (e: Event) => {
                         </div>
                         <!-- The palette, in the same card as the type scale because it is the
                             same kind of choice: how the window looks, judged by looking at it.
-                            Drawn as the same control too — one bar to a tone, every cell painted
-                            in its own palette (see .theme-swatch) — so the row is the themes
-                            themselves rather than a list of their names. -->
-                        <div class="jf-field" :title="t('settings.themeHint')">
+                            Two fields and nothing else — the theme colour, which is the whole
+                            palette (see buildCustomPalette), and the hover surface the pointer
+                            paints on the things it crosses. The built-in palettes are gone
+                            from the interface: a colour is a colour, and a row of presets
+                            beside it said only "maybe one of these instead". -->
+                        <div class="jf-field">
                             <div class="theme-groups">
-                                <div v-for="tone in TONES" :key="tone" class="theme-line">
-                                    <!-- The tone's name, at the left of its bar: the way a form
-                                        row names what sits beside it. It is the only place the
-                                        two words are written — the bar speaks them too (see
-                                        aria-label) for a reader who cannot see the colours. -->
-                                    <span class="theme-tag">{{ t(`settings.tone.${tone}`) }}</span>
-                                    <div class="theme-track">
-                                        <!-- The nine, as the slider they are. The capsule is the
-                                            frame and this is the part of it that is driven:
-                                            pressed, dragged along, stepped with the arrows,
-                                            double-clicked back to the first of them. -->
-                                        <div class="theme-cells"
-                                             role="slider"
-                                             tabindex="0"
-                                             :aria-label="t(`settings.tone.${tone}`)"
-                                             aria-valuemin="0"
-                                             :aria-valuemax="toneList(tone).length - 1"
-                                             :aria-valuenow="toneAt(tone) < 0 ? undefined : toneAt(tone)"
-                                             :aria-valuetext="toneAt(tone) < 0 ? undefined : t(toneList(tone)[toneAt(tone)].th.label)"
-                                             :title="t('settings.themeHint')"
-                                             @pointerdown="e => onThemeDown(e, tone)"
-                                             @pointermove="e => onThemeMove(e, tone)"
-                                             @keydown="e => onThemeKey(e, toneList(tone))"
-                                             @dblclick="pickTheme(0)">
-                                            <span v-for="cell in toneList(tone)" :key="cell.th.id"
-                                                  :class="`theme-swatch${theme === cell.th.id ? ' active' : ''}`"
-                                                  :data-swatch="cell.th.id"
-                                                  :title="t(cell.th.label)"/>
-                                        </div>
-                                        <button type="button"
-                                                :class="`theme-swatch theme-custom${theme === 'custom' ? ' active' : ''}${customPal ? ' made' : ''}`"
-                                                :style="customPal ? {
-                                                    '--sw-bg': customPal['--bg'],
-                                                    '--sw-accent': customPal['--accent'],
-                                                } as CSSProperties : undefined"
-                                                :title="t('settings.customHint')"
-                                                :aria-label="t('settings.theme.custom')"
-                                                aria-haspopup="dialog"
-                                                :aria-expanded="toneOpen"
-                                                @click="onCustomClick"/>
-                                    </div>
+                                <div class="theme-line tone-line">
+                                    <span class="theme-tag">{{ t('settings.customHue') }}</span>
+                                    <!-- input *and* change: the platform picker streams `input`
+                                        while the colour is dragged (which is what makes the
+                                        window change under the pointer), and answers `change`
+                                        once it is dismissed — a picker that only speaks at the
+                                        end still applies its answer. -->
+                                    <input class="tone-color" type="color" :value="toneColor"
+                                           :aria-label="t('settings.customHue')"
+                                           :title="t('settings.customHint')"
+                                           @input="pickTone" @change="pickTone"/>
+                                </div>
+                                <div class="theme-line tone-line">
+                                    <span class="theme-tag">{{ t('settings.hoverBg') }}</span>
+                                    <input class="tone-color" type="color" :value="hoverColor"
+                                           :aria-label="t('settings.hoverBg')"
+                                           :title="t('settings.hoverHint')"
+                                           @input="pickHover" @change="pickHover"/>
                                 </div>
                             </div>
                         </div>
-                        <!-- The dropdown the pill opens: twelve stops of the wheel and a
-                            ground, and everything else about the palette is derived — a
-                            control a reader can answer at a glance rather than a form of
-                            hex codes. It is rendered at the body rather than kept in the
-                            row it hangs from: the card's slide carries a transform, and a
-                            fixed panel inside one is placed from the slide instead of the
-                            window — and clipped by the card besides. The effect above puts
-                            it under the pill (see tonePop). -->
-                        <Teleport to="body">
-                            <div v-if="toneOpen" class="tone-pop" ref="tonePop" role="dialog" :aria-label="t('settings.customTone')">
-                                <div class="tone-pop-title">{{ t('settings.customTone') }}</div>
-                                <div class="tone-hues" role="radiogroup" :aria-label="t('settings.customHue')">
-                                    <button v-for="h in TONE_HUES" :key="h" type="button"
-                                            :class="`tone-hue${toneHue === h ? ' on' : ''}`"
-                                            :style="{'--hue': h} as CSSProperties"
-                                            :aria-label="`${h}°`"
-                                            :aria-pressed="toneHue === h"
-                                            :title="`${h}°`"
-                                            @click="toneHue = h"/>
-                                </div>
-                                <!-- The two grounds, as two named answers rather than two
-                                    pictures of a ground: the panel shows twelve colours of
-                                    the hue above, and two swatches beside them said nothing
-                                    the words do not — so the words are all that is left,
-                                    in the capsule this app draws a few named answers in
-                                    (see SegmentedSwitch). -->
-                                <SegmentedSwitch :label="t('settings.customTone')"
-                                                 :options="TONE_GROUNDS"
-                                                 :model-value="toneGround"
-                                                 @update:model-value="v => toneGround = v as 'deep' | 'pale'"/>
-                                <div class="hint">{{ t('settings.customHint') }}</div>
-                                <div class="tone-pop-actions">
-                                    <button class="btn" @click="saveTone">{{ t('settings.customSave') }}</button>
-                                    <button class="btn" @click="toneOpen = false">{{ t('btn.cancel') }}</button>
-                                </div>
-                            </div>
-                        </Teleport>
                     </div>
                     <!-- The 界面 rows, moved in from the card of their own they used to have
                         (see GROUP_IN_STARTUP). The card is named 启动与界面, and what these
@@ -1715,7 +1432,7 @@ const onPortInput = (e: Event) => {
                                             :aria-label="t(l.label)"
                                             @click="pickLanguage(l)">
                                         <img class="lang-flag"
-                                             :src="`/fa/icon/${l.flag}.svg`"
+                                             :src="`/fa/flag/${l.flag}.svg`"
                                              alt=""/>
                                     </button>
                                 </div>
@@ -1904,28 +1621,36 @@ const onPortInput = (e: Event) => {
                                   @update:model-value="onJsonChange"
                                   @hotkey-capture="onHotkeyCapture">
                             <template #extra-text>
-                                <!-- The test card's two URLs, drawn by hand rather than as generated
-                                    rows: each wants a row of presets under it — one press writes a
-                                    source into the field — and a generated row has no place to hang
-                                    them. The chip carries the source's own host (the full address
-                                    rides its tooltip), which is what a reader tells the sources
-                                    apart by, and the press writes the whole URL into the field like
-                                    any other row would. -->
-                                <div v-for="key in (['test_url', 'test_url_dl'] as const)" :key="key" class="jf-field">
-                                    <label :title="`${testLabel(key)} · ${key}`">{{ testLabel(key) }}</label>
+                                <!-- The test card's engine and ping source, drawn by hand rather than
+                                    as generated rows: both are chosen from a list, not typed, and a
+                                    generated row has no place to hang the list. One dropdown and
+                                    nothing else — the ping options name the source's host (the whole
+                                    URL rides its tooltip), and picking one writes it into the
+                                    setting. -->
+                                <div class="jf-field">
+                                    <label :title="`${t('cfg.test_engine')} · test_engine`">{{ t('cfg.test_engine') }}</label>
                                     <div>
                                         <div class="input-row">
-                                            <input class="mono" :value="(obj?.[key] as string) ?? ''"
-                                                   :spellcheck="false"
-                                                   @input="obj && (obj = {...obj, [key]: ($event.target as HTMLInputElement).value})"/>
-                                            <!-- The presets as a dropdown rather than a run of chips: one
-                                                control, one press, the whole address written in — the host
-                                                is what the option names, the full URL what it carries. -->
-                                            <select class="rt-urlselect" value=""
-                                                    :aria-label="t('settings.testPreset')"
-                                                    @change="onTestPreset(key, $event)">
-                                                <option value="" disabled>{{ t('settings.testPreset') }}</option>
-                                                <option v-for="v in TEST_URL_PRESETS[key]" :key="v" :value="v"
+                                            <select class="rt-urlselect wide"
+                                                    :value="speedEngine()"
+                                                    :aria-label="t('cfg.test_engine')"
+                                                    @change="setSpeedEngine($event)">
+                                                <option v-for="e in SPEED_ENGINES" :key="e.value" :value="e.value">
+                                                    {{ e.label }}
+                                                </option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="jf-field">
+                                    <label :title="`${t('cfg.test_url')} · test_url`">{{ t('cfg.test_url') }}</label>
+                                    <div>
+                                        <div class="input-row">
+                                            <select class="rt-urlselect wide"
+                                                    :value="currentTestURL()"
+                                                    :aria-label="t('cfg.test_url')"
+                                                    @change="setTestURL($event)">
+                                                <option v-for="v in testURLOptions()" :key="v" :value="v"
                                                         :title="v">
                                                     {{ hostOf(v) }}
                                                 </option>

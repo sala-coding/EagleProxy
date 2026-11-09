@@ -12,7 +12,9 @@ import (
 	"eagle/internal/tray"
 	"eagle/internal/tunserv"
 	"eagle/internal/vpn"
+	"fmt"
 	"net/http"
+	"strconv"
 	"os"
 	"path/filepath"
 	"strings"
@@ -259,6 +261,10 @@ type App struct {
 	trafficMu sync.Mutex
 	lastUp    int64
 	lastDown  int64
+	// The machines seen through the shared inbound and when they were last seen,
+	// so an idle phone stays on the badge (see lanDevices). Touched only by
+	// trafficLoop.
+	lanSeen map[string]time.Time
 
 	// The poll behind ExitAddress asked "what is my address" on a timer; a
 	// fresh http.Transport per call left its keep-alive sockets parked behind
@@ -477,6 +483,9 @@ func (a *App) setCorePath(abs, raw string) {
 	a.pathMu.Lock()
 	a.corePath, a.corePathRaw = abs, raw
 	a.pathMu.Unlock()
+	// A different binary is a different version: the cached answer the config
+	// builder holds is re-asked in the background.
+	go a.refreshCoreVersion()
 }
 
 func (a *App) setLogDirPath(p string) {
@@ -583,6 +592,12 @@ func (a *App) startup(ctx context.Context) {
 	// core whose every resolution fails. It falls back by itself if it cannot bind (see
 	// app_dns.go and dnsstub.Endpoints).
 	a.startDNSStub()
+	// The core's own version, probed once in the background and handed to the
+	// config builder: it decides whether the tun stack may be the core's own
+	// (sing-box 1.15+, see configbuilder.NativeStackSupported). Background — a
+	// probe that overruns its window must not hold the start-up hostage, and a
+	// config built before the answer lands simply uses the stack fields.
+	go a.refreshCoreVersion()
 	// Write a marker straight away so the log folder is created on every launch
 	// and it is obvious whether file logging works.
 	if logs := a.logStore(); logs != nil {
@@ -930,4 +945,37 @@ func (a *App) runShutdown() {
 		logs.Close()
 	}
 	a.logf("[shutdown] stage: done")
+}
+
+// SetWindowBackground paints the window's own surface — the Win32 class brush
+// and the WebView2's default background — in the active theme's base colour.
+// That surface is what shows in the instant a resize or a maximise has grown
+// the window but the webview's next frame has not landed yet: matched to the
+// theme, the moment reads as the content extending rather than as a foreign
+// band appearing beside it. The colour arrives as the theme's own --bg value
+// (see the theme watcher in App.vue), so none of the palettes can drift from
+// it, and a switch of theme repaints the surface with the switch.
+func (a *App) SetWindowBackground(col string) {
+	r, g, b, err := parseHexColor(col)
+	if err != nil {
+		a.logf("[theme] window background not changed: " + err.Error())
+		return
+	}
+	runtime.WindowSetBackgroundColour(a.ctx, r, g, b, 255)
+}
+
+// parseHexColor reads "#161b22", "161b22" and the three-digit shorthand.
+func parseHexColor(col string) (uint8, uint8, uint8, error) {
+	col = strings.TrimPrefix(col, "#")
+	if len(col) == 3 {
+		col = string([]byte{col[0], col[0], col[1], col[1], col[2], col[2]})
+	}
+	if len(col) != 6 {
+		return 0, 0, 0, fmt.Errorf("not a six-digit hex colour: %q", col)
+	}
+	v, err := strconv.ParseUint(col, 16, 32)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	return uint8(v >> 16 & 0xff), uint8(v >> 8 & 0xff), uint8(v & 0xff), nil
 }
