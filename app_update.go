@@ -37,6 +37,23 @@ func (a *App) CheckUpdate() (*update.Release, error) {
 // The build time is only the last resort, for a build that carries no number
 // to compare — one made by a bare "wails build", which stamps nothing.
 func (a *App) newerRelease() (*update.Release, error) {
+	// The question "is anything newer" is asked first where it costs nothing: the
+	// release page answers a redirect whose Location ends in the latest tag, and that
+	// is not an API request — the API allows 60 an hour per address, and the reader's
+	// address is often a shared one (a proxy node's), where a few looks at the About
+	// card used to spend the allowance and answer "HTTP 403" to the next one.
+	//
+	// Only a tag that IS newer is worth the API call: it is what carries the assets,
+	// and the download needs their names and sizes. Pre-releases are asked of the API
+	// directly — the redirect names the latest full release and knows nothing about
+	// them, which is the whole of what that switch is for.
+	if appVersion != "" && !a.curSetting().CheckIncludePre {
+		if tag, err := update.LatestTag(updateRepo); err == nil {
+			if c, ok := update.Compare(appVersion, tag); ok && c >= 0 {
+				return nil, nil
+			}
+		}
+	}
 	rel, err := update.Latest(updateRepo, a.curSetting().CheckIncludePre)
 	if err != nil || rel == nil {
 		return rel, err

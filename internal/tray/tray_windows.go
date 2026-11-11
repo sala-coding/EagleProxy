@@ -223,15 +223,18 @@ func Setup(icon, activeIcon []byte, cb Callbacks) {
 			// The status line first: what is running now, before anything that
 			// would change it. Disabled — a fact stated where the press would
 			// say it — and filled in by SetCurrent as the core comes and goes.
-			icCur := systray.AddMenuItem("当前节点：未运行", "此行仅显示运行状态，启动与切换在下面")
+			// A dot and the name rather than a sentence: a menu is as wide as its
+			// longest row, and "当前节点：" spent five characters of that on a word
+			// the row's place and its own tooltip already say.
+			icCur := systray.AddMenuItem("● 未运行", "此行仅显示运行状态，启动与切换在下面")
 			icCur.Disable()
 			systray.AddSeparator()
-			mStart := systray.AddMenuItem("启动上次使用的节点", "用记住的节点，或列表里的第一个")
-			mStop := systray.AddMenuItem("停止当前节点", "断开运行中的节点，流量恢复直连")
+			mStart := systray.AddMenuItem("启动上次节点", "用记住的节点，或列表里的第一个")
+			mStop := systray.AddMenuItem("停止节点", "断开运行中的节点，流量恢复直连")
 			systray.AddSeparator()
-			icProxy := systray.AddMenuItem("系统代理模式", "经本地端口分流，软件跟随系统代理设置")
-			icTun := systray.AddMenuItem("TUN 虚拟网卡", "虚拟网卡接管整机流量，无需软件设置")
-			mNextNode := systray.AddMenuItem("切换到下一个节点", "切到列表中的下一个节点，当前模式保持不变")
+			icProxy := systray.AddMenuItem("系统代理", "经本地端口分流，软件跟随系统代理设置")
+			icTun := systray.AddMenuItem("TUN 网卡", "虚拟网卡接管整机流量，无需软件设置")
+			mNextNode := systray.AddMenuItem("下一个节点", "切到列表中的下一个节点，当前模式保持不变")
 			// The outbound mode, as its own corner of the menu: three answers, the
 			// one in force checked, the press on another one putting it in force the
 			// way the status bar's switch does (rebuild included — the backend's
@@ -334,13 +337,32 @@ func SetCurrent(name string) {
 		refreshTooltipLocked()
 		return
 	}
-	if name == "" {
-		name = "当前节点：未运行"
-	} else {
-		name = "当前节点：" + name
+	// The row states the node, and its tooltip states it in full: a native menu is as
+	// wide as its longest row, so one long subscription name would otherwise widen the
+	// whole menu — and the name is the only unbounded string in it.
+	title, full := "● 未运行", "当前节点：未运行"
+	if name != "" {
+		title = "● " + shortRunes(name, nodeRowMax)
+		full = "当前节点：" + name
 	}
-	itemCurrent.SetTitle(name)
+	itemCurrent.SetTitle(title)
+	itemCurrent.SetTooltip(full)
 	refreshTooltipLocked()
+}
+
+// nodeRowMax is how much of a node's name the status row shows, in characters. Wide
+// enough for the names a reader recognises a node by ("us美国专线02"), short enough
+// that none of them can set the menu's width on its own.
+const nodeRowMax = 12
+
+// shortRunes cuts s to n characters, with the ellipsis telling the reader that what is
+// shown is not all of it.
+func shortRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n || n <= 0 {
+		return s
+	}
+	return string(r[:n-1]) + "…"
 }
 
 // Quit removes the tray icon.

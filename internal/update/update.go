@@ -38,6 +38,58 @@ type Release struct {
 // running — that question belongs to whoever is asking, and the two answers it
 // can give (a version number, a build time) are not the same question. See
 // Compare and PublishedAfter.
+// LatestTag names the latest full release without asking the API: the release page
+// answers a redirect whose Location ends in the tag, and a redirect is not an API
+// request — the 60 an hour GitHub allows an unauthenticated address are per address,
+// and a reader's address is often a shared one (a proxy node's). The check that runs
+// on every look at the About card used to spend one of them to be told "nothing new".
+//
+// Only the tag comes back, which is all "is anything newer" needs. Pre-releases are
+// invisible here by design: this URL names the latest full release, and asking about
+// them is what the API is for (see Latest).
+func LatestTag(repo string) (string, error) {
+	if repo == "" {
+		return "", fmt.Errorf("no repository configured")
+	}
+	// The redirect itself is the answer, so it is not followed.
+	client := &http.Client{
+		Timeout:       15 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	req, err := http.NewRequest(http.MethodGet, "https://github.com/"+repo+"/releases/latest", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Eagle-Go")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<12))
+	switch resp.StatusCode {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+	default:
+		// 200 means there is no release to point at (or no release page at all);
+		// anything else is a refusal, and both leave the caller on its API path.
+		return "", fmt.Errorf("release redirect: HTTP %d", resp.StatusCode)
+	}
+	// ".../releases/tag/v1.0.16", with any query or fragment after the tag.
+	loc := resp.Header.Get("Location")
+	i := strings.LastIndex(loc, "/tag/")
+	if i < 0 {
+		return "", fmt.Errorf("release redirect names no tag: %s", loc)
+	}
+	tag := strings.TrimSuffix(loc[i+len("/tag/"):], "/")
+	if j := strings.IndexAny(tag, "?#"); j >= 0 {
+		tag = tag[:j]
+	}
+	if tag == "" {
+		return "", fmt.Errorf("release redirect names no tag")
+	}
+	return tag, nil
+}
+
 func Latest(repo string, includePre bool) (*Release, error) {
 	if repo == "" {
 		return nil, fmt.Errorf("no repository configured")

@@ -574,6 +574,8 @@ const persist = async () => {
     if (corePath.value.trim()) {
         try {
             await API.SetCorePath(corePath.value.trim());
+            // The stack row is the core's answer, and the core has just changed.
+            probeCore();
         } catch (e) {
             problems.push(e);
         }
@@ -773,18 +775,31 @@ const cores = ref<string[]>([]);
 // The file's name without the extension every core here carries anyway: the field is
 // narrow, and the whole path rides the tooltip.
 const coreName = (p: string) => p ? p.replace(/^.*[\\/]/, '').replace(/\.exe$/i, '') : 'sing-box';
-// The field's current value first, so it stays the selected entry even when the
-// folder it names cannot be read (or holds nothing but itself) — and one entry per
-// file name, because the same core can be written absolutely in the file and
-// relatively by the listing.
+// The folder a core sits in, as the one word a label can carry: the listing writes its
+// paths relatively ("sing-box\sing-box.exe"), and the last segment says which folder
+// that is without repeating the path the tooltip already holds.
+const coreFolder = (p: string) => {
+    const cut = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'));
+    return cut < 0 ? '' : p.slice(0, cut).replace(/^.*[\\/]/, '');
+};
+// The field's current value first, so it stays the selected entry even when the folder
+// it names cannot be read — and one entry per path, because the same core can be written
+// absolutely in the file and relatively by the listing. Two *different* cores can share
+// a file name (one beside the program, one in the sing-box/ folder), and de-duping on
+// the name alone made one of them unreachable: the folder joins the label when the name
+// by itself would not say which is which.
 const coreChoices = computed(() => {
     const seen = new Set<string>();
-    return [corePath.value, ...cores.value].filter(p => {
-        const name = coreName(p);
-        if (seen.has(name)) return false;
-        seen.add(name);
+    const rows = [corePath.value, ...cores.value].filter(p => {
+        if (seen.has(p)) return false;
+        seen.add(p);
         return true;
-    });
+    }).map(value => ({value, label: coreName(value), dir: coreFolder(value)}));
+    // The empty value is the "auto" row and says so in its own words; it must not count
+    // towards a name clash with the core the auto choice happens to name.
+    const count: Record<string, number> = {};
+    for (const r of rows) if (r.value) count[r.label] = (count[r.label] ?? 0) + 1;
+    return rows.map(r => (count[r.label] > 1 && r.dir ? {...r, label: `${r.label} — ${r.dir}`} : r));
 });
 // A bare file name names no folder: the listing reads the program's own folder and the
 // sing-box/ one beside it, and asking it for "sing-box.exe" read a file as a directory.
@@ -805,10 +820,23 @@ const pickCoreChoice = (v: string) => {
     coreOpen.value = false;
     corePath.value = v;
 };
+// What the core answers to `version`, for the TUN card's stack row: below 1.15 the core
+// has no stack of its own, from 1.15 on the three named ones are dead fields there. Asked
+// again whenever this panel writes a new core path — the card used to probe once at mount
+// and went on offering the previous core's choices for the rest of the session.
+const coreVer = ref('');
+let probedPath = '';
+const probeCore = (force = false) => {
+    const p = corePath.value.trim();
+    if (!force && p === probedPath) return;
+    probedPath = p;
+    API.CoreVersion().then(v => { coreVer.value = v || ''; }).catch(() => { coreVer.value = ''; });
+};
 let corePoll = 0;
 onMounted(() => {
     void refreshCores();
     corePoll = window.setInterval(refreshCores, 2000);
+    probeCore(true);
 });
 onBeforeUnmount(() => { window.clearInterval(corePoll); });
 watch(corePath, () => { void refreshCores(); });
@@ -1593,7 +1621,7 @@ const onPortInput = (e: Event) => {
                     (see the note below about its label column). -->
                 <div v-bind="slideOf('settings.group.tun', ' set-tun')">
                     <div class="set-group-title">{{ t('settings.group.tun') }}</div>
-                    <TunCard v-if="obj" :obj="obj" :tun-on="tunOn" @patch="onJsonChange"
+                    <TunCard v-if="obj" :obj="obj" :tun-on="tunOn" :core-version="coreVer" @patch="onJsonChange"
                              @notify="(m, k) => emit('notify', m, k)"/>
                     <div v-else class="hint">加载中…</div>
                 </div>
@@ -1697,16 +1725,16 @@ const onPortInput = (e: Event) => {
                                                     :aria-expanded="coreOpen"
                                                     aria-haspopup="listbox"
                                                     @click="coreOpen = !coreOpen">
-                                                <span>{{ coreName(corePath) }}</span>
+                                                <span>{{ corePath ? coreName(corePath) : t('settings.coreAuto') }}</span>
                                             </button>
                                             <ul v-if="coreOpen" class="rt-select-menu" role="listbox"
                                                 :aria-label="t('settings.corePath')">
-                                                <li v-for="c in coreChoices" :key="c">
+                                                <li v-for="c in coreChoices" :key="c.value">
                                                     <button type="button" role="option"
-                                                            :aria-selected="c === corePath"
-                                                            :class="c === corePath ? 'on' : ''"
-                                                            :title="c"
-                                                            @click="pickCoreChoice(c)">{{ coreName(c) }}</button>
+                                                            :aria-selected="c.value === corePath"
+                                                            :class="c.value === corePath ? 'on' : ''"
+                                                            :title="c.value || t('settings.corePath')"
+                                                            @click="pickCoreChoice(c.value)">{{ c.value ? c.label : t('settings.coreAuto') }}</button>
                                                 </li>
                                             </ul>
                                         </div>

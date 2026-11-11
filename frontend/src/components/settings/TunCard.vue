@@ -17,6 +17,9 @@ const props = defineProps<{
     // not at all (see BuildVPNConfig in the Go side). Handed down rather than read here
     // because the two rail switches own that state and a second copy could disagree.
     tunOn: boolean;
+    // What the core answers to `version`, "" while nothing has been asked or the binary
+    // would not say. The stack row turns on it (see nativeStack).
+    coreVersion: string;
 }>();
 
 const emit = defineEmits<{patch: [p: Dict]; notify: [text: string, kind?: 'ok' | 'err']}>();
@@ -90,22 +93,26 @@ const TUN_STACKS = [
     {value: 2, label: 'mixed（混合栈）'},
     {value: 3, label: 'Sing 15（1.15+ 自有栈）'},
 ];
-const coreVersion = ref('');
-onMounted(() => {
-    API.CoreVersion().then(v => { coreVersion.value = v || ''; }).catch(() => {});
-});
 // A version at or above 1.15 is where sing-tun ships its own TCP/IP stack; anything
-// unanswerable reads as older, the side the option stands down on.
+// unanswerable reads as older, the side the option stands down on. Handed down rather
+// than probed here: the path that decides it is edited on another slide, and a card that
+// asked once at mount went on offering the previous core's choices after the reader had
+// pointed the app at a new one (see probeCore in SettingsDialog).
 const nativeStack = computed(() => {
-    const m = /^(\d+)\.(\d+)/.exec(coreVersion.value || '');
+    const m = /^(\d+)\.(\d+)/.exec(props.coreVersion || '');
     if (!m) return false;
     const major = Number(m[1]), minor = Number(m[2]);
     return major > 1 || (major === 1 && minor >= 15);
 });
 const tunStack = () => {
+    // 1.15 and newer: the three named stacks are deprecated fields there — the core
+    // brings its own — so the only answer this field can give is the fourth one, and it
+    // is what the field shows whatever the file still holds (see the option's disabled
+    // state; the file is left as the reader wrote it, and reading it back on an older
+    // core restores the choice they made then).
+    if (nativeStack.value) return 3;
     const n = Number(props.obj.vpn_impl);
-    if (n === 3) return nativeStack.value ? 3 : 0;
-    return TUN_STACKS.some(s => s.value === n) ? n : 0;
+    return TUN_STACKS.some(s => s.value === n) && n !== 3 ? n : 0;
 };
 
 // UWP loopback: Store apps are isolated from 127.0.0.1 by default, so a proxy on the
@@ -151,15 +158,20 @@ const toggleUwp = async (e: Event) => {
         </div>
         <!-- The stack, as a choice rather than a number: the file holds an index
             and the builder turns it into one of the three, so the field shows the
-            name and writes the number back (see TUN_STACKS). -->
+            name and writes the number back (see TUN_STACKS). Which of the four is
+            offered is the core's answer, and it is exclusive: below 1.15 the core's
+            own stack does not exist, and from 1.15 on the three named ones are
+            deprecated fields the core no longer reads. -->
         <div :class="`jf-field${tunIdle}`">
             <label :title="t('hint.vpn_impl')">{{ t('cfg.vpn_impl') }}</label>
             <select class="rt-urlselect wide" :value="tunStack()"
                     :aria-label="t('cfg.vpn_impl')"
                     @change="emit('patch', {vpn_impl: Number(($event.target as HTMLSelectElement).value)})">
                 <option v-for="st in TUN_STACKS" :key="st.value" :value="st.value"
-                        :disabled="st.value === 3 && !nativeStack"
-                        :title="st.value === 3 && !nativeStack ? t('hint.vpn_impl_old') : st.label">
+                        :disabled="st.value === 3 ? !nativeStack : nativeStack"
+                        :title="st.value === 3
+                            ? (nativeStack ? st.label : t('hint.vpn_impl_old'))
+                            : (nativeStack ? t('hint.vpn_impl_gone') : st.label)">
                     {{ st.label }}
                 </option>
             </select>

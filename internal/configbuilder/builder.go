@@ -1646,11 +1646,20 @@ func (b *builder) tunInbound(autoRoute bool) map[string]interface{} {
 	stacks := []string{"gvisor", "system", "mixed"}
 	idx := s.VPNImplementation
 	// 3 is the core's own stack — sing-box 1.15's sing-tun, which reads an absent
-	// stack field as "use yours" and outperforms every entry in this list. It only
-	// means that on a core new enough to carry it: on an older core the picked
-	// answer does not exist, and the build falls back to gvisor rather than naming
-	// a stack the core does not know (see NativeStackSupported).
-	native := idx == 3 && NativeStackSupported()
+	// stack field as "use yours" and outperforms every entry in this list.
+	//
+	// On 1.15 and newer the field is not written at all, whatever number the file
+	// still holds. It is deprecated there, and worse than deprecated on a build
+	// compiled without gvisor: naming any of the three answers a 1.15 core received
+	// from a file written before the reader pointed the app at it ends as
+	//
+	//	FATAL start inbound/tun[tun-in]: gVisor is not included in this build,
+	//	rebuild with -tags with_gvisor
+	//
+	// — a refusal to start, not a warning, and one that reads as "TUN 打不开". On an
+	// older core the fourth answer does not exist, and the build falls back to gvisor
+	// rather than naming a stack the core does not know (see NativeStackSupported).
+	native := NativeStackSupported()
 	if idx < 0 || idx >= len(stacks) || idx == 3 {
 		idx = 0
 	}
