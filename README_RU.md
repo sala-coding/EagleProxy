@@ -1,11 +1,5 @@
 <p align="center">
-  <img src="build/appicon.png" width="96" alt="EagleProxy">
-</p>
-
-<h1 align="center">EagleProxy</h1>
-
-<p align="center">
-  <sub>Клиент прокси для Windows · подписки · таблица узлов · TUN / системный прокси</sub>
+  <img src="build/banner.svg" width="100%" alt="EagleProxy">
 </p>
 
 <p align="center">
@@ -20,7 +14,12 @@
 </p>
 
 <p align="center">
-  <sub>Один исполняемый файл · данные в <code>config\</code> рядом с ним · без реестра · без службы</sub>
+  <a href="https://github.com/sala-coding/EagleProxy/releases/latest"><img src="https://img.shields.io/badge/СКАЧАТЬ-FULL%20ZIP-2f7d5a?style=for-the-badge" alt="download full"></a>
+  <a href="https://github.com/sala-coding/EagleProxy/releases/latest"><img src="https://img.shields.io/badge/СКАЧАТЬ-EXE%20ONLY-0b6cbd?style=for-the-badge" alt="download exe"></a>
+</p>
+
+<p align="center">
+  <sub><b>full</b> — для первой установки, <b>exe</b> — обновление поверх · распакуйте и запускайте · без реестра и служб</sub>
 </p>
 
 ---
@@ -33,6 +32,7 @@
 <td align="center" width="33%"><b>Горячее переключение</b><br><sub>смена узла в группе<br>без перезапуска ядра</sub></td>
 <td align="center" width="33%"><b>Два режима</b><br><sub>системный прокси / TUN<br>одним щелчком</sub></td>
 </tr>
+<tr><td colspan="3"><br><br></td></tr>
 <tr>
 <td align="center"><b>Локальная сеть</b><br><sub>один адрес<br>для всех устройств</sub></td>
 <td align="center"><b>Правила и DNS</b><br><sub><code>.srs</code> по странам<br>два списка, быстрейший выбирается</sub></td>
@@ -44,20 +44,15 @@
   <sub>Ещё: горячие клавиши и трей · четыре языка интерфейса · проверка обновлений на GitHub</sub>
 </p>
 
-### Загрузка
-
-| Файл | Содержимое | Назначение |
-| --- | --- | --- |
-| `Eagle-vX.Y.Z-windows-full.zip` | `Eagle.exe` + `sing-box\` | Первая установка: распакуйте и запускайте |
-| `Eagle-vX.Y.Z-windows.exe` | только сама программа | Обновление поверх; его скачивает автообновлятор |
-
-Ядро не встроено: программа ищет `sing-box.exe` рядом с собой, в папке `sing-box\` и рядом с каталогом данных. Настройки → путь к ядру показывают найденное — сборку можно выбрать, а не вписывать вручную.
-
 ### Быстрый старт
 
 1. Скачайте `Eagle-v*-windows-full.zip` со страницы [Releases](https://github.com/sala-coding/EagleProxy/releases/latest)
 2. Распакуйте в любую папку, сохранив `Eagle.exe` и `sing-box\` рядом
 3. Запустите `Eagle.exe`, добавьте подписку или вставьте ссылки узлов и запустите узел из таблицы
+
+### Ядро
+
+Ядро не встроено: программа ищет `sing-box.exe` рядом с собой, в папке `sing-box\` и рядом с каталогом данных. Настройки → путь к ядру показывают всё найденное — сборку можно выбрать, а не вписывать вручную. Данные лежат в `config\` рядом с программой.
 
 <details>
 <summary><b>Сборка из исходников</b></summary>

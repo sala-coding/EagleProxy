@@ -1,11 +1,5 @@
 <p align="center">
-  <img src="build/appicon.png" width="96" alt="EagleProxy">
-</p>
-
-<h1 align="center">EagleProxy</h1>
-
-<p align="center">
-  <sub>Windows 代理客户端 · 订阅 · 节点表格 · TUN / 系统代理</sub>
+  <img src="build/banner.svg" width="100%" alt="EagleProxy">
 </p>
 
 <p align="center">
@@ -20,7 +14,12 @@
 </p>
 
 <p align="center">
-  <sub>单文件便携 · 数据只放在程序目录的 <code>config\</code> · 不写注册表 · 不装服务</sub>
+  <a href="https://github.com/sala-coding/EagleProxy/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD-FULL%20ZIP-2f7d5a?style=for-the-badge" alt="download full"></a>
+  <a href="https://github.com/sala-coding/EagleProxy/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD-EXE%20ONLY-0b6cbd?style=for-the-badge" alt="download exe"></a>
+</p>
+
+<p align="center">
+  <sub>首次安装选 <b>full</b>，覆盖升级选 <b>exe</b> · 解压即用 · 不写注册表 · 不装服务</sub>
 </p>
 
 ---
@@ -33,6 +32,7 @@
 <td align="center" width="33%"><b>热切换</b><br><sub>组内换节点<br>不重启内核</sub></td>
 <td align="center" width="33%"><b>双模式</b><br><sub>系统代理 / TUN<br>侧栏一键切换</sub></td>
 </tr>
+<tr><td colspan="3"><br><br></td></tr>
 <tr>
 <td align="center"><b>局域网共享</b><br><sub>同网段设备<br>填一个地址即可</sub></td>
 <td align="center"><b>规则与 DNS</b><br><sub><code>.srs</code> 按国家管理<br>双列表 + 延迟优选</sub></td>
@@ -44,20 +44,15 @@
   <sub>另有：全局热键与托盘 · 四种界面语言 · 关于卡检查 GitHub 更新</sub>
 </p>
 
-### 下载
-
-| 文件 | 内容 | 用途 |
-| --- | --- | --- |
-| `Eagle-vX.Y.Z-windows-full.zip` | `Eagle.exe` + `sing-box\` | 首次安装，解压即用 |
-| `Eagle-vX.Y.Z-windows.exe` | 仅程序本体 | 覆盖升级；自动更新读取此文件 |
-
-内核不内嵌：程序在自身目录、`sing-box\` 子目录与数据目录附近查找 `sing-box.exe`，设置 → 核心路径可列出并直接切换。
-
 ### 快速开始
 
 1. 从 [Releases](https://github.com/sala-coding/EagleProxy/releases/latest) 下载 `Eagle-v*-windows-full.zip`
 2. 解压到任意目录，保持 `Eagle.exe` 与 `sing-box\` 同级
 3. 运行 `Eagle.exe`，导入订阅或粘贴分享链接，在节点表格里选一个节点启动
+
+### 内核
+
+内核不内嵌，程序在自身目录、`sing-box\` 子目录与数据目录附近查找 `sing-box.exe`；设置 → 核心路径会列出找到的每一个内核，点选即可切换。数据只放在程序目录的 `config\`。
 
 <details>
 <summary><b>从源码构建</b></summary>

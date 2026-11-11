@@ -1,11 +1,5 @@
 <p align="center">
-  <img src="build/appicon.png" width="96" alt="EagleProxy">
-</p>
-
-<h1 align="center">EagleProxy</h1>
-
-<p align="center">
-  <sub>کلاینت پروکسی ویندوز · اشتراک‌ها · جدول نودها · TUN / پروکسی سیستم</sub>
+  <img src="build/banner.svg" width="100%" alt="EagleProxy">
 </p>
 
 <p align="center">
@@ -20,7 +14,12 @@
 </p>
 
 <p align="center">
-  <sub>یک فایل اجرایی · داده‌ها در <code>config\</code> کنار آن · بدون رجیستری · بدون سرویس</sub>
+  <a href="https://github.com/sala-coding/EagleProxy/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD-FULL%20ZIP-2f7d5a?style=for-the-badge" alt="download full"></a>
+  <a href="https://github.com/sala-coding/EagleProxy/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD-EXE%20ONLY-0b6cbd?style=for-the-badge" alt="download exe"></a>
+</p>
+
+<p align="center">
+  <sub><b>full</b> برای نصب نخست، <b>exe</b> برای به‌روزرسانی روی نسخهٔ قبلی · بدون رجیستری و سرویس</sub>
 </p>
 
 ---
@@ -33,6 +32,7 @@
 <td align="center" width="33%"><b>جابه‌جایی سریع</b><br><sub>تغییر نود در گروه<br>بدون راه‌اندازی دوبارهٔ هسته</sub></td>
 <td align="center" width="33%"><b>دو حالت</b><br><sub>پروکسی سیستم / TUN<br>با یک کلیک</sub></td>
 </tr>
+<tr><td colspan="3"><br><br></td></tr>
 <tr>
 <td align="center"><b>شبکهٔ محلی</b><br><sub>یک نشانی<br>برای همهٔ دستگاه‌ها</sub></td>
 <td align="center"><b>قواعد و DNS</b><br><sub><code>.srs</code> بر پایهٔ کشور<br>دو فهرست، سریع‌ترین انتخاب می‌شود</sub></td>
@@ -44,20 +44,15 @@
   <sub>همچنین: کلیدهای میانبر و سینی سیستم · چهار زبان · بررسی به‌روزرسانی در GitHub</sub>
 </p>
 
-### دانلود
-
-| فایل | محتوا | کاربرد |
-| --- | --- | --- |
-| `Eagle-vX.Y.Z-windows-full.zip` | `Eagle.exe` + `sing-box\` | نصب نخست: از حالت فشرده خارج و اجرا کنید |
-| `Eagle-vX.Y.Z-windows.exe` | فقط خود برنامه | به‌روزرسانی روی نسخهٔ قبلی؛ به‌روزرسان همین را می‌گیرد |
-
-هسته درون برنامه نیست: برنامه `sing-box.exe` را کنار خود، در پوشهٔ `sing-box\` و نزدیک پوشهٔ داده‌ها می‌جوید. در تنظیمات → مسیر هسته فهرست می‌شود و می‌توانید بی‌درنگ هستهٔ دیگری را انتخاب کنید.
-
 ### شروع سریع
 
 1. `Eagle-v*-windows-full.zip` را از صفحهٔ [Releases](https://github.com/sala-coding/EagleProxy/releases/latest) دانلود کنید
 2. در هر پوشه‌ای از حالت فشرده خارج کنید، با `Eagle.exe` و `sing-box\` کنار هم
 3. `Eagle.exe` را اجرا کنید، اشتراک یا لینک نود را وارد کنید و از جدول یک نود را روشن کنید
+
+### هسته
+
+هسته درون برنامه نیست: برنامه `sing-box.exe` را کنار خود، در پوشهٔ `sing-box\` و نزدیک پوشهٔ داده‌ها می‌جوید. در تنظیمات → مسیر هسته همهٔ هسته‌های یافته‌شده فهرست می‌شوند و انتخابشان یک کلیک است. داده‌ها در `config\` کنار برنامه می‌مانند.
 
 <details>
 <summary><b>ساخت از سورس</b></summary>
