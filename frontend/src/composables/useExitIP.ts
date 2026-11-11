@@ -152,6 +152,14 @@ export function useExitIP(running: Ref<number>) {
         });
     }, {immediate: true});
 
+    // Opening the panel is a reader asking for the whole reading, and the corner's own
+    // answer may never have got past the address (the six-try window above gives up
+    // long before the detail service does). Ask again while the report is missing —
+    // once the address has one, an open costs nothing.
+    watch(infoOpen, open => {
+        if (open && !exitIP.value?.riskDetail) exitTick.value++;
+    });
+
     // The exit panel answers to the same two as every other list: a press outside it, or
     // Escape. mousedown rather than click, so it is gone before the press lands on
     // whatever is behind it.

@@ -10,7 +10,7 @@
 // console's stream now (see notify in App.vue). What remains here reads what
 // is moving (rates, the test pill), which is not a sentence and has nowhere
 // else to be said.
-import {ref, watch, nextTick, onMounted, onBeforeUnmount, type Ref} from 'vue';
+import {computed, ref, watch, nextTick, onMounted, onBeforeUnmount, type Ref} from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import {t} from '../i18n';
 import {countryName, purityLevel, SPEED_RUNNING_KEYS} from '../lib/metrics';
@@ -78,6 +78,55 @@ const barDbl = (e: MouseEvent) => {
 const flagBroken = ref(false);
 watch(() => props.exitIp?.cc, () => { flagBroken.value = false; });
 
+// The report behind the purity band, as the backend handed it over in one JSON string
+// (see riskDetail in app_exitip.go): per-source contributions, the votes behind the
+// proxy/vpn reading, how much of it was live, and the registry the range belongs to.
+type RiskDetail = {
+    final?: number;
+    contributors?: {source: string; risk: number; weight: number}[];
+    votes?: {key: string; count: number; of: number}[];
+    disagreement?: boolean;
+    confidence?: string;
+    bucket?: string;
+    current?: number;
+    stale?: number;
+    assessedAt?: string;
+    registry?: string;
+    reasons?: string[];
+};
+const riskOpen = ref(false);
+// The fold belongs to the address it was opened over: a new address is a new report,
+// and an open one would show the next node's sources as if they had been read.
+watch(() => props.exitIp?.ip, () => { riskOpen.value = false; });
+// And to the opening: a panel put away comes back folded, the way it first opened,
+// rather than resuming a detail the reader had finished with.
+watch(() => props.infoOpen, open => { if (!open) riskOpen.value = false; });
+const riskDetail = computed<RiskDetail | null>(() => {
+    const raw = props.exitIp?.riskDetail;
+    if (!raw) return null;
+    try {
+        return JSON.parse(raw) as RiskDetail;
+    } catch {
+        return null;
+    }
+});
+const voteText = computed(() =>
+    (riskDetail.value?.votes ?? []).map(v => `${v.key} ${v.count}/${v.of}`).join(' · '));
+const evidenceText = computed(() =>
+    [riskDetail.value?.confidence, riskDetail.value?.bucket].filter(Boolean).join(' · '));
+const sourceText = computed(() => {
+    const d = riskDetail.value;
+    if (!d || d.current === undefined) return '';
+    const total = (d.current ?? 0) + (d.stale ?? 0);
+    let text = `${d.current} / ${total}`;
+    if (d.assessedAt) {
+        const at = new Date(d.assessedAt);
+        if (!Number.isNaN(at.getTime())) text += ` · ${at.toLocaleString()}`;
+    }
+    return text;
+});
+const riskLevelOf = (v: number) => v < 30 ? 'low' : v < 60 ? 'mid' : 'high';
+
 // The search field, for the one thing App cannot reach from here: focusing it
 // the moment the cluster opens (App owns the open state; this dock owns the
 // input element).
@@ -111,13 +160,11 @@ defineExpose({loadLan});
 // The exit panel's copy button: the clipboard write and the note ride one press,
 // so both live here rather than inline in the template (the template scope has
 // no navigator of its own).
-async function copyIp() {
-    const text = props.exitIp?.ip ?? '';
-    if (!text) return;
-    // Same two-step the log panel pays (see useLogs.copyLogs): the async
-    // clipboard is refused outright on the custom scheme, and the backend's
-    // clipboard binding is the fallback — not an error. The empty answer that
-    // used to be reported as "copied" was a promise thrown away by `void`.
+// Same two-step the log panel pays (see useLogs.copyLogs): the async clipboard is
+// refused outright on the custom scheme, and the backend's binding is the fallback —
+// not an error. The empty answer that used to be reported as "copied" was a promise
+// thrown away by `void`.
+async function writeClipboard(text: string) {
     try {
         await navigator.clipboard.writeText(text);
         emit('copied', true);
@@ -129,6 +176,50 @@ async function copyIp() {
     } catch {
         emit('copied', false);
     }
+}
+
+async function copyIp() {
+    const text = props.exitIp?.ip ?? '';
+    if (!text) return;
+    await writeClipboard(text);
+}
+
+// The whole reading as one block, in the panel's own order and words: what a bug report
+// or a support thread asks for, without retyping a dozen fields.
+async function copyAll() {
+    const e = props.exitIp;
+    if (!e) return;
+    const lines: string[] = [];
+    const add = (label: string, value?: string) => {
+        if (value) lines.push(`${label}: ${value}`);
+    };
+    add(t('ip.address'), e.ip);
+    add(t('ip.reverse'), e.reverse);
+    // The two halves the panel folds into one row are folded the same way here: an ASN
+    // without its organisation, or a version without the anycast behind it, is half of
+    // what the row said.
+    add(t('ip.asn'), [e.asn, e.asOrg].filter(Boolean).join(' — '));
+    add(t('ip.org'), e.org);
+    add(t('ip.isp'), e.isp);
+    if (e.cc) add(t('ip.country'), `${countryName(e.cc)} (${e.cc.toUpperCase()})`);
+    add(t('ip.region'), e.region);
+    add(t('ip.city'), e.city);
+    add(t('ip.timezone'), e.timezone);
+    if (e.lat && e.lon) add(t('ip.coords'), `${e.lat}, ${e.lon}`);
+    add(t('ip.usage'), e.usage);
+    add(t('ip.signals'), e.signals);
+    add(t('ip.version'), [e.ipv, e.anycast].filter(Boolean).join(' · '));
+    add(t('ip.assessment'), e.riskStatus);
+    if (e.residential) add(t('ip.type'), e.residential === '1' ? t('ip.residential') : t('ip.datacenter'));
+    if (e.purity) add(t('ip.purity'), `${e.purity}%`);
+    // The report behind the band, which the panel shows folded open.
+    if (voteText.value) {
+        add(t('ip.consensus'), riskDetail.value?.disagreement ? `${voteText.value} · ${t('ip.disagreement')}` : voteText.value);
+    }
+    add(t('ip.evidence'), evidenceText.value);
+    add(t('ip.sourcesState'), sourceText.value);
+    add(t('ip.registry'), riskDetail.value?.registry);
+    await writeClipboard(lines.join('\n'));
 }
 
 // The LAN endpoint's copy: the same two-step as the exit address's (see copyIp),
@@ -227,6 +318,11 @@ async function copyLan() {
                 <div class="exit-row">
                     <span class="exit-k">{{ t('ip.address') }}</span>
                     <span class="exit-v mono">
+                        <!-- The address's own country beside the address, the same
+                            artwork the bar's corner wears: the one thing about this
+                            number a reader recognises before reading it. -->
+                        <img v-if="exitIp.cc" class="node-flag" :src="`/fa/flag/${exitIp.cc}.svg`"
+                             alt="" aria-hidden="true" @error="flagBroken = true"/>
                         {{ exitIp.ip }}
                         <button class="exit-copy" :title="t('btn.copy')"
                                 :aria-label="t('btn.copy')"
@@ -235,12 +331,13 @@ async function copyLan() {
                         </button>
                     </span>
                 </div>
+                <div v-if="exitIp.reverse" class="exit-row"><span class="exit-k">{{ t('ip.reverse') }}</span><span class="exit-v mono">{{ exitIp.reverse }}</span></div>
                 <div v-if="exitIp.asn" class="exit-row">
                     <span class="exit-k">{{ t('ip.asn') }}</span>
                     <span class="exit-v">{{ exitIp.asn }}{{ exitIp.asOrg ? ` — ${exitIp.asOrg}` : '' }}</span>
                 </div>
-                <div v-if="exitIp.asDomain" class="exit-row"><span class="exit-k">{{ t('ip.asDomain') }}</span><span class="exit-v">{{ exitIp.asDomain }}</span></div>
                 <div v-if="exitIp.isp" class="exit-row"><span class="exit-k">{{ t('ip.isp') }}</span><span class="exit-v">{{ exitIp.isp }}</span></div>
+                <div v-if="exitIp.org" class="exit-row"><span class="exit-k">{{ t('ip.org') }}</span><span class="exit-v">{{ exitIp.org }}</span></div>
                 <div v-if="exitIp.cc" class="exit-row">
                     <span class="exit-k">{{ t('ip.country') }}</span>
                     <span class="exit-v">
@@ -251,14 +348,13 @@ async function copyLan() {
                 <div v-if="exitIp.city" class="exit-row"><span class="exit-k">{{ t('ip.city') }}</span><span class="exit-v">{{ exitIp.city }}</span></div>
                 <div v-if="exitIp.timezone" class="exit-row"><span class="exit-k">{{ t('ip.timezone') }}</span><span class="exit-v">{{ exitIp.timezone }}</span></div>
                 <div v-if="exitIp.lat && exitIp.lon" class="exit-row"><span class="exit-k">{{ t('ip.coords') }}</span><span class="exit-v">{{ exitIp.lat }}, {{ exitIp.lon }}</span></div>
-                <div v-if="exitIp.postal" class="exit-row"><span class="exit-k">{{ t('ip.postal') }}</span><span class="exit-v">{{ exitIp.postal }}</span></div>
-                <div v-if="exitIp.residential === '1' || exitIp.broadcast === '1'" class="exit-row">
+                <div v-if="exitIp.usage" class="exit-row"><span class="exit-k">{{ t('ip.usage') }}</span><span class="exit-v">{{ exitIp.usage }}</span></div>
+                <div v-if="exitIp.signals" class="exit-row"><span class="exit-k">{{ t('ip.signals') }}</span><span class="exit-v">{{ exitIp.signals }}</span></div>
+                <div v-if="exitIp.ipv" class="exit-row"><span class="exit-k">{{ t('ip.version') }}</span><span class="exit-v">{{ exitIp.ipv }}{{ exitIp.anycast ? ` · ${exitIp.anycast}` : '' }}</span></div>
+                <div v-if="exitIp.riskStatus" class="exit-row"><span class="exit-k">{{ t('ip.assessment') }}</span><span class="exit-v">{{ exitIp.riskStatus }}</span></div>
+                <div v-if="exitIp.residential" class="exit-row">
                     <span class="exit-k">{{ t('ip.type') }}</span>
-                    <span class="exit-v">
-                        {{ exitIp.residential === '1' ? t('ip.residential') : t('ip.datacenter') }}
-                        {{ ' · ' }}
-                        {{ exitIp.broadcast === '1' ? t('ip.broadcast') : t('ip.native') }}
-                    </span>
+                    <span class="exit-v">{{ exitIp.residential === '1' ? t('ip.residential') : t('ip.datacenter') }}</span>
                 </div>
                 <template v-if="exitIp.purity">
                     <div class="exit-row">
@@ -270,6 +366,55 @@ async function copyLan() {
                     </div>
                     <div class="purity-band" :style="{'--pos': `${exitIp.purity}%`}"/>
                 </template>
+                <!-- The report behind that score, folded away: the panel is a glance,
+                    and the per-source detail is for the reader who doubts the number. -->
+                <div v-if="riskDetail" class="exit-more">
+                    <button type="button" class="exit-more-toggle"
+                            :aria-expanded="riskOpen"
+                            @click="riskOpen = !riskOpen">
+                        {{ riskOpen ? t('ip.less') : t('ip.more') }}
+                    </button>
+                    <div v-if="riskOpen" class="exit-detail">
+                        <!-- Each source as an ordinary label/value row, so its name sits in
+                            the panel's own label column with every other label, and the bar
+                            and the number are the row's value. -->
+                        <template v-if="riskDetail.contributors?.length">
+                            <div v-for="c in riskDetail.contributors" :key="c.source" class="exit-row">
+                                <span class="exit-k">{{ c.source }}</span>
+                                <span class="exit-v risk-src">
+                                    <span class="risk-src-bar">
+                                        <i :data-level="riskLevelOf(c.risk)"
+                                           :style="{width: `${Math.max(2, Math.min(100, c.risk))}%`}"/>
+                                    </span>
+                                    <span class="risk-src-val">{{ Math.round(c.risk) }}</span>
+                                </span>
+                            </div>
+                        </template>
+                        <div v-if="voteText" class="exit-row">
+                            <span class="exit-k">{{ t('ip.consensus') }}</span>
+                            <span class="exit-v">{{ voteText }}{{ riskDetail.disagreement ? ` · ${t('ip.disagreement')}` : '' }}</span>
+                        </div>
+                        <div v-if="evidenceText" class="exit-row">
+                            <span class="exit-k">{{ t('ip.evidence') }}</span>
+                            <span class="exit-v">{{ evidenceText }}</span>
+                        </div>
+                        <div v-if="sourceText" class="exit-row">
+                            <span class="exit-k">{{ t('ip.sourcesState') }}</span>
+                            <span class="exit-v">{{ sourceText }}</span>
+                        </div>
+                        <div v-if="riskDetail.registry" class="exit-row">
+                            <span class="exit-k">{{ t('ip.registry') }}</span>
+                            <span class="exit-v">{{ riskDetail.registry }}</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- The whole reading in one press, at the panel's bottom-left: the
+                    address row's own copy takes the address alone. -->
+                <button type="button" class="exit-copy-all"
+                        :title="t('ip.copyAll')" :aria-label="t('ip.copyAll')"
+                        @click="copyAll">
+                    <CopyFilled class="ic"/>
+                </button>
             </div>
             <!-- The bar's centre slot: the test in progress. A run over a long
                 group is minutes, and the words answer a question about the

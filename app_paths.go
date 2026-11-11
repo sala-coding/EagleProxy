@@ -61,79 +61,19 @@ func migrateAppConfig() {
 	_ = os.WriteFile(path, data, 0o644)
 }
 
-// defaultDataDir is the "config" folder beside the process's working directory — where
-// this app has always kept its data — written the relative way whenever that is what it
-// is, so the field reads as a short portable path (see resolveAppPath) and a copy of the
-// folder still finds its own data. The two folders are the same one when the app is
-// started from its own; when they differ the short form would point somewhere the data
-// is not (wails dev runs the binary out of build/bin while the data sits at the
-// repository root), and the default is that same folder written relative to the
-// executable instead. A default that moved the data directory is a data directory that
-// looks emptied, which is the one thing it must never do.
+// defaultDataDir is the "config" folder beside the executable — where this app keeps its
+// data — written the relative way ("config", see resolveAppPath), so the field reads as
+// the short portable path it is and a copy of the program folder still finds its own
+// data.
+//
+// The folder beside the executable, not the one the process was launched from. A Run key
+// or a shortcut starts the app with %SystemRoot% (or wherever the shell was standing) as
+// the working directory, and reading the data directory off that is what once named
+// C:\Windows\config — recreated empty on the next autostart, which is the one thing a
+// data directory must never do. A reader who wants their data somewhere else says so in
+// the field; the default is always the program's own folder.
 func defaultDataDir() string {
-	// What is on disk decides, rather than where the process was launched from. A
-	// Run key or a shortcut starts it with %SystemRoot% (or wherever the shell was
-	// standing) as the working directory, and the old reading of "the folder we were
-	// launched from" named C:\Windows\config there — a data directory recreated empty
-	// on the next autostart, which is the one thing a data directory must never do.
-	//
-	// The working directory is kept when its own config folder is already there AND
-	// the executable sits inside the working directory: that is the development shape
-	// (wails dev runs the binary out of build/bin while the data sits at the
-	// repository root), and following the executable there would present a full
-	// library as an empty one. The second half is what keeps a stranger's config
-	// folder from hijacking an installed copy: a reader standing anywhere on the
-	// disk — a download folder, a mounted share — with a coincidental "config"
-	// subdirectory, launching the installed executable from it, would otherwise
-	// have that folder become their library for the session. Otherwise the default
-	// is the folder beside the executable, which is where an installed copy keeps
-	// its data.
-	if wd, err := os.Getwd(); err == nil {
-		cfg := filepath.Join(wd, "config")
-		if st, err := os.Stat(cfg); err == nil && st.IsDir() {
-			// "The executable sits inside the working directory" is what
-			// filepath.Rel(exeDir, wd) spells as a walk of nothing but ".." —
-			// exeDir below the working directory, the way build/bin sits under
-			// the repository root — or as "." (the two are one folder, the
-			// portable copy launched from its own). A rel that climbs out and
-			// then walks back in anywhere else ("..\..\Users\me", the reader
-			// standing in their download folder) is the hijack shape, and the
-			// same walk says no. filepath.Rel answers case-insensitively on
-			// Windows and returns an error across drives, which is a no all
-			// the same.
-			if exeDir := execDir(); exeDir != "" {
-				if rel, err := filepath.Rel(exeDir, wd); err == nil && relWithin(rel) {
-					if rel2 := relToExec(cfg); rel2 != "" && !filepath.IsAbs(rel2) {
-						return rel2
-					}
-					return cfg
-				}
-			}
-		}
-	}
-	if dir := execDir(); dir != "" {
-		return filepath.Join(dir, "config")
-	}
 	return "config"
-}
-
-// relWithin answers whether a Rel result is a walk that stays inside: "." (the
-// two paths are one) or a chain of nothing but ".." (the first path is below
-// the second — the walk goes up and arrives, never up and then sideways into
-// someone else's tree).
-func relWithin(rel string) bool {
-	if rel == "." {
-		return true
-	}
-	if rel == "" || !strings.HasPrefix(rel, "..") {
-		return false
-	}
-	for _, part := range strings.Split(rel, string(filepath.Separator)) {
-		if part != ".." {
-			return false
-		}
-	}
-	return true
 }
 
 // execDir is the folder the running executable sits in. The two paths read it as their
@@ -516,24 +456,32 @@ func (a *App) SetCorePath(path string) {
 	a.saveAppConfig()
 }
 
-// ListCoreFiles lists the executables in the folder a core path points into:
-// the cores a reader can switch between instead of retyping a path. An empty
-// dir is the folder beside the executable, which is where the bundled core
-// lives. The paths come back in the form a core path is stored (see relToExec),
-// so a choice can be written straight back into the field.
+// ListCoreFiles lists the executables a core can be picked from: the folder beside the
+// executable (where a bundled core lives), the sing-box/ folder beside that one, and
+// the folder a chosen path points into. The cores a reader can switch between instead
+// of retyping a path. The paths come back in the form a core path is stored (see
+// relToExec), so a choice can be written straight back into the field.
 func (a *App) ListCoreFiles(dir string) []string {
 	dir = strings.TrimSpace(dir)
-	// Nothing chosen yet: the two folders the auto-detection itself looks in — the
-	// program's own, and the sing-box/ folder beside it — so a fresh copy that was
-	// unzipped with its core lists that core without the reader having to browse for
-	// it first.
+	// The two folders the auto-detection itself looks in are always read — the
+	// program's own, and the sing-box/ folder beside it — so a copy that was unzipped
+	// with its core lists that core without the reader having to browse for it first.
+	//
+	// A chosen path adds the folder it names rather than replacing these. It used to
+	// be the only one read, and a core chosen as a bare file name — which is what this
+	// app writes for a file in its own folder (see relToExec) — pointed the listing at
+	// a file, answered nothing, and left the field showing one entry: itself.
 	var dirs []string
-	if dir == "" {
-		if d := execDir(); d != "" {
-			dirs = append(dirs, d, filepath.Join(d, "sing-box"))
-		}
-	} else {
+	if d := execDir(); d != "" {
+		dirs = append(dirs, d, filepath.Join(d, "sing-box"))
+	}
+	if dir != "" {
 		dirs = append(dirs, resolveAppPath(dir))
+	}
+	// This program is not a core, and it sits in the folder the list reads first.
+	self := ""
+	if exe, err := os.Executable(); err == nil {
+		self = strings.ToLower(filepath.Base(exe))
 	}
 	out := make([]string, 0, 8)
 	seen := map[string]bool{}
@@ -543,7 +491,7 @@ func (a *App) ListCoreFiles(dir string) []string {
 			continue
 		}
 		for _, e := range entries {
-			if e.IsDir() {
+			if e.IsDir() || strings.ToLower(e.Name()) == self {
 				continue
 			}
 			// An executable: .exe on Windows, no extension on the other platforms.

@@ -14,7 +14,7 @@ import {loadTips, tip} from "./tips";
 import {errText} from "./lib/shared";
 import {FILTER_ICONS, nowStamp} from "./lib/logfilter";
 import {hueFor, metricGroup, MODE_HAS_LATENCY, MODE_HAS_SPEED, SPEED_MODES, PROTOCOLS, setRegionLocale} from "./lib/metrics";
-import {clampScale, CUSTOM_VARS, LIGHT_THEMES, readHover, THEMES, THEME_REMAP, UI_SCALE_MAX, UI_SCALE_MIN, wearCustom, wearHover} from "./lib/theme";
+import {clampScale, cssHex, CUSTOM_VARS, LIGHT_THEMES, readHover, THEMES, THEME_REMAP, UI_SCALE_MAX, UI_SCALE_MIN, wearCustom, wearHover} from "./lib/theme";
 import {startLanguage} from "./lib/settings-meta";
 import {SMART_PICK_MINUTES, SMART_TICK_MS, pickFastestDNS, roundChoice} from "./lib/dns";
 import {warmSettingsCache} from "./components/SettingsDialog.vue";
@@ -729,7 +729,10 @@ const syncUi = async () => {
 // and every shipped one answer the same way and none can drift. Declared ahead
 // of the theme watcher below: that one runs immediately, on the setup itself.
 const syncWindowBackground = () => {
-    const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+    // As hex: a custom palette holds its ground in hsl(), and the binding parses hex
+    // alone — handing it over as written left the window's own background unchanged
+    // for every custom theme (see cssHex).
+    const bg = cssHex(getComputedStyle(document.documentElement).getPropertyValue('--bg'));
     if (!bg) return;
     API.SetWindowBackground(bg).catch(() => { /* an old backend without the binding */ });
 };
@@ -1534,6 +1537,18 @@ onMounted(() => {
             API.GetSPMode()
                 .then(m => spMode.value = m as { vpn: boolean; systemProxy: boolean })
                 .catch(() => { /* the next press reads the mode anyway */ });
+        }),
+        // A fresh probe — a start, or the warm-up after a hot switch — reports the
+        // address it found: the corner and the panel follow the row the reader pressed
+        // instead of waiting for the two-second poll to notice the change.
+        EventsOn("exitip:changed", (ip: string) => {
+            if (!ip) return;
+            // The warm-up reports the address alone. Replacing the whole reading with it
+            // took the flag and the panel's rows off screen until the full one landed;
+            // the same address is the same reading, so only a moved one starts over.
+            const cur = exitIP.value;
+            exitIP.value = cur?.ip === ip ? cur : {ip};
+            exitTick.value++;
         }),
         EventsOn("traffic", (tv: { up: number; down: number; upRate: number; downRate: number; count: number; lanDevices?: number }) => {
             traffic.value = {

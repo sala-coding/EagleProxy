@@ -21,10 +21,9 @@ const runKey = `Software\Microsoft\Windows\CurrentVersion\Run`
 // directory was read as "the config folder beside the process's working directory", and
 // an autostart therefore looked at C:\Windows\config, created it empty, and presented a
 // full library as an empty one. The fix lives where the question is asked
-// (defaultDataDir prefers the folder beside the executable, and only honours the working
-// directory when a config folder is already sitting there), so this entry can stay the
-// plain path it always was: a shell wrapper here would only be a second place for the
-// same rule, and a place for quoting mistakes.
+// (defaultDataDir names the folder beside the executable, never the working directory),
+// so this entry can stay the plain path it always was: a shell wrapper here would only
+// be a second place for the same rule, and a place for quoting mistakes.
 func Enable(name, exePath string) error {
 	if exePath == "" {
 		return errors.New("empty executable path")

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ExitIP reports the address the world sees this machine as while a node is up — the
@@ -54,13 +56,24 @@ func (a *App) ExitIP() map[string]string {
 		return a.exitProbeCached()
 	}
 	a.exitProbeBusy = true
+	gen := a.exitGen
 	a.exitProbeMu.Unlock()
-	defer func() {
+	// The gate covers the address question alone. The reading below can spend a dozen
+	// seconds on the detail service, and the corner's poll — the same question asked
+	// again — must not be held out for it.
+	busy := true
+	release := func() {
+		if !busy {
+			return
+		}
+		busy = false
 		a.exitProbeMu.Lock()
 		a.exitProbeBusy = false
 		a.exitProbeMu.Unlock()
-	}()
+	}
+	defer release()
 	ip := util.AskIP(client)
+	release()
 	if ip == "" {
 		a.noteExitFailure()
 		a.noteExitFailLog()
@@ -79,27 +92,25 @@ func (a *App) ExitIP() map[string]string {
 	// seconds the corner spent empty. Every one of them is best-effort: a failure costs
 	// the panel a field, never the address.
 	info := map[string]string{"ip": ip}
-	details, whois := map[string]string{}, map[string]string{}
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); a.mergeExitDetails(client, ip, details) }()
-	go func() { defer wg.Done(); a.mergeWhois(client, ip, whois) }()
-	cc := a.ipCountry(client, ip)
-	wg.Wait()
-	if cc != "" {
-		info["cc"] = cc
-	}
-	for k, v := range details {
-		info[k] = v
-	}
-	for k, v := range whois {
-		if _, seen := info[k]; !seen {
-			info[k] = v
+	// One request for the whole panel: ipok answers with where the address is, who
+	// owns the network and how risky it is, so the three services this used to fan
+	// out to (IPPure, ipwho.is and a separate country lookup) are one hop. Cached per
+	// address (see ipokTTL) — the panel is opened and closed all session, and the
+	// service has a daily budget.
+	a.mergeIPOK(client, ip, info)
+	if info["cc"] == "" {
+		// The flag's code still has to come from somewhere when the detail service is
+		// out: this is the cheap lookup the corner already uses, and it is cached.
+		if cc := a.ipCountry(client, ip); cc != "" {
+			info["cc"] = cc
 		}
 	}
 	// The next poll is the same question: let it have this answer rather than opening a
-	// second set of connections through the node for it.
-	a.exitProbeStore(info)
+	// second set of connections through the node for it. Only when the node that
+	// answered is still the one up — a switch already cleared this and stored its own.
+	if !a.exitProbeStore(gen, info) {
+		return nil
+	}
 	return info
 }
 
@@ -148,6 +159,7 @@ func (a *App) ExitAddress() map[string]string {
 		return nil
 	}
 	a.exitProbeBusy = true
+	gen := a.exitGen
 	a.exitProbeMu.Unlock()
 	defer func() {
 		a.exitProbeMu.Lock()
@@ -161,7 +173,9 @@ func (a *App) ExitAddress() map[string]string {
 	}
 	a.noteExitSuccess()
 	r := map[string]string{"ip": ip, "cc": a.ipCountry(client, ip)}
-	a.exitProbeStore(r)
+	if !a.exitProbeStore(gen, r) {
+		return nil
+	}
 	return r
 }
 
@@ -179,17 +193,33 @@ func (a *App) exitProbeCached() map[string]string {
 	return a.exitProbeLast
 }
 
-// exitProbeStore remembers an answer. The map is handed out as it was stored and is
-// never mutated afterwards, so a reader cannot be shown a half-written one.
-func (a *App) exitProbeStore(r map[string]string) {
+// exitProbeStore remembers an answer, unless the node has been switched since it was
+// asked for — then it is about a node that is gone, and the switch has stored its own.
+// It says whether it wrote. The map is handed out as it was stored and is never
+// mutated afterwards, so a reader cannot be shown a half-written one.
+func (a *App) exitProbeStore(gen uint64, r map[string]string) bool {
 	a.exitProbeMu.Lock()
-	a.exitProbeLast, a.exitProbeAt = r, time.Now()
+	wrote := gen == a.exitGen
+	if wrote {
+		a.exitProbeLast, a.exitProbeAt = r, time.Now()
+	}
 	a.exitProbeMu.Unlock()
+	return wrote
 }
 
-// exitProbeClear forgets the cached answer — it belonged to the node that answered it.
+// exitProbeGen is the generation a flight started in; see exitProbeStore.
+func (a *App) exitProbeGen() uint64 {
+	a.exitProbeMu.Lock()
+	defer a.exitProbeMu.Unlock()
+	return a.exitGen
+}
+
+// exitProbeClear forgets the cached answer — it belonged to the node that answered it —
+// and stands the flights that are still in the air down with it: their answers are
+// about the node that is gone (see exitProbeStore).
 func (a *App) exitProbeClear() {
 	a.exitProbeMu.Lock()
+	a.exitGen++
 	a.exitProbeLast, a.exitProbeAt = nil, time.Time{}
 	// And the failure count: the next node is a different story, and this one's
 	// ending is not to be told twice.
@@ -269,11 +299,16 @@ const exitFailLogGap = 30 * time.Second
 // noteExitFailLog writes the failure line, unless the last one is recent enough
 // to still be standing for this one. It says whether it wrote.
 func (a *App) noteExitFailLog() bool {
+	// The stamp moves only when a line is written. Moving it on every call made the
+	// gap unmeasurable: each poll reset it, so the first line of a dead node was the
+	// last one, and an outage that outlived the node's own log had nothing to read.
 	a.exitProbeMu.Lock()
-	last := a.exitFailLoggedAt
-	a.exitFailLoggedAt = time.Now()
+	due := a.exitFailLoggedAt.IsZero() || time.Since(a.exitFailLoggedAt) >= exitFailLogGap
+	if due {
+		a.exitFailLoggedAt = time.Now()
+	}
 	a.exitProbeMu.Unlock()
-	if !last.IsZero() && time.Since(last) < exitFailLogGap {
+	if !due {
 		return false
 	}
 	a.logf("[exitip] 没有服务回答，角落保持上一次的地址")
@@ -317,6 +352,9 @@ func (a *App) warmExitProbe() {
 	if a.quitting.Load() {
 		return
 	}
+	// The generation this warm-up belongs to: a switch during the wait below clears the
+	// cache and starts its own, and this one's answer would be about the node it left.
+	gen := a.exitProbeGen()
 	client, ok := a.exitClient()
 	if !ok {
 		return
@@ -355,12 +393,21 @@ func (a *App) warmExitProbe() {
 	}
 	// Address only: the country is a flag the corner can draw a beat later, and asking
 	// it here would keep three more connections busy while the first real poll arrives.
-	a.exitProbeStore(map[string]string{"ip": ip})
+	if !a.exitProbeStore(gen, map[string]string{"ip": ip}) {
+		return
+	}
 	// The node answered: whatever the previous one left in the failure streak is
 	// not this node's record, and leaving it in place made this new answer wait out
 	// the old node's backoff before the corner was allowed to show it.
 	a.noteExitSuccess()
 	a.logf("[exitip] 预热完成: " + ip)
+	// Say it the moment it is known. The corner's own poll would find the new address
+	// within its two-second beat, and that beat is exactly the wait this removes after
+	// a hot switch — the row the reader pressed and the address beside it change
+	// together instead of one after the other.
+	if ctx := a.curCtx(); ctx != nil {
+		runtime.EventsEmit(ctx, "exitip:changed", ip)
+	}
 }
 
 // exitClient builds the client that asks the world what address it sees, and reports
@@ -387,34 +434,38 @@ func (a *App) warmExitProbe() {
 // port, always. With the core down there is nothing to ask through: silence, which is
 // the corner keeping what it showed rather than being told something new and wrong.
 func (a *App) exitClient() (*http.Client, bool) {
-	if a.curSetting() == nil {
+	s := a.curSetting()
+	if s == nil {
 		return nil, false
 	}
 	if a.RunningProfile() == core.StoppedID {
 		return nil, false
 	}
-	frontEnd := false
-	if pid, _ := a.vpnState(); pid > 0 {
-		frontEnd = true
-	}
-	if !frontEnd && !a.curSetting().VPNMode() && !a.curSetting().SPModeSystemProxy() {
-		// No mode on and no front-end standing: a request through the port would
-		// answer with the node's exit, but the machine is not using that node for
-		// anything, and a corner that shows an exit nobody rides is its own kind of
-		// lie. Nothing to ask.
-		return nil, false
-	}
-	host := a.curSetting().InboundAddress
-	if host == "" {
+	// A running node is enough, and it is the order a reader works in: start a node,
+	// look at where it exits, then decide whether to put the machine's traffic behind
+	// it. The question travels the node either way — it goes through the core's own
+	// mixed inbound, not through the machine's routing — so waiting for the system
+	// proxy or TUN to be switched on only hid the answer until after the decision it
+	// informs. Nothing to ask only when there is no port to ask through.
+	host := s.InboundAddress
+	// A wildcard is where the inbound listens, not an address to dial.
+	if host == "" || host == "0.0.0.0" || host == "::" {
 		host = "127.0.0.1"
 	}
-	port := a.curSetting().InboundSocksPort
+	port := s.InboundSocksPort
 	if port <= 0 {
 		return nil, false
 	}
 	// The mixed inbound speaks HTTP as well as SOCKS, so its address can be handed
 	// to the transport as an HTTP proxy as it stands.
 	u := &url.URL{Scheme: "http", Host: net.JoinHostPort(host, strconv.Itoa(port))}
+	// The credential rides with the proxy, as it does everywhere else this app goes
+	// through its own inbound (see app_dns.go and internal/netx): the mixed inbound
+	// answers 407 to an ask that carries none, and every exit reading would fail on a
+	// machine whose reader turned authentication on.
+	if auth := s.InboundAuth; auth != nil && auth.NeedAuth() {
+		u.User = url.UserPassword(auth.Username, auth.Password)
+	}
 	key := u.String()
 	// Five seconds, not eight: every service is now asked at once (see util.AskIP), so
 	// this bounds one flight rather than every service in turn. A tunnel that cannot
@@ -439,101 +490,281 @@ func (a *App) exitClient() (*http.Client, bool) {
 	return a.exitHTTP, true
 }
 
-// mergeExitDetails adds what IPPure's public endpoint says about an address the reader
-// is already looking at: the ASN and its organisation, the region, city, timezone, post
-// code and coordinates, the purity score the site draws as a band, and whether the
-// address is residential and native.
-//
-// Enrichment, not foundation: everything the bar shows without it is already in info,
-// and a failure here is dropped on the floor.
-//
-// The endpoint is marked "in testing, may change" by its own page, so every field is
-// read defensively — absent, null, or the wrong type all land as an empty string.
-func (a *App) mergeExitDetails(client *http.Client, ip string, info map[string]string) {
-	resp, err := client.Get("https://my.ippure.com/v1/info")
-	if err != nil {
-		return
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	resp.Body.Close()
-	if err != nil {
-		return
-	}
-	var raw map[string]interface{}
-	if json.Unmarshal(data, &raw) != nil || asString(raw["ip"]) != ip {
-		// answered for a different address than the one asked about, or answered with
-		// something that is not this API: the panel falls back to what it already has
-		return
-	}
-	if asn := asString(raw["asn"]); asn != "" && asn != "0" {
-		info["asn"] = "AS" + asn
-		if org := asString(raw["asOrganization"]); org != "" {
-			info["asOrg"] = org
-		}
-	}
-	if c := asString(raw["country"]); c != "" {
-		info["country"] = c
-	}
-	for key, field := range map[string]string{
-		"region": "region", "city": "city", "timezone": "timezone",
-		"postalCode": "postal", "latitude": "lat", "longitude": "lon",
-	} {
-		if v := asString(raw[key]); v != "" {
-			info[field] = v
-		}
-	}
-	if f, ok := raw["fraudScore"].(float64); ok {
-		info["purity"] = strconv.Itoa(int(f))
-	}
-	if r, ok := raw["isResidential"].(bool); ok && r {
-		info["residential"] = "1"
-	}
-	if b, ok := raw["isBroadcast"].(bool); ok && b {
-		info["broadcast"] = "1"
-	}
+// ipokEndpoint asks one service for everything the panel draws about an address: the
+// address, where it is, the network behind it, and a risk score. The empty `ip` asks
+// the service about the caller, which is what the panel usually wants.
+const ipokEndpoint = "https://ipok.io/api/ip?ip="
+
+// ipokTTL is how long one address's reading stands. The panel is opened and closed all
+// session and every open would otherwise spend one of the service's daily lookups on an
+// answer that cannot have changed while the node is the same.
+const ipokTTL = 30 * time.Minute
+
+// ipokMissTTL is how long a failed reading stands. Short on purpose: the panel retries
+// a few times in the first seconds after a start, and a long miss meant every one of
+// those attempts was answered from this cache without a request — the panel kept its
+// address and its flag and never gained the rest ("只显示一部分").
+const ipokMissTTL = 20 * time.Second
+
+// ipokGeo is the part of the answer this app reads; the rest of the response is the
+// site's per-source risk report, which the panel has no rows for.
+type ipokGeo struct {
+	IP          string  `json:"ip"`
+	Version     int     `json:"version"`
+	Country     string  `json:"country"`
+	CountryCode string  `json:"countryCode"`
+	Region      string  `json:"region"`
+	City        string  `json:"city"`
+	Lat         float64 `json:"lat"`
+	Lon         float64 `json:"lon"`
+	Timezone    string  `json:"timezone"`
+	ASN         string  `json:"asn"`
+	ASName      string  `json:"asName"`
+	ISP         string  `json:"isp"`
+	Org         string  `json:"org"`
+	Reverse     string  `json:"reverse"`
+	Anycast     string  `json:"anycast"`
 }
 
-// mergeWhois adds the domain and ISP behind the address's ASN, from a second source.
-// IPPure names the organisation the ASN is registered to; ipwho.is also carries the
-// domain that organisation answers on — the one line of the panel the first source
-// cannot say. Same best-effort contract as above.
-func (a *App) mergeWhois(client *http.Client, ip string, info map[string]string) {
-	resp, err := client.Get("https://ipwho.is/" + url.PathEscape(ip))
-	if err != nil {
-		return
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
-	if err != nil {
-		return
-	}
-	var body struct {
-		Connection struct {
-			Domain string `json:"domain"`
-			ISP    string `json:"isp"`
-		} `json:"connection"`
-	}
-	if json.Unmarshal(data, &body) != nil {
-		return
-	}
-	if d := strings.TrimSpace(body.Connection.Domain); d != "" {
-		info["asDomain"] = d
-	}
-	if s := strings.TrimSpace(body.Connection.ISP); s != "" {
-		info["isp"] = s
-	}
+type ipokContributor struct {
+	Source string  `json:"source"`
+	Risk   float64 `json:"risk"`
+	Weight float64 `json:"weight"`
 }
 
-// asString reads a JSON value as a trimmed string, accepting numbers as well as text —
-// IPPure returns the coordinates as strings but the ASN as a number.
-func asString(v interface{}) string {
-	switch t := v.(type) {
-	case string:
-		return strings.TrimSpace(t)
-	case float64:
-		return strconv.FormatFloat(t, 'f', -1, 64)
+type ipokVote struct {
+	Key   string `json:"key"`
+	Count int    `json:"count"`
+	Of    int    `json:"of"`
+}
+
+type ipokAnswer struct {
+	Geo       ipokGeo `json:"geo"`
+	IPType    string  `json:"ipType"`
+	UsageType string  `json:"usageType"`
+	// Signals are the network properties the answer agrees on — hosting, proxy, vpn,
+	// tor — and the assessment says how much of the risk report was available for this
+	// address at all ("ok", "insufficient", …).
+	Signals        []string `json:"signals"`
+	RiskAssessment struct {
+		Status         string   `json:"status"`
+		CurrentSources []string `json:"currentSources"`
+		StaleSources   []string `json:"staleSources"`
+		AssessedAt     string   `json:"assessedAt"`
+		Reasons        []string `json:"reasons"`
+	} `json:"riskAssessment"`
+	RiskBreakdown struct {
+		Contributors []ipokContributor `json:"contributors"`
+		WeightedAvg  float64           `json:"weightedAvg"`
+		Final        float64           `json:"final"`
+	} `json:"riskBreakdown"`
+	Consensus struct {
+		Total        int        `json:"total"`
+		Votes        []ipokVote `json:"votes"`
+		Disagreement bool       `json:"disagreement"`
+	} `json:"consensus"`
+	Evidence struct {
+		Confidence string `json:"confidence"`
+		Bucket     string `json:"bucket"`
+	} `json:"evidence"`
+	// Registry is the range's registrar. It is asked of the top-level block: the same
+	// answer sits under diagnostics.auxiliary.rdap too, but that is the last thing the
+	// response carries, behind the whole per-source report.
+	RDAP struct {
+		Registry string `json:"registry"`
+	} `json:"rdap"`
+	Risk *float64 `json:"risk"`
+}
+
+type ipokHit struct {
+	info map[string]string
+	at   time.Time
+}
+
+var (
+	ipokMu    sync.Mutex
+	ipokCache = map[string]ipokHit{}
+)
+
+// ipokStore keeps one address's reading (nil for a failure) and bounds the map: a long
+// session switches many nodes, and this is a mapping whose answers go stale the moment
+// the node list does.
+func ipokStore(ip string, info map[string]string) {
+	ipokMu.Lock()
+	defer ipokMu.Unlock()
+	if len(ipokCache) >= 64 {
+		ipokCache = map[string]ipokHit{}
 	}
-	return ""
+	ipokCache[ip] = ipokHit{info: info, at: time.Now()}
+}
+
+// ipokClient is the probe client with the patience the detail service needs: the same
+// transport (so the connections are the ones the probe already opened) with a longer
+// timeout, because ipok assembles its answer from several upstreams and a cut-off
+// answer is a panel with an address and nothing else.
+func ipokClient(base *http.Client) *http.Client {
+	if base == nil {
+		return &http.Client{Timeout: 12 * time.Second}
+	}
+	return &http.Client{Timeout: 12 * time.Second, Transport: base.Transport}
+}
+
+// mergeIPOK adds what ipok.io answers about an address: country, region, city, the
+// network (ASN, its organisation, the ISP) and the risk score the panel draws as a
+// band. Enrichment, not foundation — the address itself is already in info, and a
+// failure here leaves the panel with the fields it had.
+func (a *App) mergeIPOK(client *http.Client, ip string, info map[string]string) {
+	if ip == "" {
+		return
+	}
+	ipokMu.Lock()
+	hit, cached := ipokCache[ip]
+	ipokMu.Unlock()
+	if cached {
+		ttl := ipokTTL
+		if hit.info == nil {
+			ttl = ipokMissTTL
+		}
+		if time.Since(hit.at) < ttl {
+			for k, v := range hit.info {
+				info[k] = v
+			}
+			return
+		}
+	}
+	// The detail service takes a second or three to assemble an answer — and through a
+	// tunnel it is slower than that — while the probe client's five-second budget was
+	// sized for an address echo. Sharing it cut the answer off mid-flight, so the panel
+	// filled in the address and the flag and nothing else ("只显示一部分信息"). Same
+	// transport, longer patience: the pooled connections are shared, so this costs no
+	// second handshake. One retry, because a dropped request is as common as a slow one.
+	c := ipokClient(client)
+	var data []byte
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		var resp *http.Response
+		resp, err = c.Get(ipokEndpoint + url.QueryEscape(ip))
+		if err != nil {
+			continue
+		}
+		// The answer is a report of tens of kilobytes the panel never draws, but a
+		// truncated one is not a shorter answer — it is not JSON at all, and the whole
+		// reading would be thrown away. The cap is a guard against a page or a stream,
+		// far above anything this service sends.
+		data, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		resp.Body.Close()
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		ipokStore(ip, nil)
+		return
+	}
+	var ans ipokAnswer
+	if json.Unmarshal(data, &ans) != nil || ans.Geo.IP == "" {
+		ipokStore(ip, nil)
+		return
+	}
+	out := map[string]string{}
+	set := func(key, value string) {
+		if v := strings.TrimSpace(value); v != "" {
+			out[key] = v
+		}
+	}
+	set("country", ans.Geo.Country)
+	if cc := strings.ToLower(strings.TrimSpace(ans.Geo.CountryCode)); len(cc) == 2 {
+		out["cc"] = cc
+	}
+	set("region", ans.Geo.Region)
+	set("city", ans.Geo.City)
+	set("timezone", ans.Geo.Timezone)
+	set("asn", ans.Geo.ASN)
+	set("asOrg", ans.Geo.ASName)
+	set("isp", ans.Geo.ISP)
+	set("org", ans.Geo.Org)
+	set("reverse", ans.Geo.Reverse)
+	set("usage", ans.UsageType)
+	set("anycast", ans.Geo.Anycast)
+	set("riskStatus", ans.RiskAssessment.Status)
+	if len(ans.Signals) > 0 {
+		out["signals"] = strings.Join(ans.Signals, ", ")
+	}
+	if ans.Geo.Version > 0 {
+		out["ipv"] = "IPv" + strconv.Itoa(ans.Geo.Version)
+	}
+	if ans.Geo.Lat != 0 || ans.Geo.Lon != 0 {
+		out["lat"] = strconv.FormatFloat(ans.Geo.Lat, 'f', -1, 64)
+		out["lon"] = strconv.FormatFloat(ans.Geo.Lon, 'f', -1, 64)
+	}
+	// The band the panel draws is a purity, and purity is the other direction of ipok's
+	// own "risk": 100 is an address nothing has a complaint about. Drawn as the risk
+	// itself under a "purity" label, a clean address read as a dirty one and a dirty one
+	// as clean.
+	if ans.Risk != nil {
+		risk := int(*ans.Risk)
+		if risk < 0 {
+			risk = 0
+		}
+		if risk > 100 {
+			risk = 100
+		}
+		out["purity"] = strconv.Itoa(100 - risk)
+	}
+	// Said either way round: a datacenter address used to carry no key at all, and the
+	// panel's row — which asks for one of the two halves — read that as "nothing to
+	// say" and dropped the whole line.
+	if t := strings.ToLower(strings.TrimSpace(ans.IPType)); t != "" {
+		out["residential"] = "0"
+		if t == "residential" {
+			out["residential"] = "1"
+		}
+	}
+	// The report behind the band: per-source contributions, the votes behind the
+	// "proxy/vpn/hosting" reading, how much of it was live, and who the range is
+	// registered with. One JSON string rather than a dozen keys — the panel draws it as
+	// a group, and the two sides cannot drift over which key is which field. Only what
+	// the answer carried: a block of empty fields is a fold with nothing inside it.
+	detail := map[string]interface{}{}
+	put := func(key, value string) {
+		if v := strings.TrimSpace(value); v != "" {
+			detail[key] = v
+		}
+	}
+	if len(ans.RiskBreakdown.Contributors) > 0 {
+		rows := make([]map[string]interface{}, 0, len(ans.RiskBreakdown.Contributors))
+		for _, c := range ans.RiskBreakdown.Contributors {
+			rows = append(rows, map[string]interface{}{
+				"source": c.Source, "risk": c.Risk, "weight": c.Weight,
+			})
+		}
+		detail["contributors"] = rows
+		detail["final"] = ans.RiskBreakdown.Final
+	}
+	if len(ans.Consensus.Votes) > 0 {
+		detail["votes"] = ans.Consensus.Votes
+		detail["disagreement"] = ans.Consensus.Disagreement
+	}
+	put("confidence", ans.Evidence.Confidence)
+	put("bucket", ans.Evidence.Bucket)
+	put("assessedAt", ans.RiskAssessment.AssessedAt)
+	put("registry", ans.RDAP.Registry)
+	if n := len(ans.RiskAssessment.CurrentSources) + len(ans.RiskAssessment.StaleSources); n > 0 {
+		detail["current"] = len(ans.RiskAssessment.CurrentSources)
+		detail["stale"] = len(ans.RiskAssessment.StaleSources)
+	}
+	if len(ans.RiskAssessment.Reasons) > 0 {
+		detail["reasons"] = ans.RiskAssessment.Reasons
+	}
+	if len(detail) > 0 {
+		if raw, err := json.Marshal(detail); err == nil {
+			out["riskDetail"] = string(raw)
+		}
+	}
+	ipokStore(ip, out)
+	for k, v := range out {
+		info[k] = v
+	}
 }
 
 // Country codes by address, so the status bar's lookup happens once per node rather than
@@ -589,9 +820,9 @@ var (
 // address is sent to them, never the reader's own.
 //
 // The client is the caller's rather than one made here, so that the lookup travels the
-// same way the address it is about did: straight out under TUN, through the core under
-// the system proxy. A lookup that went its own way would be asking from a network that
-// may not be able to reach any of these services at all.
+// same way the address it is about did — through the core's mixed inbound, under both
+// modes (see exitClient). A lookup that went its own way would be asking from a network
+// that may not be able to reach any of these services at all.
 func (a *App) ipCountry(client *http.Client, ip string) string {
 	if ip == "" {
 		return ""

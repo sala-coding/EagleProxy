@@ -300,6 +300,11 @@ type App struct {
 	// noteExitFailLog).
 	exitFailAt       time.Time
 	exitFailLoggedAt time.Time
+	// The node generation the cached answer belongs to. A probe still in flight when
+	// the node is switched answers about the node that is gone, so its answer is
+	// dropped instead of written: exitProbeClear bumps this and every flight carries
+	// the number it started with.
+	exitGen uint64
 
 	// Bookkeeping for the supervisor: a core that exits on its own is started again
 	// (see onCoreExit). coreGen identifies the controller the exit came from — a

@@ -1171,11 +1171,21 @@ func (a *App) prewarmTunServer() {
 	}
 	_ = tunserv.RunTask(exe)
 	readyDeadline := time.Now().Add(serverStartWait)
-	for time.Now().Before(readyDeadline) {
+	for tick := 0; time.Now().Before(readyDeadline); tick++ {
 		if tunserv.ServerAlive(a.curDataDir()) {
 			a.tunServerGone.Store(false)
 			a.logf("[tunserv] 启动预热: 常驻服务已就绪，后续 TUN 启动免冷等待")
 			return
+		}
+		// The previous server may still be on its way out — a quick restart leaves the
+		// task instance Running, and Windows refuses a second /Run (0x80070420,
+		// "an instance is already running") until it has gone. One ask at the start
+		// then waits out the whole budget for a start that was never posted. Asking
+		// again each second is harmless when the first one landed (the server reads
+		// its slot once) and is the one thing that gets through the moment the old
+		// instance leaves.
+		if tick > 0 && tick%5 == 0 {
+			_ = tunserv.RunTask(exe)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}

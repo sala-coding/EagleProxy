@@ -173,14 +173,15 @@ export const rsCategoryOf = (rs: {tag: string; country?: string}): {key: string;
 };
 
 // The words the purity score is read by, and the key its label is translated with. The
-// bands are the site's own idea: a low score is a clean address, and past sixty it is
-// the kind of address platforms distrust.
+// bands are the site's own idea with the score turned the right way round: a hundred is
+// a clean address, and below forty it is the kind of address platforms distrust (the
+// site counts the other direction, see mergeIPOK).
 export const purityLevel = (v: string): string => {
     const n = Number(v);
     if (!Number.isFinite(n)) return 'mid';
-    if (n <= 10) return 'vclean';
-    if (n <= 30) return 'clean';
-    if (n <= 60) return 'mid';
+    if (n >= 90) return 'vclean';
+    if (n >= 70) return 'clean';
+    if (n >= 40) return 'mid';
     return 'risky';
 };
 

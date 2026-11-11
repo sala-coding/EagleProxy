@@ -35,7 +35,7 @@ export function warmSettingsCache(s: Record<string, unknown>) {
 </script>
 
 <script setup lang="ts">
-import {computed, onBeforeUnmount, onMounted, ref, watch, type CSSProperties} from 'vue';
+import {computed, onBeforeUnmount, onMounted, ref, watch, type CSSProperties, type Ref} from 'vue';
 import * as API from "../../wailsjs/go/main/App";
 import {setting} from "../../wailsjs/go/models";
 import {t} from "../i18n";
@@ -44,7 +44,7 @@ import JsonForm from "../JsonForm.vue";
 import Modal from "./Modal.vue";
 import {applyRoute, errText} from "../lib/shared";
 import {rsCategoryOf, type Dict} from "../lib/metrics";
-import {buildCustomPalette, computedHex, CUSTOM_GROUND, CUSTOM_HUE, CUSTOM_VARS, HOVER_VAR, hueHex, pickedColor, readCustomPalette, scaleFromIndex, scaleIndex, THEMES, UI_SCALE_CELLS, UI_SCALE_MAX, UI_SCALE_MIN, wearHover} from "../lib/theme";
+import {buildCustomPalette, computedHex, cssHex, CUSTOM_GROUND, CUSTOM_HUE, CUSTOM_VARS, HOVER_VAR, hueHex, pickedColor, readCustomPalette, scaleFromIndex, scaleIndex, THEMES, UI_SCALE_CELLS, UI_SCALE_MAX, UI_SCALE_MIN, wearHover} from "../lib/theme";
 import {FRAME_KEYS, GROUP_FULL_ROW, GROUP_IN_STARTUP, LANGUAGES, rememberLanguage, ROUTING_SLIDE, SETTING_GROUPS, SETTING_HIDDEN, SETTING_SECTIONS} from "../lib/settings-meta";
 import {canonicalHotkey} from "../lib/jsonform";
 import TunCard from "./settings/TunCard.vue";
@@ -196,10 +196,11 @@ const paintTone = () => {
     document.documentElement.setAttribute('data-variant', pal[CUSTOM_GROUND] === 'pale' ? 'light' : 'dark');
     document.documentElement.setAttribute('data-theme', 'custom');
     // The frame edges are the system's and only follow the backend, so the background
-    // is handed over once the pick has settled.
+    // is handed over once the pick has settled — as hex, which is all the binding reads
+    // and not the form this palette is written in (see cssHex).
     clearTimeout(toneSettle);
     toneSettle = window.setTimeout(() => {
-        const bg = pal['--bg'];
+        const bg = cssHex(pal['--bg'] ?? '');
         if (bg) API.SetWindowBackground(bg).catch(() => { /* an old backend without the binding */ });
     }, 180);
 };
@@ -764,12 +765,14 @@ const pickCore = async () => {
     }
 };
 
-// The cores sitting in the folder the path points into, so switching between the
-// builds there is a pick rather than a retyped path. Polled while the dock is open:
-// a core copied in beside the others shows up without reopening the panel, and a
-// path picked elsewhere reloads the list for its own folder (see the watch).
+// The cores sitting in the program's own folder and in the sing-box/ one beside it —
+// plus whatever folder the path points into — so switching between the builds there is
+// a pick rather than a retyped path. Polled while the dock is open: a core copied in
+// beside the others shows up without reopening the panel.
 const cores = ref<string[]>([]);
-const coreName = (p: string) => p ? p.replace(/^.*[\\/]/, '') : 'sing-box.exe';
+// The file's name without the extension every core here carries anyway: the field is
+// narrow, and the whole path rides the tooltip.
+const coreName = (p: string) => p ? p.replace(/^.*[\\/]/, '').replace(/\.exe$/i, '') : 'sing-box';
 // The field's current value first, so it stays the selected entry even when the
 // folder it names cannot be read (or holds nothing but itself) — and one entry per
 // file name, because the same core can be written absolutely in the file and
@@ -783,13 +786,24 @@ const coreChoices = computed(() => {
         return true;
     });
 });
-const coreDirOf = (p: string) => p.replace(/[\\/][^\\/]*$/, '');
+// A bare file name names no folder: the listing reads the program's own folder and the
+// sing-box/ one beside it, and asking it for "sing-box.exe" read a file as a directory.
+const coreDirOf = (p: string) => /[\\/]/.test(p) ? p.replace(/[\\/][^\\/]*$/, '') : '';
 const refreshCores = async () => {
     try {
         cores.value = await API.ListCoreFiles(coreDirOf(corePath.value));
     } catch {
         cores.value = [];
     }
+};
+// The pick is drawn here rather than left to the platform's own list: that one sizes
+// itself to its longest entry and wears the system's colours and font, and a core's
+// name is long enough to be cut in half by it (see .rt-select).
+const coreOpen = ref(false);
+const coreWrap = ref<HTMLElement | null>(null);
+const pickCoreChoice = (v: string) => {
+    coreOpen.value = false;
+    corePath.value = v;
 };
 let corePoll = 0;
 onMounted(() => {
@@ -1249,10 +1263,45 @@ const testURLOptions = () => {
     const cur = currentTestURL();
     return cur && !TEST_URL_PRESETS.includes(cur) ? [cur, ...TEST_URL_PRESETS] : TEST_URL_PRESETS;
 };
-const setTestURL = (e: Event) => {
-    const v = (e.target as HTMLSelectElement).value;
+// A dropdown of this app's own: the platform's list is sized to its longest entry, and
+// one of these hosts is forty characters — the list ran out of the panel and over what
+// was beside it. The list below is the column's width, and a long host is clipped with
+// the whole address on its tooltip.
+const testURLOpen = ref(false);
+const testURLWrap = ref<HTMLElement | null>(null);
+const pickTestURL = (v: string) => {
+    testURLOpen.value = false;
     if (v && obj.value) obj.value = {...obj.value, test_url: v};
 };
+// The list floats over the rows, so a press anywhere else has to put it away — the same
+// contract the log level's menu keeps.
+const onMenuOutside = (e: PointerEvent) => {
+    const target = e.target as Node;
+    if (testURLOpen.value && !testURLWrap.value?.contains(target)) testURLOpen.value = false;
+    if (coreOpen.value && !coreWrap.value?.contains(target)) coreOpen.value = false;
+};
+onMounted(() => document.addEventListener('pointerdown', onMenuOutside, true));
+onBeforeUnmount(() => document.removeEventListener('pointerdown', onMenuOutside, true));
+// A list of the platform's own answered the arrows and Escape for free; these have to.
+// Escape puts the list away and nothing else — the panel behind it closes on the same
+// key, which is the one thing a reader pressing it here is not asking for.
+const menuKey = (open: Ref<boolean>, wrap: Ref<HTMLElement | null>) => (e: KeyboardEvent) => {
+    if (!open.value) return;
+    if (e.key === 'Escape') {
+        open.value = false;
+        e.stopPropagation();
+        return;
+    }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const items = Array.from(wrap.value?.querySelectorAll<HTMLButtonElement>('.rt-select-menu button') ?? []);
+    if (!items.length) return;
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next = e.key === 'ArrowDown' ? items[(at + 1) % items.length] : items[at <= 0 ? items.length - 1 : at - 1];
+    next.focus();
+};
+const onTestURLKey = menuKey(testURLOpen, testURLWrap);
+const onCoreKey = menuKey(coreOpen, coreWrap);
 
 // The language, drawn rather than generated: the file holds a
 // number (see LANGUAGES) and a box of digits is no answer to
@@ -1636,12 +1685,31 @@ const onPortInput = (e: Event) => {
                                     <div class="input-row">
                                         <!-- A pick, not a path: the folder the current core lives in is
                                             watched (see cores), and what is in it is the list. A core
-                                            somewhere else is still one press away (the browse button). -->
-                                        <select class="mono" :value="corePath"
-                                                :title="corePath || t('settings.corePath')"
-                                                @change="corePath = ($event.target as HTMLSelectElement).value">
-                                            <option v-for="c in coreChoices" :key="c" :value="c">{{ coreName(c) }}</option>
-                                        </select>
+                                            somewhere else is still one press away (the browse button).
+                                            Drawn here rather than given to the platform's own list,
+                                            which sizes itself to its longest entry and wears the
+                                            system's font — the same reason the test address above is
+                                            drawn (see .rt-select). -->
+                                        <div class="rt-select" ref="coreWrap" @keydown="onCoreKey">
+                                            <button type="button" class="rt-select-btn"
+                                                    :title="corePath || t('settings.corePath')"
+                                                    :aria-label="t('settings.corePath')"
+                                                    :aria-expanded="coreOpen"
+                                                    aria-haspopup="listbox"
+                                                    @click="coreOpen = !coreOpen">
+                                                <span>{{ coreName(corePath) }}</span>
+                                            </button>
+                                            <ul v-if="coreOpen" class="rt-select-menu" role="listbox"
+                                                :aria-label="t('settings.corePath')">
+                                                <li v-for="c in coreChoices" :key="c">
+                                                    <button type="button" role="option"
+                                                            :aria-selected="c === corePath"
+                                                            :class="c === corePath ? 'on' : ''"
+                                                            :title="c"
+                                                            @click="pickCoreChoice(c)">{{ coreName(c) }}</button>
+                                                </li>
+                                            </ul>
+                                        </div>
                                         <button class="btn" @click="pickCore()" :title="t('btn.browse')">
                                             <FolderOpenFilled class="ic"/>
                                         </button>
@@ -1684,19 +1752,28 @@ const onPortInput = (e: Event) => {
                                         </div>
                                     </div>
                                 </div>
-                                <div class="jf-field">
+                                <div class="jf-field jf-select-row">
                                     <label :title="`${t('cfg.test_url')} · test_url`">{{ t('cfg.test_url') }}</label>
                                     <div>
-                                        <div class="input-row">
-                                            <select class="rt-urlselect wide"
-                                                    :value="currentTestURL()"
+                                        <div class="rt-select" ref="testURLWrap" @keydown="onTestURLKey">
+                                            <button type="button" class="rt-select-btn"
+                                                    :title="currentTestURL()"
                                                     :aria-label="t('cfg.test_url')"
-                                                    @change="setTestURL($event)">
-                                                <option v-for="v in testURLOptions()" :key="v" :value="v"
-                                                        :title="v">
-                                                    {{ hostOf(v) }}
-                                                </option>
-                                            </select>
+                                                    :aria-expanded="testURLOpen"
+                                                    aria-haspopup="listbox"
+                                                    @click="testURLOpen = !testURLOpen">
+                                                <span>{{ hostOf(currentTestURL()) }}</span>
+                                            </button>
+                                            <ul v-if="testURLOpen" class="rt-select-menu" role="listbox"
+                                                :aria-label="t('cfg.test_url')">
+                                                <li v-for="v in testURLOptions()" :key="v">
+                                                    <button type="button" role="option"
+                                                            :aria-selected="v === currentTestURL()"
+                                                            :class="v === currentTestURL() ? 'on' : ''"
+                                                            :title="v"
+                                                            @click="pickTestURL(v)">{{ hostOf(v) }}</button>
+                                                </li>
+                                            </ul>
                                         </div>
                                     </div>
                                 </div>

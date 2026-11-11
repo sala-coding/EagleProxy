@@ -322,6 +322,28 @@ export function computedHex(varName: string, fallback: string): string {
     return `#${h(m[1])}${h(m[2])}${h(m[3])}`;
 }
 
+// Any colour the document holds, as the one form the backend takes: #rrggbb. The
+// shipped themes write their palette in hex, a custom one derives it in hsl() — and the
+// window's own background is set through a binding that reads hex alone, so an hsl()
+// handed over as it stands left that background where it was and wrote a warning into
+// the log on every start and every theme change. Empty when the text is not a colour
+// this can read, which keeps the caller's "nothing to set" branch honest.
+export function cssHex(css: string): string {
+    const v = css.trim();
+    const hex = /^#?([0-9a-f]{6})$/i.exec(v);
+    if (hex) return `#${hex[1].toLowerCase()}`;
+    const short = /^#?([0-9a-f]{3})$/i.exec(v);
+    if (short) return `#${short[1][0]}${short[1][0]}${short[1][1]}${short[1][1]}${short[1][2]}${short[1][2]}`;
+    const rgb = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i.exec(v);
+    if (rgb) {
+        const h = (n: string) => Math.round(Number(n)).toString(16).padStart(2, '0');
+        return `#${h(rgb[1])}${h(rgb[2])}${h(rgb[3])}`;
+    }
+    const hsl = /^hsla?\(\s*([\d.]+)(?:deg)?[,\s]+([\d.]+)%[,\s]+([\d.]+)%/i.exec(v);
+    if (hsl) return hexOf(Number(hsl[1]), Number(hsl[2]), Number(hsl[3]));
+    return '';
+}
+
 export function wearHover(hex: string): void {
     try {
         if (hex) window.localStorage.setItem(HOVER_KEY, hex);

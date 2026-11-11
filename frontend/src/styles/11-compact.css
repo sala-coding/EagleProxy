@@ -282,6 +282,17 @@ button.node-ip[aria-expanded="true"] {
     z-index: 205;
     width: 340px;
     max-width: calc(100vw - var(--rail-w, 40px) - 16px);
+    /* The panel grows as the services answer more, and one that grows past the
+       window's top is one whose first rows cannot be read: it scrolls instead. The
+       title bar is part of that ceiling — without it the panel rose over the window's
+       own chrome, which it has no business covering. */
+    max-height: calc(100vh - var(--status-h, 30px) - var(--titlebar-h, 34px) - 12px);
+    overflow-y: auto;
+    /* No visible scrollbar: the panel is a card laid over the window's corner, and a
+       gutter down its edge is a second edge. The wheel (and a caret, and a touch drag)
+       still scroll what does not fit. */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
     display: grid;
     grid-template-columns: max-content 1fr;
     column-gap: 12px;
@@ -292,6 +303,12 @@ button.node-ip[aria-expanded="true"] {
     border: 1px solid var(--line-strong);
     border-radius: 10px;
     box-shadow: 0 16px 40px rgba(0, 0, 0, .4);
+}
+
+/* Chromium (the window's engine) still paints a gutter unless it is told not to. */
+.exit-panel::-webkit-scrollbar {
+    width: 0;
+    height: 0;
 }
 
 /* The row is a grouping in the markup and nothing on screen: its two children are laid
@@ -323,6 +340,102 @@ button.node-ip[aria-expanded="true"] {
     display: inline-block;
     vertical-align: -2px;
     margin-right: 5px;
+}
+
+/* The report behind the purity band, folded away until it is asked for.
+   The wrapper and the detail block are `display: contents` on purpose: their rows are
+   the panel's own rows, laid into the panel's own two columns. A grid of their own —
+   the first cut — gave the breakdown a second label column, narrower than the one
+   above it, so the same kind of line was set two ways in one card. */
+.exit-more,
+.exit-more-toggle,
+.exit-detail,
+.exit-detail-srcs {
+    grid-column: 1 / -1;
+}
+
+.exit-more,
+.exit-detail {
+    display: contents;
+}
+
+.exit-more-toggle {
+    margin-top: 2px;
+    padding: 3px 0;
+    border: 0;
+    border-top: 1px solid var(--line);
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    text-align: center;
+    cursor: pointer;
+}
+
+.exit-more-toggle:hover {
+    color: var(--text);
+}
+
+/* One source's contribution — a bar sized by the score and the number — laid out in the
+   row's value cell, beside the source's name in the label column every other label uses.
+   The colour follows the same three bands the purity reading uses. */
+.risk-src {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.risk-src-bar {
+    flex: 1;
+    min-width: 0;
+    height: 4px;
+    background: var(--line);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.risk-src-bar i {
+    display: block;
+    height: 100%;
+    background: var(--green);
+}
+
+.risk-src-bar i[data-level='mid'] {
+    background: var(--amber);
+}
+
+.risk-src-bar i[data-level='high'] {
+    background: var(--red);
+}
+
+.risk-src-val {
+    /* The number is the value of the row, so it wears the ink the panel's values wear;
+       the source's name is the label and keeps the dimmed one. */
+    flex: 0 0 22px;
+    color: var(--text);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* The panel's own copy, at its bottom-left: the address row's button takes the address
+   alone, this one takes everything the panel is showing. Sticky, so it stays reachable
+   while the rows scroll past it — with the panel's own ground behind it, since the rows
+   go under. */
+.exit-copy-all {
+    grid-column: 1 / -1;
+    justify-self: start;
+    position: sticky;
+    bottom: 0;
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 4px;
+    border: 0;
+    background: var(--bg-2);
+    color: var(--text-dim);
+    cursor: pointer;
+}
+
+.exit-copy-all:hover {
+    color: var(--text);
 }
 
 /* One of the rows carries a control of its own: the copy that takes the address away. */
@@ -357,7 +470,10 @@ button.node-ip[aria-expanded="true"] {
        starting where every value above it starts, rather than indented to meet it. */
     grid-column: 2;
     margin: 0 0 4px;
-    background: linear-gradient(to right, #22c55e, #a3e635 25%, #eab308 45%, #f97316 70%, #ef4444);
+    /* The score is a purity, so the scale runs from the distrust that belongs to a dirty
+       address on the left to the clean end on the right, and the marker moves towards
+       what the number says. */
+    background: linear-gradient(to right, #ef4444, #f97316 30%, #eab308 55%, #a3e635 75%, #22c55e);
 }
 
 .purity-band::after {
@@ -450,6 +566,137 @@ button.node-ip[aria-expanded="true"] {
     flex: 1;
     width: 100%;
     max-width: none;
+}
+
+/* The ping source picks from a list of this app's own: the platform's dropdown is sized
+   to its longest entry, and one of these hosts is forty characters — the list ran out of
+   the card and over what stood beside it. Here the trigger is the column's width and the
+   list below it is too; a long host is clipped, with the whole address on its tooltip.
+   The list opens in the flow rather than over the rows, so the card grows and scrolls
+   instead of being overhung. */
+/* The row these sit in: the control column must be allowed to shrink below its content
+   (`minmax(0, 1fr)`) or the longest host stretches the column past the card, and the
+   label stays at the top so an open list does not push it down the row. */
+.settings-dock .set-group .jf-field.jf-select-row {
+    grid-template-columns: minmax(88px, max-content) minmax(0, 1fr);
+    align-items: start;
+}
+
+.rt-select {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+}
+
+/* The list opens over the rows below rather than in the flow: it used to push the rest
+   of the card down, and a dropdown that rearranges the thing it is read against is the
+   one thing a dropdown must not do. */
+.set-cards:has(.rt-select-menu),
+.settings-dock:has(.rt-select-menu) {
+    overflow: visible;
+}
+
+.input-row > .rt-select {
+    flex: 1;
+    min-width: 0;
+}
+
+/* The field's control column has to be able to shrink: a value with no break in it — a
+   core's file name is one — otherwise counts as the column's smallest possible width,
+   and the row stands out past the card it belongs to. */
+.settings-dock .set-group .jf-field > .input-row,
+.settings-dock .set-group .jf-field > .rt-select {
+    min-width: 0;
+}
+
+.rt-select-btn {
+    width: 100%;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 7px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    text-align: left;
+    cursor: pointer;
+    /* A value longer than the slot is cut, never laid over what is beside it: the whole
+       of it is on the tooltip, so the field only has to say which one is chosen. */
+    overflow: hidden;
+}
+
+.rt-select-btn > span {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rt-select-btn::after {
+    content: '';
+    flex: none;
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid currentColor;
+    opacity: .7;
+}
+
+.rt-select-menu {
+    /* Floats under the trigger at the column's width, over the rows it would otherwise
+       push down. The rows inside clip (the whole address rides each one's tooltip) and
+       the list scrolls vertically only. */
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 260;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    background: var(--bg-2);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, .45);
+    max-height: 190px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.rt-select-menu button {
+    display: block;
+    max-width: 100%;
+    padding: 4px 8px;
+    border: 0;
+    border-radius: 5px;
+    background: none;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+
+.rt-select-menu button:hover,
+.rt-select-menu button:focus-visible {
+    background: var(--hover-bg);
+    color: var(--text);
+    outline: none;
+}
+
+.rt-select-menu button.on {
+    background: var(--accent-soft);
+    color: var(--accent);
 }
 
 .rt-preset:hover {
