@@ -1,10 +1,12 @@
 <p align="center">
-  <img src="build/appicon.png" width="108" alt="EagleProxy">
+  <img src="build/appicon.png" width="96" alt="EagleProxy">
 </p>
 
 <h1 align="center">EagleProxy</h1>
 
-<p align="center">Windows 代理客户端 · 订阅 · 节点表格 · TUN / 系统代理</p>
+<p align="center">
+  <sub>Windows 代理客户端 · 订阅 · 节点表格 · TUN / 系统代理</sub>
+</p>
 
 <p align="center">
   <a href="https://github.com/sala-coding/EagleProxy/releases/latest"><img src="https://img.shields.io/github/v/release/sala-coding/EagleProxy?style=flat-square" alt="release"></a>
@@ -13,31 +15,45 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/sala-coding/EagleProxy?style=flat-square" alt="license"></a>
 </p>
 
-<p align="center"><b>简体中文</b> · <a href="README_EN.md">English</a> · <a href="README_RU.md">Русский</a> · <a href="README_FA.md">فارسی</a></p>
+<p align="center">
+  <b>简体中文</b> · <a href="README_EN.md">English</a> · <a href="README_RU.md">Русский</a> · <a href="README_FA.md">فارسی</a>
+</p>
 
-基于 [Wails](https://wails.io)（Go + Vue 3），内核 [sing-box](https://github.com/SagerNet/sing-box)。单文件程序，绿色便携：数据放在程序目录下的 `config\`，不写注册表、不装服务。
+<p align="center">
+  <sub>单文件便携 · 数据只放在程序目录的 <code>config\</code> · 不写注册表 · 不装服务</sub>
+</p>
 
-## 下载
+---
+
+### 功能
+
+<table>
+<tr>
+<td align="center" width="33%"><b>订阅</b><br><sub>链接导入<br>配额与到期自动解析</sub></td>
+<td align="center" width="33%"><b>热切换</b><br><sub>组内换节点<br>不重启内核</sub></td>
+<td align="center" width="33%"><b>双模式</b><br><sub>系统代理 / TUN<br>侧栏一键切换</sub></td>
+</tr>
+<tr>
+<td align="center"><b>局域网共享</b><br><sub>同网段设备<br>填一个地址即可</sub></td>
+<td align="center"><b>规则与 DNS</b><br><sub><code>.srs</code> 按国家管理<br>双列表 + 延迟优选</sub></td>
+<td align="center"><b>观测</b><br><sub>实时连接列表<br>分类着色的日志</sub></td>
+</tr>
+</table>
+
+<p align="center">
+  <sub>另有：全局热键与托盘 · 四种界面语言 · 关于卡检查 GitHub 更新</sub>
+</p>
+
+### 下载
 
 | 文件 | 内容 | 用途 |
 | --- | --- | --- |
 | `Eagle-vX.Y.Z-windows-full.zip` | `Eagle.exe` + `sing-box\` | 首次安装，解压即用 |
-| `Eagle-vX.Y.Z-windows.exe` | 仅程序本体 | 覆盖升级；程序内自动更新读取此文件 |
+| `Eagle-vX.Y.Z-windows.exe` | 仅程序本体 | 覆盖升级；自动更新读取此文件 |
 
 内核不内嵌：程序在自身目录、`sing-box\` 子目录与数据目录附近查找 `sing-box.exe`，设置 → 核心路径可列出并直接切换。
 
-## 功能
-
-| 能力 | 说明 |
-| --- | --- |
-| 订阅 | 订阅链接与分享链接导入，自动解析流量与到期时间，定时刷新 |
-| 节点 | 延迟 / 速度实测并排序，按组分色；组内热切换不重启内核 |
-| 模式 | 系统代理 / TUN 侧栏切换，记住上次节点与模式；TUN 协议栈随内核版本自动适配 |
-| 网络 | 局域网共享、UWP 回环、DNS 双列表编辑与延迟优选、`.srs` 规则集按国家管理 |
-| 观察 | 实时连接列表（可断开单条）、分类着色的日志面板（暂停 / 过滤 / 导出） |
-| 桌面 | 全局热键与托盘、四种界面语言、GitHub 自动更新 |
-
-## 快速开始
+### 快速开始
 
 1. 从 [Releases](https://github.com/sala-coding/EagleProxy/releases/latest) 下载 `Eagle-v*-windows-full.zip`
 2. 解压到任意目录，保持 `Eagle.exe` 与 `sing-box\` 同级
@@ -58,6 +74,6 @@ wails build                               :: 打包，不带版本号
 
 </details>
 
-## 致谢与许可
-
-内核 [sing-box](https://github.com/SagerNet/sing-box) · 桌面框架 [Wails](https://wails.io) · 数据结构与交互词汇参考 [nekoray](https://github.com/MatsuriDayo/nekoray)。本项目以 [GPL-3.0](LICENSE) 发布。
+<p align="center">
+  <sub>内核 <a href="https://github.com/SagerNet/sing-box">sing-box</a> · 框架 <a href="https://wails.io">Wails</a> · 数据结构参考 <a href="https://github.com/MatsuriDayo/nekoray">nekoray</a> · 以 <a href="LICENSE">GPL-3.0</a> 发布</sub>
+</p>

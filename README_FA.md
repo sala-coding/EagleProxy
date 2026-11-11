@@ -1,10 +1,12 @@
 <p align="center">
-  <img src="build/appicon.png" width="108" alt="EagleProxy">
+  <img src="build/appicon.png" width="96" alt="EagleProxy">
 </p>
 
 <h1 align="center">EagleProxy</h1>
 
-<p align="center">کلاینت پروکسی ویندوز · اشتراک‌ها · جدول نودها · TUN / پروکسی سیستم</p>
+<p align="center">
+  <sub>کلاینت پروکسی ویندوز · اشتراک‌ها · جدول نودها · TUN / پروکسی سیستم</sub>
+</p>
 
 <p align="center">
   <a href="https://github.com/sala-coding/EagleProxy/releases/latest"><img src="https://img.shields.io/github/v/release/sala-coding/EagleProxy?style=flat-square" alt="release"></a>
@@ -13,31 +15,45 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/sala-coding/EagleProxy?style=flat-square" alt="license"></a>
 </p>
 
-<p align="center"><a href="README.md">简体中文</a> · <a href="README_EN.md">English</a> · <a href="README_RU.md">Русский</a> · <b>فارسی</b></p>
+<p align="center">
+  <a href="README.md">简体中文</a> · <a href="README_EN.md">English</a> · <a href="README_RU.md">Русский</a> · <b>فارسی</b>
+</p>
 
-ساخته‌شده با [Wails](https://wails.io) (Go + Vue 3)، با هستهٔ [sing-box](https://github.com/SagerNet/sing-box). یک فایل اجرایی، قابل حمل: داده‌ها در پوشهٔ `config\` کنار برنامه می‌مانند، بدون نوشتن در رجیستری و بدون نصب سرویس.
+<p align="center">
+  <sub>یک فایل اجرایی · داده‌ها در <code>config\</code> کنار آن · بدون رجیستری · بدون سرویس</sub>
+</p>
 
-## دانلود
+---
+
+### امکانات
+
+<table>
+<tr>
+<td align="center" width="33%"><b>اشتراک‌ها</b><br><sub>لینک‌ها<br>حجم و انقضا خودکار</sub></td>
+<td align="center" width="33%"><b>جابه‌جایی سریع</b><br><sub>تغییر نود در گروه<br>بدون راه‌اندازی دوبارهٔ هسته</sub></td>
+<td align="center" width="33%"><b>دو حالت</b><br><sub>پروکسی سیستم / TUN<br>با یک کلیک</sub></td>
+</tr>
+<tr>
+<td align="center"><b>شبکهٔ محلی</b><br><sub>یک نشانی<br>برای همهٔ دستگاه‌ها</sub></td>
+<td align="center"><b>قواعد و DNS</b><br><sub><code>.srs</code> بر پایهٔ کشور<br>دو فهرست، سریع‌ترین انتخاب می‌شود</sub></td>
+<td align="center"><b>پایش</b><br><sub>اتصال‌های زنده<br>لاگ دسته‌بندی‌شده</sub></td>
+</tr>
+</table>
+
+<p align="center">
+  <sub>همچنین: کلیدهای میانبر و سینی سیستم · چهار زبان · بررسی به‌روزرسانی در GitHub</sub>
+</p>
+
+### دانلود
 
 | فایل | محتوا | کاربرد |
 | --- | --- | --- |
 | `Eagle-vX.Y.Z-windows-full.zip` | `Eagle.exe` + `sing-box\` | نصب نخست: از حالت فشرده خارج و اجرا کنید |
-| `Eagle-vX.Y.Z-windows.exe` | فقط خود برنامه | به‌روزرسانی روی نسخهٔ قبلی؛ به‌روزرسان درون‌برنامه‌ای همین را می‌گیرد |
+| `Eagle-vX.Y.Z-windows.exe` | فقط خود برنامه | به‌روزرسانی روی نسخهٔ قبلی؛ به‌روزرسان همین را می‌گیرد |
 
 هسته درون برنامه نیست: برنامه `sing-box.exe` را کنار خود، در پوشهٔ `sing-box\` و نزدیک پوشهٔ داده‌ها می‌جوید. در تنظیمات → مسیر هسته فهرست می‌شود و می‌توانید بی‌درنگ هستهٔ دیگری را انتخاب کنید.
 
-## امکانات
-
-| امکان | توضیح |
-| --- | --- |
-| اشتراک‌ها | لینک اشتراک و لینک نودها، حجم و تاریخ انقضا خودکار خوانده می‌شود و به‌موقع تازه می‌گردد |
-| نودها | تأخیر و سرعت زنده اندازه‌گیری و مرتب می‌شود، گروه‌ها رنگ‌بندی دارند؛ جابه‌جایی درون گروه بدون راه‌اندازی دوبارهٔ هسته |
-| حالت‌ها | پروکسی سیستم / TUN از نوار کنار، آخرین نود و حالت به یاد می‌ماند؛ پشتهٔ TUN با نسخهٔ هسته هم‌آهنگ می‌شود |
-| شبکه | اشتراک در شبکهٔ محلی، لوپ‌بک UWP، دو فهرست DNS با سنجش تأخیر و انتخاب سریع‌ترین، مجموعه‌قواعد `.srs` بر پایهٔ کشور |
-| پایش | فهرست زندهٔ اتصال‌ها (هر اتصال را می‌توان بست)، لاگ رنگ‌بندی‌شده با توقف، پالایش و برون‌بری |
-| میزکار | کلیدهای میانبر عمومی و منوی سینی سیستم، چهار زبان رابط، به‌روزرسانی از GitHub |
-
-## شروع سریع
+### شروع سریع
 
 1. `Eagle-v*-windows-full.zip` را از صفحهٔ [Releases](https://github.com/sala-coding/EagleProxy/releases/latest) دانلود کنید
 2. در هر پوشه‌ای از حالت فشرده خارج کنید، با `Eagle.exe` و `sing-box\` کنار هم
@@ -58,6 +74,6 @@ wails build                               :: بسته‌بندی بدون شما
 
 </details>
 
-## قدردانی و مجوز
-
-هسته [sing-box](https://github.com/SagerNet/sing-box) · چارچوب [Wails](https://wails.io) · ساختار داده و واژگان رابط با الگوگیری از [nekoray](https://github.com/MatsuriDayo/nekoray). تحت مجوز [GPL-3.0](LICENSE) منتشر می‌شود.
+<p align="center">
+  <sub>هسته <a href="https://github.com/SagerNet/sing-box">sing-box</a> · چارچوب <a href="https://wails.io">Wails</a> · ساختار داده با الگوی <a href="https://github.com/MatsuriDayo/nekoray">nekoray</a> · <a href="LICENSE">GPL-3.0</a></sub>
+</p>
