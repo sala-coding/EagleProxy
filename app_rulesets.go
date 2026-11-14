@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -48,12 +49,17 @@ func (a *App) RuleSets() ([]RuleSetInfo, error) {
 	if a.curSetting() == nil {
 		return nil, fmt.Errorf("backend not initialised")
 	}
+	dir := a.curSetting().RuleSetDir()
 	out := []RuleSetInfo{}
 	seen := map[string]bool{}
 	countries := a.loadRuleSetCountries()
+	// File any copy an older build left loose at the top of the directory into its
+	// country's folder before reading, so the disk and this list agree on where each
+	// rule set lives.
+	migrateRuleSetFolders(dir, countries)
 	for tag, url := range configbuilder.RuleSets(a.curSetting()) {
 		info := RuleSetInfo{Tag: tag, URL: url, Needed: true, Country: countries[tag]}
-		if fi, ok := ruleSetFile(a.curSetting().RuleSetDir(), tag); ok {
+		if fi, ok := ruleSetFile(dir, tag); ok {
 			info.Local, info.Size = true, fi.Size()
 			info.Modified = fi.ModTime().Format(time.RFC3339)
 		}
@@ -76,7 +82,7 @@ func (a *App) RuleSets() ([]RuleSetInfo, error) {
 			continue
 		}
 		info := RuleSetInfo{Tag: tag, URL: sources[0], Needed: true, Country: countries[tag]}
-		if fi, ok := ruleSetFile(a.curSetting().RuleSetDir(), tag); ok {
+		if fi, ok := ruleSetFile(dir, tag); ok {
 			info.Local, info.Size = true, fi.Size()
 			info.Modified = fi.ModTime().Format(time.RFC3339)
 		}
@@ -84,33 +90,26 @@ func (a *App) RuleSets() ([]RuleSetInfo, error) {
 		seen[tag] = true
 	}
 
-	// Files nothing refers to: listed and marked as such rather than hidden. Deleting
-	// them is a decision for the reader, not one this list makes on their behalf.
-	entries, err := os.ReadDir(a.curSetting().RuleSetDir())
-	if err != nil && !os.IsNotExist(err) {
-		return nil, err
-	}
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(strings.ToLower(name), ".srs") {
-			continue
-		}
-		tag := strings.TrimSuffix(name, ".srs")
+	// Files nothing refers to: walked from the country folders and any loose top-level
+	// copy, listed rather than hidden — deleting them is the reader's call. A folder
+	// named for a country says that country when no note does; "misc" says none.
+	walkRuleSetFiles(dir, func(tag, folder string, fi os.FileInfo) {
 		if seen[tag] {
-			continue
+			return
 		}
-		fi, err := e.Info()
-		if err != nil {
-			continue
+		country := countries[tag]
+		if country == "" && len(folder) == 2 {
+			country = strings.ToUpper(folder)
 		}
 		out = append(out, RuleSetInfo{
 			Tag:      tag,
 			Local:    true,
 			Size:     fi.Size(),
 			Modified: fi.ModTime().Format(time.RFC3339),
-			Country:  countries[tag],
+			Country:  country,
 		})
-	}
+		seen[tag] = true
+	})
 
 	// Needed first, then by name: what matters comes before what is left over.
 	sort.Slice(out, func(i, j int) bool {
@@ -122,15 +121,106 @@ func (a *App) RuleSets() ([]RuleSetInfo, error) {
 	return out, nil
 }
 
-// ruleSetFile stats a tag's local copy, reporting it only when it is there and usable —
-// the same judgement localRuleSet makes before handing a file to the core.
+// ruleSetCountrySuffix is the two-letter country code a tag carries at its end — the
+// same read the rule-set card makes when grouping (see rsCategoryOf), so the folder on
+// disk and the bar in the window name the same country.
+var (
+	ruleSetCountrySuffix = regexp.MustCompile(`-([a-zA-Z]{2})$`)
+	ruleSetCountryCode   = regexp.MustCompile(`^[a-zA-Z]{2}$`)
+)
+
+// ruleSetFolder is the country folder a tag's file is filed under: the two-letter code
+// the reader noted for it, else the code the tag's own suffix carries, else "misc" for
+// everything that belongs to no country (the card's "其他规则"). A folder name is kept
+// to ASCII so the directory reads the same whatever the interface language is.
+func ruleSetFolder(tag, note string) string {
+	if c := strings.TrimSpace(note); ruleSetCountryCode.MatchString(c) {
+		return strings.ToUpper(c)
+	}
+	if m := ruleSetCountrySuffix.FindStringSubmatch(tag); m != nil {
+		return strings.ToUpper(m[1])
+	}
+	return "misc"
+}
+
+// ruleSetFile stats a tag's local copy wherever it is filed — the flat seat or a
+// country folder — reporting it only when it is there and usable. The locator is the
+// core's own, so the window and the config can never disagree about which file a tag
+// stands for.
 func ruleSetFile(dir, tag string) (os.FileInfo, bool) {
-	path := filepath.Join(dir, tag+".srs")
+	path, ok := configbuilder.FindRuleSetFile(dir, tag)
+	if !ok {
+		return nil, false
+	}
 	fi, err := os.Stat(path)
-	if err != nil || fi.IsDir() || !configbuilder.LooksLikeRuleSet(path) {
+	if err != nil {
 		return nil, false
 	}
 	return fi, true
+}
+
+// migrateRuleSetFolders moves any rule set still sitting loose in the directory into
+// its country's folder, once. It is what files the copies an older build left flat
+// without the reader doing anything; after the first pass there is nothing loose left,
+// so it costs a directory read. A copy that already has a file of its name in the
+// folder is left alone rather than clobbered.
+func migrateRuleSetFolders(dir string, countries map[string]string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".srs") {
+			continue
+		}
+		tag := strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
+		dest := filepath.Join(dir, ruleSetFolder(tag, countries[tag]), tag+".srs")
+		src := filepath.Join(dir, e.Name())
+		if filepath.Clean(dest) == filepath.Clean(src) {
+			continue
+		}
+		if _, err := os.Stat(dest); err == nil {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			continue
+		}
+		_ = os.Rename(src, dest)
+	}
+}
+
+// walkRuleSetFiles calls fn for every .srs under dir — the loose ones at the top and
+// those inside the country folders — with the tag, the folder it sits in ("" at the
+// top), and its info. The two note files are not rule sets and are skipped by the
+// .srs test.
+func walkRuleSetFiles(dir string, fn func(tag, folder string, fi os.FileInfo)) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			sub, err := os.ReadDir(filepath.Join(dir, e.Name()))
+			if err != nil {
+				continue
+			}
+			for _, se := range sub {
+				if se.IsDir() || !strings.HasSuffix(strings.ToLower(se.Name()), ".srs") {
+					continue
+				}
+				if fi, err := se.Info(); err == nil {
+					fn(strings.TrimSuffix(se.Name(), ".srs"), e.Name(), fi)
+				}
+			}
+			continue
+		}
+		if !strings.HasSuffix(strings.ToLower(e.Name()), ".srs") {
+			continue
+		}
+		if fi, err := e.Info(); err == nil {
+			fn(strings.TrimSuffix(e.Name(), ".srs"), "", fi)
+		}
+	}
 }
 
 // ruleSetsChanged puts a running core back on the files it reads once, at start-up.
@@ -145,7 +235,7 @@ func (a *App) ruleSetsChanged() {
 		return
 	}
 	if err := a.RestartProfile(); err != nil {
-		a.notifyMessage("规则集已变更，但核心未能重建: "+err.Error(), true)
+		a.notifyMessage("规则集已变更，但核心未能重建："+err.Error(), true)
 		return
 	}
 	a.notifyMessage("规则集已生效，核心已按新的规则重建")
@@ -207,7 +297,14 @@ func (a *App) RemoveRuleSet(tag string) error {
 	if tag == "" || strings.ContainsAny(tag, `/\`) || strings.Contains(tag, "..") {
 		return fmt.Errorf("无效的规则集名称：%s", tag)
 	}
-	if err := os.Remove(filepath.Join(a.curSetting().RuleSetDir(), tag+".srs")); err != nil {
+	// The copy could sit in any country folder, so it is located before it is removed —
+	// the same lookup the window and the core use, so all three agree which file a tag
+	// is. Nothing to remove is said plainly rather than reported as a failed delete.
+	path, ok := configbuilder.FindRuleSetFile(a.curSetting().RuleSetDir(), tag)
+	if !ok {
+		return fmt.Errorf("本地没有这个规则集：%s", tag)
+	}
+	if err := os.Remove(path); err != nil {
 		return err
 	}
 	// Everything below is the read-modify-write of the two note files, so it is held
@@ -342,11 +439,24 @@ func (a *App) ImportRuleSets(paths []string, country string) (int, error) {
 		if tag == "" || strings.Contains(tag, "..") {
 			return written, fmt.Errorf("无效的规则集名称：%s", filepath.Base(p))
 		}
-		data, err := os.ReadFile(p)
+		f, err := os.Open(p)
 		if err != nil {
 			return written, err
 		}
-		dest := filepath.Join(dir, tag+".srs")
+		data, err := io.ReadAll(io.LimitReader(f, maxImportBytes+1))
+		_ = f.Close()
+		if err != nil {
+			return written, err
+		}
+		if len(data) > maxImportBytes {
+			return written, fmt.Errorf("规则集文件过大：%s", filepath.Base(p))
+		}
+		// Filed under the country the reader said it is for (or the tag's own suffix),
+		// the same folder the card groups it in.
+		dest := filepath.Join(dir, ruleSetFolder(tag, country), tag+".srs")
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return written, err
+		}
 		tmp := dest + ".tmp"
 		if err := os.WriteFile(tmp, data, 0o644); err != nil {
 			return written, err
@@ -599,7 +709,10 @@ func (a *App) fetchRuleSet(tag string) error {
 	if len(sources) == 0 {
 		return fmt.Errorf("没有这个规则集的来源：%s", tag)
 	}
-	path := filepath.Join(a.curSetting().RuleSetDir(), tag+".srs")
+	// Filed under the country the tag names (geoip-cn → CN), which is where the card
+	// groups it and where the core's locator will find it. fetchRuleSetFrom makes the
+	// folder before writing.
+	path := filepath.Join(a.curSetting().RuleSetDir(), ruleSetFolder(tag, ""), tag+".srs")
 	var etag, lastMod, used string
 	var err error
 	for _, url := range sources {

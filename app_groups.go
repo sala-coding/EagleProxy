@@ -359,7 +359,7 @@ func (a *App) SaveProfileJSON(id int, jsonStr string) error {
 	// node against the content the config was built from and restarts instead of claiming
 	// a switch it cannot make).
 	if a.RunningProfile() == id {
-		a.notifyMessage("配置已保存；该节点正在运行，重新双击该节点后生效", false)
+		a.notifyMessage("配置已保存，当前节点正在运行，重新启动该节点后生效", false)
 	}
 	a.emitGroupsChanged(-1)
 	return nil

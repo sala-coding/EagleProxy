@@ -159,7 +159,7 @@ const emit = defineEmits<{
             as the bar's content. The rule above says it is its own group — the
             same rule the rail draws between every other pair. -->
         <span class="appnav-divider"/>
-        <button class="appnav-btn"
+        <button class="appnav-btn appnav-about"
                 :title="t('btn.about')"
                 :aria-label="t('btn.about')"
                 @click="$emit('openAbout')">

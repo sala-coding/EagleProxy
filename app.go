@@ -202,6 +202,9 @@ type App struct {
 	// device is wanted ready", the mode means "it is capturing" — and the server is told
 	// them as separate facts (tunserv.State.Adapter / Prewarm).
 	tunPrewarm atomic.Bool
+	// Set once the start-up prewarm has the resident server up (see prewarmTunServer):
+	// the status bar's green tick says the session's first TUN start will not wait cold.
+	tunPrewarmOK atomic.Bool
 	// True while the app is deliberately taking the front-end down. The death watcher
 	// must not treat its own mangement as an accident: a stop that lands inside the
 	// watcher's 500ms window would otherwise read a recycled failure onto an intact
@@ -655,6 +658,10 @@ func (a *App) startup(ctx context.Context) {
 	// task that is not installed is left for the first enable to create — so the
 	// only thing a failure costs is the line it writes.
 	go crashlog.Guard("prewarmTunServer", a.prewarmTunServer)
+	// The core's own bytes, into the OS file cache while nothing is waiting on them: a
+	// TUN start's `sing-box started (2.44s)` is mostly the core reading itself, its rule
+	// sets and its config off the disk (see app_warm.go).
+	go crashlog.Guard("warmCoreFiles", a.warmCoreFiles)
 }
 
 // applyPendingTun consumes a tun request left behind by an older build. The internal-tun
@@ -697,7 +704,7 @@ func (a *App) applyPendingTun() {
 		a.logf("[vpn] 已取消待处理的 TUN 请求：本次运行没有管理员权限")
 		// Worth saying out loud: the user asked for TUN one consent dialog ago and
 		// this launch came back without the token, so nothing was enabled.
-		a.notifyMessage("TUN 模式需要管理员权限，本次未能开启", true)
+		a.notifyMessage("TUN 模式开启失败：需要管理员权限，当前直连", true)
 		return
 	}
 	if profile != core.StoppedID && a.curMgr().GetProfile(profile) != nil {
@@ -713,7 +720,7 @@ func (a *App) applyPendingTun() {
 		a.startStopMu.Lock()
 		settled := func(ferr error) {
 			if ferr == nil {
-				a.notifyMessage("TUN 模式已开启（已重启节点生效）")
+				a.notifyMessage("TUN 模式已开启，节点已重启生效")
 				return
 			}
 			// The same undo the failure branch below keeps, minus the log
@@ -745,10 +752,10 @@ func (a *App) applyPendingTun() {
 		// UAC prompt has not captured anything yet; the completion that follows
 		// says the rest.
 		if a.tunFrontAwaiting.Swap(false) {
-			a.notifyMessage("TUN 正在等待管理员授权，确认弹窗后自动接管")
+			a.notifyMessage("正在等待管理员授权，确认后自动接管 TUN…")
 			return
 		}
-		a.notifyMessage("TUN 模式已开启（已重启节点生效）")
+		a.notifyMessage("TUN 模式已开启，节点已重启生效")
 		return
 	}
 	// The profile the request was made for is gone, and 节点先行 has no

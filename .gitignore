@@ -21,3 +21,4 @@ node_modules
 /skills-lock.json
 build/*.log
 /.workbuddy
+/docs

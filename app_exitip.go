@@ -179,9 +179,15 @@ func (a *App) ExitAddress() map[string]string {
 	return r
 }
 
-// exitProbeFresh is how long a warm-up's answer is handed out as the current one. It
-// only has to cover one turn of the window's two-second poll.
-const exitProbeFresh = 2 * time.Second
+// exitProbeFresh is how long an answer is handed out as the current one.
+//
+// It was one turn of the window's two-second poll, which meant a question every two
+// seconds for as long as the app sat open — the address is asked through the tunnel,
+// so that is the node's bandwidth and somebody's quota spent on a number that only
+// changes when the node does. Ten seconds is still "current" for a corner that shows
+// an address, and the answer that matters — a different node — is not waiting on this
+// timer at all: a switch clears the cache outright (see exitProbeClear).
+const exitProbeFresh = 10 * time.Second
 
 // exitProbeCached answers the last successful probe, when it is still fresh.
 func (a *App) exitProbeCached() map[string]string {
@@ -274,6 +280,17 @@ func (a *App) exitProbeDue() bool {
 // node that cannot carry traffic is worth a sentence, said once and not on every
 // poll.
 func (a *App) noteExitFailure() {
+	// Not counted while the core is still coming up. A switch restarts the core, its
+	// inbound opens a second or two later, and the corner's poll asks every two
+	// seconds — so the first two answers of a healthy start are routinely empty, and
+	// two is the threshold (measured: 12:39:34 节点启动 → 12:39:36 "当前节点不可用",
+	// against a core whose own start took 1.05s and whose tunnel was not up yet). The
+	// notice is not a state change, but a reader acting on it changes nodes for
+	// nothing; an empty answer from a core that is not listening is a fact about the
+	// start, not about the node.
+	if ctrl := a.curController(); ctrl == nil || !ctrl.InboundReady() {
+		return
+	}
 	a.exitProbeMu.Lock()
 	a.exitFailStreak++
 	a.exitFailAt = time.Now()
@@ -286,7 +303,7 @@ func (a *App) noteExitFailure() {
 	if streak < exitFailThreshold || already {
 		return
 	}
-	a.notifyMessage("这个节点连不通：出口探测连续失败，请换一个节点", true)
+	a.notifyMessage("当前节点不可用：出口探测连续失败，请更换节点", true)
 }
 
 // exitFailLogGap is how long the log stays quiet after a probe came back empty.

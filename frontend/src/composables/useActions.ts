@@ -297,10 +297,25 @@ export function useActions(deps: AppActionsDeps) {
         }
     };
 
+    // The run the stop button refers to: one object per run, so a stop lands on the
+    // run that was going when it was pressed and never marks a newer one cancelled.
+    let speedtestRun: { cancelled: boolean } | null = null;
+
     // Ends the run in progress. A group test is one node at a time and can be
     // minutes; the reader may have seen enough after the first few, and the nodes
     // already measured keep their numbers (see CancelSpeedtest on the Go side).
+    //
+    // The indicator ends on the press, not on the backend's return. Cancelling stops
+    // handing out new nodes, but the few probes already in flight run to their own
+    // answer — and waiting for the slowest of them is exactly what made "停止" feel
+    // dead: the pill sat on "37/40" while a hung node took its seconds to time out.
+    // So the pill and the count clear here at once; the drained results simply stop
+    // arriving, and whatever was measured is already on the rows (see the
+    // speedtest:result handler).
     const stopSpeedtest = async () => {
+        if (speedtestRun) speedtestRun.cancelled = true;
+        deps.setTesting(false);
+        deps.testProgress.value = {done: 0, total: 0};
         try {
             await API.CancelSpeedtest();
             deps.notify(tip('metrics.stopped'));
@@ -313,6 +328,8 @@ export function useActions(deps: AppActionsDeps) {
         // One run at a time: a second trigger while one is going must not clear its
         // progress, transplant its counters or end the "testing" indicator early.
         if (deps.testingRef.value) return;
+        const run: { cancelled: boolean } = {cancelled: false};
+        speedtestRun = run;
         // A run takes minutes, and the reader may sort the list by hand while it
         // runs. That sorting is theirs: the watch lives only for this run
         // (nothing else writes sort — the column headers are the only other
@@ -382,6 +399,10 @@ export function useActions(deps: AppActionsDeps) {
                 }
                 res = await API.SpeedtestProfiles([target], mode);
             }
+            // The reader pressed stop: the indicator already cleared and "已停止" was
+            // said, and the rows show whatever measured. Do not announce a completion
+            // that did not happen, and do not re-sort over the stop.
+            if (run.cancelled) return;
             // A whole-group test takes minutes; the group on screen is the one to
             // refresh, not the one this handler was built with.
             await loadProfiles(gidRef.value);
@@ -412,8 +433,14 @@ export function useActions(deps: AppActionsDeps) {
             deps.notify(errText(e), 'err');
         } finally {
             stopHandWatch?.();
-            deps.setTesting(false);
-            deps.testProgress.value = {done: 0, total: 0};
+            // Only the run still current may clear the indicator: if the reader
+            // stopped and started a newer run, that one owns testing/progress now,
+            // and this tail must leave it be.
+            if (speedtestRun === run) {
+                deps.setTesting(false);
+                deps.testProgress.value = {done: 0, total: 0};
+                speedtestRun = null;
+            }
         }
     };
 
@@ -740,6 +767,24 @@ export function useActions(deps: AppActionsDeps) {
         }
     };
 
+    // The file import, from the titlebar's search field: the chooser named the
+    // format, the backend aims the picker by it, reads the whole file and
+    // dispatches it by shape — a sing-box config's outbounds, a Clash config,
+    // a link list — rather than by its suffix. The file lands as its own
+    // subscription card, named after itself, and the backend's groups:changed
+    // switches the view onto it — so this side only says what happened. A
+    // partial import arrives as the result plus an error (see doImport for
+    // the same reading): the card is real and already selected by the event,
+    // under the failure notice.
+    const importConfigFile = async (kind: string) => {
+        try {
+            const res = await API.ImportConfigFile(kind);
+            if (res) deps.notify(tip('import.fileDone', res.ids.length));
+        } catch (e) {
+            deps.notify(errText(e), 'err');
+        }
+    };
+
     const doPreview = async (id?: number) => {
         const target = id ?? deps.selected.value;
         if (target < 0) return deps.notify(tip('core.needsNode'), 'err');
@@ -837,10 +882,31 @@ export function useActions(deps: AppActionsDeps) {
         }
     };
 
-    const exportConfig = async (id: number) => {
+    // The same export, for a subscription rather than a node: the file it writes carries
+    // every node the group holds, in the format the reader picked from the card's
+    // export list — sing-box JSON, Clash YAML, a link list, or that list base64 wrapped.
+    const exportGroupConfig = async (id: number, kind: string) => {
         try {
-            const path = await API.ExportConfigFile(id);
+            const path = await API.ExportGroupConfig(id, kind);
             if (path) deps.notify(tip('config.exported', path));
+        } catch (e) {
+            deps.notify(errText(e), 'err');
+        }
+    };
+
+    // The subscription's address, as text rather than as the QR picture beside it. Two
+    // steps like every other copy in the app: the async clipboard is what a browser
+    // page uses, and the backend's own writer is the fallback when the custom scheme
+    // refuses it.
+    const copySubUrl = async (url: string) => {
+        if (!url) return;
+        try {
+            try {
+                await navigator.clipboard.writeText(url);
+            } catch {
+                await API.WriteClipboard(url);
+            }
+            deps.notify(tip('sub.urlCopied'));
         } catch (e) {
             deps.notify(errText(e), 'err');
         }
@@ -904,10 +970,10 @@ export function useActions(deps: AppActionsDeps) {
         deps.connOpen.value = true;
     };
 
-    return {loadProfiles, reload, reloadQuiet, profileLoadSeq, selectGroup, hoverSwitch, hoverTimer,
+        return {loadProfiles, reload, reloadQuiet, profileLoadSeq, selectGroup, hoverSwitch, hoverTimer,
         start, stop, switchTo, resetMetrics, runBatch, stopSpeedtest, speedTest,
         updateSub, deleteGroup, gConfirmTimer, toggleSP, setEgressMode,
         addProfile, editProfile, cloneProfile, deleteProfile, copyLink,
-        doImport, importFromClipboard, doPreview, addSubFromSearch, moveTo,
-        showQR, showUrlQR, exportConfig, scanImage, openConns};
+        doImport, importConfigFile, importFromClipboard, doPreview, addSubFromSearch, moveTo,
+        showQR, showUrlQR, exportGroupConfig, copySubUrl, scanImage, openConns};
 }

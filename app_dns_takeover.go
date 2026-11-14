@@ -8,6 +8,7 @@ import (
 	"eagle/internal/crashlog"
 	"eagle/internal/dnsstub"
 	"eagle/internal/tunserv"
+	"eagle/internal/vpn"
 )
 
 // The machine's own resolvers, and who answers them.
@@ -105,8 +106,16 @@ func (a *App) nodeServing() bool {
 func (a *App) tunServiceState() tunserv.State {
 	s := a.curSetting()
 	vpn := s != nil && s.VPNMode()
+	// A live front-end IS a capture, whatever the flag says. The flag is runtime state
+	// and the process is not: an app that was restarted while TUN was on adopts the
+	// front-end it left behind (see the adopt path) and starts with the flag false —
+	// and the state file then told the elevated side "no capture, no node", which is a
+	// server that clears the adapter's resolver every second. Measured: a live capture
+	// with `EagleTun` carrying traffic, `ServerAddresses` empty on the adapter, and the
+	// system's own probe failing on that adapter for as long as the mismatch lasted.
+	capture := vpn || a.tunFrontAlive()
 	return tunserv.State{
-		Adapter:   vpn,
+		Adapter:   capture,
 		Resolvers: a.systemDNSWanted(),
 		// The adapter's own resolver is the tunnel's, not the node's: the address it
 		// names is answered through the capture, by the hijack behind the front-end's
@@ -117,13 +126,36 @@ func (a *App) tunServiceState() tunserv.State {
 		// before the physical resolvers win. A node serving without the tunnel
 		// therefore does not get the adapter's resolver any more than a stopped one
 		// does.
-		Node: vpn && a.nodeServing(),
+		Node: capture && a.nodeServing(),
 		// The device built ahead of the reader's first switch-on. It stands only while
 		// TUN mode is off: with the mode on, Adapter already says the same thing to the
 		// server (build the device), and this flag says what it was for — so the moment
 		// the capture takes over the prewarm is not repeated as a second, phantom ask.
 		Prewarm: a.tunPrewarm.Load() && !vpn,
 	}
+}
+
+// tunFrontAlive reports whether a front-end process is running on this machine.
+//
+// The pid comes from the same record the rest of the TUN paths use, and the process
+// check is what makes it "alive" rather than "recorded": a killed front-end leaves its
+// pid behind for the watcher to clear, and a state file built on that number alone
+// would describe a capture nobody holds.
+func (a *App) tunFrontAlive() bool {
+	pid, _ := a.vpnState()
+	if pid > 0 && vpn.IsRunning(pid) {
+		return true
+	}
+	// And the elevated side's own book. The record above only names a front-end this
+	// app raised or adopted; a front-end the server started on its own — or one that
+	// outlived a book this side cleared — is a capture all the same, and reading only
+	// the local record made the state file say "no capture, no node" over an adapter
+	// that was up and forwarding. The server clears its own record when the process is
+	// gone, so a stale pid is filtered by the same liveness test.
+	if info := tunserv.FrontPIDOf(a.curDataDir()); info != nil && vpn.IsRunning(info.PID) {
+		return true
+	}
+	return false
 }
 
 // reconcileSystemDNS brings both halves in line with that decision, and is safe to call

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	goruntime "runtime"
 	"strings"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -39,6 +40,18 @@ func (a *App) SetVPNMode(on bool) error {
 	defer a.startStopMu.Unlock()
 	a.modeMu.Lock()
 	defer a.modeMu.Unlock()
+	// Entry, with the caller, once per press. The switch has two front doors — the
+	// rail's binding and the tray/hotkey's toggleVPN — and the off path reports itself
+	// from one of two mutually exclusive branches ("节点继续运行" / "节点已切回本地端口").
+	// Both lines 21ms apart in one log is therefore either two presses or two callers
+	// for one press, and nothing in the messages themselves says which; this line does.
+	if pc, _, _, ok := goruntime.Caller(1); ok {
+		caller := "unknown"
+		if fn := goruntime.FuncForPC(pc); fn != nil {
+			caller = fn.Name()
+		}
+		a.logf(fmt.Sprintf("[vpn] SetVPNMode(%v) ← %s", on, caller))
+	}
 	// The animation tracks the flags, and this function has several exits (the
 	// failed-elevation undo, the handover, the plain path), so one deferred
 	// refresh after the flags have settled covers them all — and the same is true
@@ -110,12 +123,8 @@ func (a *App) SetVPNMode(on bool) error {
 	// core could no longer be stopped at all.
 	a.curSetting().SetVPNMode(on)
 	if !on {
-		// The device is no longer wanted once the capture is down, so the prewarm that
-		// would have the resident server rebuild it is cleared with the mode — and
-		// cleared here, before the reconcile below reads it: a state file that still
-		// asks for an adapter is a device back within the server's ten-second tick,
-		// whatever the countdown does. Prewarm exists for the FIRST switch-on of a
-		// session; a reader switching TUN off is not waiting on the next one.
+		// 关 TUN 之后系统里不留网卡，所以预热也要熄掉：状态文件里还写着要一张网卡，
+		// 常驻服务就会在设备被拆掉后十秒内再造一张回来，和这个开关的意思相反。
 		a.tunPrewarm.Store(false)
 	}
 	// Told to the elevated side here, now that the flag says the truth, rather
@@ -156,26 +165,19 @@ func (a *App) SetVPNMode(on bool) error {
 		// system-proxy switch finds a node that is already up, and the reader's
 		// traffic does not go through a stop and a start to get there.
 		//
-		// The front-end stays for now. It holds the adapter and nothing else:
-		// the capture is gone, the device sits idle, and the next switch back
-		// to TUN is a matter of taking the routes again rather than of a fresh
-		// authorisation and a fresh device — but only until the countdown below
-		// expires. Three seconds is as long as an idle device is worth keeping:
-		// after that the switch-off means what it says, and the adapter goes.
+		// 前端与网卡都不留：关 TUN 之后系统里不该还有一条 EagleTun 连接，所以由闲置
+		// 倒计时把它连同设备一起拆掉（2 秒后动手，见 tunIdleReclaim）。节点还在跑，
+		// 倒计时里那句"节点仍在运行"是给停节点用的，这里靠的是它看的另一个条件——
+		// 设备只在 TUN 开启时才算"被需要"（见 tunDeviceWanted）。
 		if a.coreServesCurrentMode(running) {
 			a.notifyMessage("TUN 模式已关闭，节点继续运行")
-			// The adapter is idle from this line on: the node listens on its local
-			// port, and nothing behind it needs a capture. It goes on the idle
-			// countdown rather than staying for the rest of the session — the test
-			// that used to hold it ("a node is running") read exactly this state as
-			// "in use", so the switch-off left a network connection behind that
-			// outlived the mode that made it (see tunDeviceWanted).
 			a.armTunIdleReclaim()
 			return nil
 		}
-		// The config moved, so the core is rebuilt on the plain port. The
-		// front-end goes with it: a capture with nothing behind it is a
-		// machine whose traffic enters a tunnel that leads nowhere.
+		// The config moved, so the core is rebuilt on the plain port, and the front-end
+		// goes with it: a capture with nothing behind it is a machine's traffic entering
+		// a tunnel that leads nowhere — and the device it holds is the EagleTun
+		// connection that must not outlive the mode.
 		//
 		// The switch's form: the node is restarted below, so this is a step in
 		// the mode change rather than a stop (see stopForSwitchLocked).
@@ -191,10 +193,10 @@ func (a *App) SetVPNMode(on bool) error {
 		if err := a.startProfileLocked(running); err != nil {
 			// The TUN core is gone and the restart did not land: say so rather
 			// than let the lamp lie. The reader re-picks a node as usual.
-			a.notifyMessage("TUN 模式已关闭，但节点重启到本地端口失败: "+err.Error(), true)
+			a.notifyMessage("TUN 模式已关闭，但节点重启失败："+err.Error()+"，当前直连", true)
 			return err
 		}
-		a.notifyMessage("TUN 模式已关闭，节点已切回本地端口继续运行")
+		a.notifyMessage("TUN 模式已关闭，节点继续运行但不经过 TUN")
 		return nil
 	}
 	// TUN on. The core keeps running when the config it is running is already
@@ -220,9 +222,9 @@ func (a *App) SetVPNMode(on bool) error {
 					a.logf("[system proxy] TUN 开启失败后的回退也未完成: " + err2.Error())
 				}
 			}
-			a.notifyMessage("TUN 开启失败: "+ferr.Error(), true)
+			a.notifyMessage("TUN 开启失败："+ferr.Error(), true)
 		}
-		a.notifyMessage("正在启动 TUN 节点…")
+		a.notifyMessage("正在启动节点…")
 		if err := a.startCapture(settled); err != nil {
 			// The capture did not come up (a declined prompt, a missing
 			// wintun.dll, a broken adapter). The flag goes back off, and the
@@ -236,7 +238,7 @@ func (a *App) SetVPNMode(on bool) error {
 					a.logf("[system proxy] TUN 开启失败后的回退也未完成: " + err2.Error())
 				}
 			}
-			a.notifyMessage("TUN 开启失败: "+err.Error(), true)
+			a.notifyMessage("TUN 开启失败："+err.Error(), true)
 			return fmt.Errorf("TUN 开启失败: %w", err)
 		}
 		// A start that handed its front-end completion to the background — the
@@ -244,7 +246,7 @@ func (a *App) SetVPNMode(on bool) error {
 		// it is, and the completion's own message follows when the reader
 		// answers.
 		if a.tunFrontAwaiting.Swap(false) {
-			a.notifyMessage("TUN 正在等待管理员授权，确认弹窗后自动接管")
+			a.notifyMessage("正在等待管理员授权，确认后自动接管 TUN…")
 			return nil
 		}
 		a.notifyMessage("TUN 模式已开启")
@@ -286,11 +288,11 @@ func (a *App) SetVPNMode(on bool) error {
 	// capture came up, and the rollback below when it was not.
 	settled := func(ferr error) {
 		if ferr == nil {
-			a.notifyMessage("TUN 模式已开启（已重启节点生效）")
+			a.notifyMessage("TUN 模式已开启，节点已重启生效")
 			return
 		}
 		a.rollbackTunSwitchOn(running, hadSystemProxy)
-		a.notifyMessage("TUN 开启失败: "+ferr.Error(), true)
+		a.notifyMessage("TUN 开启失败："+ferr.Error(), true)
 	}
 	err := a.startProfileLockedOn(running, settled)
 	if err == nil {
@@ -299,10 +301,10 @@ func (a *App) SetVPNMode(on bool) error {
 		// anything yet: said as the wait it is, and the completion's own
 		// message follows when the reader answers the dialog.
 		if a.tunFrontAwaiting.Swap(false) {
-			a.notifyMessage("TUN 正在等待管理员授权，确认弹窗后自动接管")
+			a.notifyMessage("正在等待管理员授权，确认后自动接管 TUN…")
 			return nil
 		}
-		a.notifyMessage("TUN 模式已开启（已重启节点生效）")
+		a.notifyMessage("TUN 模式已开启，节点已重启生效")
 		return nil
 	}
 	// The start failed after everything was already torn down — the Windows
@@ -340,14 +342,14 @@ func (a *App) rollbackTunSwitchOn(running int, hadSystemProxy bool) {
 	}
 	a.curSetting().SetSPModeSystemProxy(true)
 	if err2 := a.startProfileLocked(running); err2 == nil {
-		a.notifyMessage("TUN 开启失败，已回退到系统代理模式")
+		a.notifyMessage("TUN 模式开启失败：已回退到系统代理")
 	} else {
 		// The restart failed, so no core listens on the local inbound — and the
 		// Windows proxy is still pointed away from it (it was cleared before
 		// the stop). Leaving the flag would claim an applied proxy that the
 		// machine does not have; everything off is what the state actually is.
 		a.curSetting().SetSPModeSystemProxy(false)
-		a.notifyMessage("TUN 开启失败，节点未能启动，当前为直连状态", true)
+		a.notifyMessage("TUN 模式开启失败：节点未能启动，当前直连", true)
 	}
 }
 
@@ -445,7 +447,7 @@ func (a *App) SetSystemProxyMode(on bool) error {
 		// taking the routes again rather than of a fresh authorisation.
 		if err := a.applySystemProxy(true); err != nil {
 			a.curSetting().SetSPModeSystemProxy(false)
-			a.notifyMessage("系统代理开启失败: "+err.Error(), true)
+			a.notifyMessage("系统代理开启失败："+err.Error(), true)
 			return err
 		}
 		a.notifyMessage("系统代理已开启")
@@ -456,12 +458,10 @@ func (a *App) SetSystemProxyMode(on bool) error {
 		// puts the Windows proxy in place as well.
 		err := a.startProfileLocked(running)
 		if err == nil {
-			a.notifyMessage("系统代理已开启（已重启节点生效）")
+			a.notifyMessage("系统代理已开启，节点已重启生效")
 			// TUN 已转为系统代理，适配器不再承载任何捕获 —— 当场把前端与网卡拆下，
-			// 而不是依赖 3 秒闲置回收倒计时：节点此刻仍在运行，倒计时的前置条件
-			// "runningID == StoppedID" 永远不会成立，网卡就会一直留在系统里。
-			// 拆下后下一次切回 TUN 会重新授权并重建（状态栏会说明）。
-			if err2 := a.stopTunFront(); err2 != nil {
+			// EagleTun 不留在系统里。拆下后下一次切回 TUN 会重新授权并重建。
+			if err2 := a.stopTunFrontAndAdapter(); err2 != nil {
 				a.logf("TUN 网卡随手拆除未完成: " + err2.Error())
 			}
 			return nil
@@ -480,7 +480,7 @@ func (a *App) SetSystemProxyMode(on bool) error {
 		if err2 := a.stopTunFront(); err2 != nil {
 			a.logf("TUN 网卡拆除未完成（直连态）: " + err2.Error())
 		}
-		a.notifyMessage("系统代理开启失败（节点在切换后未能重启），当前直连", true)
+		a.notifyMessage("系统代理开启失败：节点未能重启，当前直连", true)
 		return err
 	}
 	// Announced from here rather than by the frontend, for the reason written on
@@ -498,13 +498,13 @@ func (a *App) SetSystemProxyMode(on bool) error {
 			// window's re-read both tell the truth, and hand the error back the
 			// way applySystemProxy's own comment promises.
 			a.curSetting().SetSPModeSystemProxy(false)
-			a.notifyMessage("系统代理开启失败: "+err.Error(), true)
+			a.notifyMessage("系统代理开启失败："+err.Error(), true)
 		} else {
 			// The flag says off and Windows still points at the port — the
 			// leftover every other branch in this file exists to prevent. The
 			// switch reads off because that is what was asked; the error says the
 			// machine did not get there, and the reader can answer it.
-			a.notifyMessage("系统代理关闭失败: "+err.Error(), true)
+			a.notifyMessage("系统代理关闭失败："+err.Error(), true)
 		}
 		return err
 	}
@@ -786,7 +786,7 @@ func (a *App) applyRememberedSpmode() {
 					// The flag stands down with the node that never came up.
 					a.curSetting().SetVPNMode(false)
 				}
-				a.notifyMessage("恢复上次模式失败: "+err.Error(), true)
+				a.notifyMessage("恢复上次模式失败："+err.Error(), true)
 				return
 			}
 		}
@@ -802,12 +802,12 @@ func (a *App) applyRememberedSpmode() {
 			// the plain config, and the switch is what puts it under TUN.
 			a.notifyMessage("正在恢复上次的 TUN 模式…")
 			if err := a.SetVPNMode(true); err != nil {
-				a.notifyMessage("恢复 TUN 模式失败: "+err.Error(), true)
+				a.notifyMessage("恢复 TUN 模式失败："+err.Error(), true)
 			}
 			return
 		}
 		if err := a.SetSystemProxyMode(true); err != nil {
-			a.notifyMessage("恢复系统代理失败: "+err.Error(), true)
+			a.notifyMessage("恢复系统代理失败："+err.Error(), true)
 		}
 	}
 }

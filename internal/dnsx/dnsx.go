@@ -204,20 +204,58 @@ type Client struct {
 // builds one of these when its upstream is set, and that may well be while no node is
 // running and nothing can be reached at all.
 func NewClient(t Target, opts Options) *Client {
-	c := &Client{t: t, opts: opts.withDefaults(), sem: make(chan struct{}, 1)}
+	c := &Client{t: t, opts: opts.withDefaults(), sem: make(chan struct{}, exchangeConcurrency)}
 	c.sem <- struct{}{}
 	return c
 }
 
+// exchangeConcurrency is how many exchanges one path may have in flight.
+//
+// It was one, and the cost was invisible until it was measured: a single dropped UDP
+// question holds its exchange for the whole timeout, every other question on that path
+// queues behind it on sem, and the ones that reach the front with no time left dial
+// into an expired deadline — reported, for a while, as "dial tcp 127.0.0.1:2080: i/o
+// timeout（拨号 0ms，预算剩余 0ms）", which reads like a broken loopback and is not.
+//
+// Four, not one, and still a channel rather than a mutex: the reason for the channel
+// stands (see sem — a host-named upstream may resolve through this very forwarder, and
+// an unbounded wait there is a deadlock), and four of them hold that guarantee just as
+// well as one while leaving room for the questions that pile up when a resolver drops
+// one packet.
+const exchangeConcurrency = 4
+
+// exchangeFloor is the least budget worth starting a dial with. Below it the attempt
+// cannot succeed — the handshake alone is milliseconds but the answer behind it is not
+// — and failing here says why instead of reporting a dial that never happened.
+const exchangeFloor = 500 * time.Millisecond
+
 // Exchange relays one message, serialised against the other users of this path.
 func (c *Client) Exchange(ctx context.Context, msg []byte) ([]byte, error) {
+	started := time.Now()
 	select {
 	case <-c.sem:
-		defer func() { c.sem <- struct{}{} }()
 	case <-ctx.Done():
 		// The path is busy and this question will not wait it out: the caller's deadline
 		// is the answer, rather than a queue that can outlive it (see sem).
 		return nil, ctx.Err()
+	}
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			c.sem <- struct{}{}
+		}
+	}
+	defer release()
+
+	// The budget is the caller's, and the queue is this client's: after a long wait the
+	// question arrives with nothing left, and every later phase then reports its own
+	// failure (a dial that timed out at 0ms) over the real one (the queue).
+	if deadline, ok := ctx.Deadline(); ok {
+		if left := time.Until(deadline); left < exchangeFloor {
+			return nil, fmt.Errorf("上游排队超时（等待 %dms，预算剩余 %dms）",
+				time.Since(started).Milliseconds(), left.Milliseconds())
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, c.opts.Timeout)
@@ -243,6 +281,14 @@ func (c *Client) Exchange(ctx context.Context, msg []byte) ([]byte, error) {
 		// closed it while it was idle, the tunnel was rebuilt under it. Dropping it and
 		// asking once more is what makes the second question of a session work as well as
 		// the first.
+		//
+		// The retry needs budget like any other attempt, and the first one may have spent
+		// it: measured once as "dial ... i/o timeout（拨号 0ms，预算剩余 -1ms）", a second
+		// dial that was never going to succeed and that hid the first attempt's error
+		// behind a timeout of its own. Below the floor the first error is the answer.
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < exchangeFloor {
+			return nil, err
+		}
 		c.dropConn()
 		return c.exchangeOnce(ctx, msg)
 	}
@@ -606,9 +652,21 @@ func bootstrapAddress(server string) string {
 // an HTTP request but a DNS message, and DoT is not HTTP at all.
 func DialVia(ctx context.Context, proxy *url.URL, address string) (net.Conn, error) {
 	var d net.Dialer
+	// Timed, because "i/o timeout" on a loopback dial says nothing on its own: the core
+	// was measured idle (1.3% of a core) and its accept queue empty (fifty connections,
+	// two listeners) at the moment three of these failed, so either the connect really
+	// hung or the budget was already gone when the dial began. The number separates
+	// those two, and it costs two clock reads on a path that runs once per query.
+	started := time.Now()
 	conn, err := d.DialContext(ctx, "tcp", proxy.Host)
 	if err != nil {
-		return nil, err
+		if deadline, ok := ctx.Deadline(); ok {
+			left := time.Until(deadline)
+			return nil, fmt.Errorf("%w（拨号 %dms，预算剩余 %dms）", err,
+				time.Since(started).Milliseconds(), left.Milliseconds())
+		}
+		return nil, fmt.Errorf("%w（拨号 %dms，无预算上限）", err,
+			time.Since(started).Milliseconds())
 	}
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)

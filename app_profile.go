@@ -248,7 +248,7 @@ func (a *App) startProfileLockedOn(id int, frontSettled func(error)) error {
 			// reads off, which is the machine's truth, and pressing it again is
 			// the path that answers its own failures.
 			a.curSetting().SetSPModeSystemProxy(false)
-			a.notifyMessage("系统代理写入失败: "+err2.Error(), true)
+			a.notifyMessage("系统代理写入失败："+err2.Error(), true)
 		}
 	}
 	return nil
@@ -445,7 +445,7 @@ func (a *App) stopVPN() error {
 		// reader who is in the middle of starting one is worse than saying nothing.
 		a.logf("<<< stopped main core (tun front-end kept)")
 		if a.curSetting() != nil && a.curSetting().VPNMode() {
-			a.notifyMessage("节点已停止（TUN 网卡保持）")
+			a.notifyMessage("节点已停止，TUN 网卡保持")
 		} else {
 			// A mode switch to system proxy tears its own adapter down right after
 			// the restart lands (see SetSystemProxyMode) — from this line's point

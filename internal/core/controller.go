@@ -1038,7 +1038,27 @@ type lineWriter struct {
 	mu  sync.Mutex
 	fn  func(string)
 	buf []byte
+	// QUIC stream cancellations are counted here rather than forwarded one by one: see
+	// quicPeerCancel.
+	noise   int
+	noiseAt time.Time
 }
+
+// quicPeerCancel is how a QUIC peer says "this stream is over" — RESET_STREAM with
+// error code 0, which in QUIC means NO_ERROR, not failure.
+//
+// One HTTP/3 session multiplexes dozens of streams, so the moment a page, a tab or a
+// video is closed the remote cancels every stream it still had open: a burst of lines
+// that all say the same thing, all at ERROR level, and all about a connection that
+// ended the way it was supposed to. Measured here: forty lines in twelve seconds, each
+// with its own eight-minute-old stream, at the end of a session that had been running
+// fine. They carry nothing a reader can act on, and they bury the lines that do — so
+// they are counted and summarised instead of printed.
+const quicPeerCancel = "canceled by remote with error code 0"
+
+// quicNoiseEvery is how often the count is reported. Long enough that a burst is one
+// line, short enough that the summary still lands while the reader is looking.
+const quicNoiseEvery = 30 * time.Second
 
 func (w *lineWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
@@ -1055,8 +1075,26 @@ func (w *lineWriter) Write(p []byte) (int, error) {
 	w.mu.Unlock()
 
 	// forward outside the lock: the callback writes logs to disk.
+	var summary string
 	for _, line := range lines {
+		if strings.Contains(line, quicPeerCancel) {
+			w.mu.Lock()
+			w.noise++
+			if w.noiseAt.IsZero() {
+				w.noiseAt = time.Now()
+			}
+			if time.Since(w.noiseAt) >= quicNoiseEvery {
+				summary = fmt.Sprintf("[core] 已忽略 %d 条对端 QUIC 流取消通知（NO_ERROR，对端正常收尾）", w.noise)
+				w.noise = 0
+				w.noiseAt = time.Now()
+			}
+			w.mu.Unlock()
+			continue
+		}
 		w.fn(line)
+	}
+	if summary != "" {
+		w.fn(summary)
 	}
 	return len(p), nil
 }

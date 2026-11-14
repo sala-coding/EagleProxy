@@ -224,6 +224,18 @@ const toggleUwp = async (e: Event) => {
                 <input type="checkbox" :checked="!!obj.vpn_strict_route" @change="flag('vpn_strict_route')($event)"/>
             </label>
         </div>
+        <!-- The adapter's lifetime, beside the switches that shape it: when the app
+            exits, the holder of the adapter is not torn down and the next launch
+            adopts it instead of rebuilding one, which is what makes a restart read
+            as instant (see KeepTunFrontOnExit in the Go side). Not a tun-idle row:
+            it is the launcher's flag rather than a line of the config the builder
+            writes, and the reader sets it for the launch after this one. -->
+        <div class="jf-field">
+            <label>{{ t('cfg.keep_tun_front') }}</label>
+            <label class="jf-check">
+                <input type="checkbox" :checked="obj.keep_tun_front !== false" @change="flag('keep_tun_front')($event)"/>
+            </label>
+        </div>
         <div :class="`jf-field${tunIdle}`">
             <label>{{ t('cfg.fakedns') }}</label>
             <label class="jf-check">

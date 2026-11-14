@@ -630,3 +630,13 @@ func firstTokenInt(s string) int {
 	n, _ := strconv.Atoi(fields[0])
 	return n
 }
+
+// ParseContent parses pasted-or-file content the way a subscription body
+// arrives: base64, a link list, or a Clash YAML — the shapes rawUpdater
+// sniffs. The file import reads a whole file rather than a subscription, but
+// the shapes on disk are the same three, so the same walker takes them.
+func ParseContent(content []byte, s *setting.Setting, gid int) (ents []*db.ProxyEntity, skipped []string) {
+	ru := &rawUpdater{s: s, gidAddTo: gid}
+	ru.update(string(content))
+	return ru.updated, ru.skipped
+}

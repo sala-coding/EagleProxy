@@ -308,6 +308,48 @@
     min-width: 0;
 }
 
+/* The add list is twelve protocol names, and as a column it is a twelve-row sheet down
+   a window whose whole height is 570px. Drawn as a matrix instead: two names to a line,
+   the cells ruled apart, so the same list is six lines and reads as a table of what the
+   app can dial rather than as a menu that happens to be tall.
+
+   The rules are the cells' own inset lines, not a gap over a --line ground: an odd
+   number of protocols would leave one half-row uncovered, and the ground under the grid
+   would paint that hole as a grey block. nth-child is exact here because the columns are
+   fixed at two — everything from the third child on is a row below the first, and every
+   even child is in the right-hand column. */
+.titlebar .titlebar-add .proto-menu {
+    display: grid;
+    /* max-content, not 1fr: the menu is shrink-to-fit (fixed, width auto), and fractions
+       of a box whose width is being computed from them collapse to nothing — the first
+       cut of this rule drew a 6px sliver. Each column is as wide as its own longest
+       name, which is the whole of what the box has to be. */
+    grid-template-columns: repeat(2, minmax(max-content, 1fr));
+    width: max-content;
+    gap: 0;
+    padding: 3px;
+    min-width: 0;
+}
+
+.titlebar .titlebar-add .proto-menu button {
+    padding: 5px 7px;
+    border-radius: 0;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.titlebar .titlebar-add .proto-menu button:nth-child(n+3) {
+    box-shadow: inset 0 1px 0 var(--line);
+}
+
+.titlebar .titlebar-add .proto-menu button:nth-child(even) {
+    box-shadow: inset 1px 0 0 var(--line);
+}
+
+.titlebar .titlebar-add .proto-menu button:nth-child(even):nth-child(n+3) {
+    box-shadow: inset 0 1px 0 var(--line), inset 1px 0 0 var(--line);
+}
+
 /* The batch sweeps and the outbound mode, moved up from the status bar: the
    same word-and-list control (see .egress-trigger in 09-settings.css), seated
    on the bar on top with the other whole-list entries. --wails-draggable keeps

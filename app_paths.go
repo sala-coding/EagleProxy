@@ -348,6 +348,10 @@ func (a *App) GetDataDir() string { return a.curDataDirRaw() }
 // setting and nothing else, so the no-op is caught here rather than left to the
 // caller to remember.
 func (a *App) SetDataDir(dir string) error {
+	a.startStopMu.Lock()
+	defer a.startStopMu.Unlock()
+	a.modeMu.Lock()
+	defer a.modeMu.Unlock()
 	raw := strings.TrimSpace(dir)
 	if raw == "" {
 		return fmt.Errorf("empty directory")
@@ -412,7 +416,7 @@ func (a *App) quiesceForDataDirChange() {
 		return
 	}
 	if a.runningID() != core.StoppedID {
-		_ = a.StopProfile()
+		_ = a.stopProfileLocked()
 	}
 	// The front-end outlives the core by design, so the stop above does not cover it.
 	if pid, _ := a.vpnState(); pid > 0 {

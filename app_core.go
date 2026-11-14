@@ -198,7 +198,7 @@ func (a *App) onCoreExit(gen, id, pid int) {
 	if tags := a.takeMissingRuleSets(); len(tags) > 0 && configbuilder.SkipRuleSets(tags) > 0 {
 		a.notifyMessage(fmt.Sprintf("规则集 %s 不存在，已跳过该规则并重试", strings.Join(tags, "、")), true)
 		if err := a.StartProfile(id); err != nil {
-			a.notifyMessage("自动重启失败: "+err.Error(), true)
+			a.notifyMessage("自动重启失败："+err.Error(), true)
 		}
 		return
 	}
@@ -243,14 +243,14 @@ func (a *App) onCoreExit(gen, id, pid int) {
 					a.logf("[vpn] 停止 TUN 前端失败（放弃自动重启路径）: " + err.Error())
 				}
 				st.SetVPNMode(false)
-				a.notifyMessage("核心反复退出，TUN 模式已关闭（当前直连），可重新开启", true)
+				a.notifyMessage("TUN 模式已关闭：核心反复退出，当前直连，可重新开启", true)
 			}
 			if st.SPModeSystemProxy() {
 				if err := a.applySystemProxy(false); err != nil {
 					a.logf("[sp] 清除系统代理失败（放弃自动重启路径）: " + err.Error())
 				}
 				st.SetSPModeSystemProxy(false)
-				a.notifyMessage("核心反复退出，系统代理已关闭（当前直连），可重新开启", true)
+				a.notifyMessage("系统代理已关闭：核心反复退出，当前直连，可重新开启", true)
 			}
 			a.rememberSpmode()
 			a.refreshTrayStatus()
@@ -262,7 +262,7 @@ func (a *App) onCoreExit(gen, id, pid int) {
 	}
 	a.notifyMessage("核心意外退出，正在自动重启…")
 	if err := a.StartProfile(id); err != nil {
-		a.notifyMessage("自动重启失败: "+err.Error(), true)
+		a.notifyMessage("自动重启失败："+err.Error(), true)
 	}
 }
 

@@ -185,32 +185,42 @@
    same pair the log's own filter column uses). */
 .log-level-menu {
     position: absolute;
-    right: 0;
+    /* Left edges flush with the trigger's: the list is that control opened, so its
+       words must begin where the control's word begins. It used to hang off the right
+       edge instead, which put every option a few pixels to the left of the box that
+       opened them. */
+    left: 0;
+    right: auto;
     top: calc(100% + 4px);
     z-index: 250;
     margin: 0;
-    padding: 4px;
+    padding: 3px;
     list-style: none;
-    /* As wide as its longest word, never wider: the list is a column of the same words
-       the trigger says, not a panel parked under it. */
+    /* As wide as its longest word, never narrower than the trigger: the list is a column
+       of the same words the trigger says, not a panel parked under it. */
     width: max-content;
     min-width: 100%;
+    box-sizing: border-box;
     background: var(--bg-2);
     border: 1px solid var(--line-strong);
     border-radius: 8px;
     box-shadow: 0 10px 26px rgba(0, 0, 0, .45);
 }
 
+/* The words in --text, not --text-dim. Dim is what the strip's idle controls wear; an
+   open list is being read, and at 12px on --bg-2 the dim colour left the options the
+   same weight as the panel's hairlines. */
 .log-level-menu button {
     display: block;
     width: 100%;
-    padding: 5px 8px;
+    padding: 5px 6px;
     border: 0;
     border-radius: 5px;
     background: none;
-    color: var(--text-dim);
+    color: var(--text);
     font: inherit;
     font-size: 0.75rem;
+    line-height: 1.45;
     text-align: left;
     white-space: nowrap;
     cursor: pointer;
@@ -314,15 +324,18 @@
 }
 
 /* The label is a word, not a tag: the routes are named in the app's own
-   language even though the log quotes sing-box's tags. It carries the reading of the
-   whole column — dim is "not the one in effect", the accent is "this one" — which is
-   what the tick used to say from inside a column of its own. */
+   language even though the log quotes sing-box's tags. The one in effect is the
+   brightest word in the column and stands on the accent wash; the rest are dim.
+   It is said with brightness rather than the accent colour itself — a dark or
+   custom accent on the accent-tinted ground was reading as no text at all, and
+   the word has to be legible in every theme. */
 .log-filter-item span {
     color: var(--text-dim);
 }
 
 .log-filter-item.on span {
-    color: var(--accent);
+    color: var(--text);
+    font-weight: 600;
 }
 
 /* The log itself: the key to its colours and then the lines they explain, as one

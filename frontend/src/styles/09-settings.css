@@ -14,14 +14,17 @@
    caption instead of as a box with a word in it. The geometry stays tight: the
    cards are containers, not layouts, and the dialog has to fit one screen. */
 .set-group {
-    border: 1px solid var(--line-strong);
-    border-radius: 8px;
+    /* --line and not --line-strong: the card stands on the panel's own darkest
+       surface now (see .settings-dock), so the step of shade is the edge, and a
+       strong line on top of it was drawing the same edge twice. */
+    border: 1px solid var(--line);
+    border-radius: 10px;
     background: var(--bg-2);
-    /* no top padding: the head carries that edge, and it has to reach the border.
-       The sides and the gap between cards are tighter than they first look like they
-       should be, because this dialog is a stack of nine cards: at 12px each, the four
-       numbers of this rhythm add up to most of a screenful of nothing. */
-    padding: 0 10px 8px;
+    /* The card's own padding all round. The per-card nameplate that used to carry the
+       top edge is gone — the dock's header and the left nav already say which page this
+       is — so the top is padded now; the sides and bottom stay tight, because nine cards
+       stacked turn a loose rhythm into a screenful of nothing. */
+    padding: 10px 10px 8px;
     margin: 0 0 7px;
     /* No overflow here on purpose. The head is pulled out to the card's borders, and
        the obvious way to keep its background off the rounded corners is to hide the
@@ -31,38 +34,7 @@
        costs nothing and cannot swallow a field. */
 }
 
-.set-group-title {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    /* pulled out to the card's borders, the way .modal-head runs across its own
-       dialog: the head is a band, not an indented line of text */
-    /* the negative margin has to match the card's own side padding above, or the band
-       stops short of the borders it is drawn to reach */
-    margin: 0 -10px 7px;
-    padding: 5px 10px;
-    font-size: 0.625rem;
-    /* The card's own name in the ink of its values: the smaller size and the letter
-       spacing already say "caption", and asking the colour to say it as well left a
-       band of grey at the top of every card. */
-    color: var(--text);
-    text-transform: uppercase;
-    letter-spacing: .08em;
-    background: var(--bg);
-    border-bottom: 1px solid var(--line);
-    /* 7 = the card's own 8px radius less its 1px border: the band starts where the
-       card's border does, so its corners sit exactly on the card's. */
-    border-radius: 7px 7px 0 0;
-}
 
-/* the little accent bar that ties the title to the card's border */
-.set-group-title::before {
-    content: "";
-    width: 3px;
-    height: 10px;
-    border-radius: 2px;
-    background: var(--accent);
-}
 
 /* Two pairs of cards share a row instead of taking one each: paths with the
    startup/type-scale pair, and the external cores with the TUN switches. Each is a
@@ -103,10 +75,12 @@
     display: grid;
     /* wide enough for the longest short label ("Data directory" / the protocol
        names) without clipping it on a 660px dialog */
-    grid-template-columns: 150px 1fr;
+    grid-template-columns: minmax(88px, max-content) minmax(0, 1fr);
     align-items: center;
-    gap: 8px;
-    margin-bottom: 5px;
+    gap: 10px;
+    margin: 0;
+    padding: 8px 11px;
+    border-top: 1px solid var(--line);
 }
 
 /* A label that does not fit wraps to a second line rather than being cut: the
@@ -115,9 +89,15 @@
    everything, chosen over the truncation that hid it. */
 .set-group .jf-field > label {
     margin: 0;
-    text-align: right;
+    text-align: left;
     overflow-wrap: anywhere;
     white-space: normal;
+}
+
+/* The pointer takes the whole row, name and value together: a table line is one
+   thing to read and one thing to aim at, not the value alone. */
+.set-group .jf-field:hover {
+    background: var(--hover-bg);
 }
 
 /* A field on its own line, label above control. Worn by the tall controls — the TUN
@@ -152,25 +132,12 @@
     text-align: left;
 }
 
-/* The inbound card's labels read from the left, like the TUN card's above: the card's
-   rows are one labelled value after another down the same edge, and a right-hand label
-   against a left-hand value reads as two columns that never meet. */
-.set-inbound .jf-field > label {
-    text-align: left;
-}
-
-/* The core card's labels read from the left, for the same reason as the inbound card's
-   (see .set-inbound): one labelled value per line down the same edge. */
-.set-core .jf-field > label {
-    text-align: left;
-}
-
-/* The subscription, speed-test and hotkey cards join them (see .set-inbound and
-   .set-core): the remaining raw cards read alike, so the label column answers to the
-   same edge everywhere on the sheet's cards. */
-.set-subs .jf-field > label,
-.set-test .jf-field > label,
-.set-hotkeys .jf-field > label {
+/* The raw-settings cards read alike, so their label column answers to the same edge
+   everywhere on the sheet: the inbound card's rows are one labelled value after another
+   down the same edge, and a right-hand label against a left-hand value reads as two
+   columns that never meet. The card that catches whatever is left over (the one with
+   no subject of its own) is a raw card too, and it reads the same way as the rest. */
+.set-json .jf-field > label {
     text-align: left;
 }
 
@@ -215,16 +182,18 @@
 .set-group select {
     width: 100%;
     background: var(--bg);
-    border: 1px solid var(--line);
+    border: 1px solid var(--line-strong);
     border-radius: 6px;
     color: var(--text);
     padding: 6px 8px;
     font-size: 0.8125rem;
     outline: none;
+    transition: border-color .15s ease, box-shadow .15s ease;
 }
 
 .set-group select:focus {
     border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 /* What is in a path or a number is read character by character — a directory, an
@@ -239,9 +208,12 @@
 }
 
 /* A hover says the row is the control it looks like, without the input having to
-   light up before it has been touched. */
-.set-group .jf-field input:hover:not(:focus) {
-    border-color: var(--line-strong);
+   light up before it has been touched: the edge steps up to the dim text weight,
+   the same two-step the search field and the routing card's fields read by. */
+.set-group .jf-field input:hover:not(:focus),
+.set-group .jf-field textarea:hover:not(:focus),
+.set-group .jf-field select:hover:not(:focus) {
+    border-color: var(--text-dim);
 }
 
 /* The hint belongs to the group rather than to a field, so it keeps the card's own
@@ -556,8 +528,12 @@
        --line's weight its edge dissolved into whatever it covered. The same step every
        other floating surface takes. */
     border: 1px solid var(--line-strong);
-    border-radius: 10px;
-    background: var(--bg-2);
+    border-radius: 12px;
+    /* The panel is the page; the cards on it are the sheets. This is the window's
+       deepest surface rather than the mid one, so a card's --bg-2 reads as raised
+       instead of as a rectangle ruled onto the same colour — the two used to share
+       --bg-2, and every card's border was doing the work of a whole step of depth. */
+    background: var(--bg);
     /* A heavier cast than the default panel shadow, plus a hair of inner light along
        the top: the read is "a sheet lifted off the page", and the light catching its
        edge is what draws the outline on a dark floor. */
@@ -624,26 +600,60 @@
    the strip, where the eye looking for the way out already goes. */
 .set-dock-head {
     display: flex;
-    align-items: center;
-    gap: 12px;
+    align-items: baseline;
+    gap: 9px;
     /* Compact: the strip is a nameplate and nothing more, so it takes the title's
        own line-height plus a step of air on each side — the panel's height is the
        cards' room, and every pixel spent here was one taken off them. */
-    padding: 5px 12px 5px 14px;
+    padding: 7px 12px 7px 14px;
     border-bottom: 1px solid var(--line);
-    background: var(--bg-3, var(--bg-2));
+    /* The page's own surface, with the hairline under it doing the separating: a band
+       of --bg-3 here was a third shade in a panel that now has two. */
+    background: var(--bg);
 }
 
 .set-dock-title {
-    flex: 1 1 auto;
+    flex: none;
     font-size: 0.8125rem;
     font-weight: 600;
 }
 
-/* The two columns: subjects on the left, the card shown on the right. */
+/* The card on screen, riding beside the nameplate rather than above the card: the
+   strip is the panel's one line of orientation, and the dim weight keeps it a
+   subtitle instead of a second title. It takes what is left of the strip and gives
+   the rest back by truncating, so a long card name cannot push the strip wider. */
+.set-dock-here {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    /* a step under the card's own head rather than level with it: the strip says
+       where the reader is, the head says what the card is, and the two saying it at
+       one size read as the same word printed twice */
+    font-size: 0.625rem;
+    color: var(--text-dim);
+}
+
+/* A hairline between the two, drawn by the pseudo-element so the gap stays the
+   flex gap's business and no empty span has to exist for it. */
+.set-dock-here::before {
+    content: "";
+    display: inline-block;
+    width: 1px;
+    height: 9px;
+    margin-right: 9px;
+    vertical-align: -1px;
+    background: var(--line-strong);
+    opacity: .6;
+}
+
+/* The nav gives width back to the card as the dock shrinks, then tops out at its
+   original 138px once the panel has room for it. */
 .set-dock-body {
     display: grid;
-    grid-template-columns: 138px 1fr;
+    grid-template-columns: clamp(96px, 26%, 138px) minmax(0, 1fr);
+    min-width: 0;
     min-height: 0;
 }
 
@@ -663,15 +673,14 @@
    without clipping on a 660px dialog" is now a third of the card. These overrides re-fit
    the geometry for the narrow column — nothing in them reaches outside the dock. */
 
-/* The label column: 150px was sized for six-character English labels; the dock's labels
-   in Chinese are three or four characters. The column now fits the widest label the
-   card actually carries (minmax floor keeps short-label cards from over-hanging), so a
-   long one — 退出时保留 TUN 网卡 — shows in full on its own line instead of being cut
-   or wrapped; the rest of the width comes back to the control, which is the column that
-   wanted it. */
+/* The label column is one fixed width down the whole card, not a per-row max-content:
+   a ledger's value column only lines up if every name ends at the same x. The width
+   fits the longest short label; a longer one — 退出时保留 TUN 网卡 — wraps to a second
+   line rather than pushing the values out of register, which is the cost of one column
+   of values a reader can run their eye down. */
 .settings-dock .set-group .jf-field {
-    grid-template-columns: minmax(88px, max-content) 1fr;
-    gap: 8px;
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: 10px;
 }
 
 /* The dock's 88px column would be where a boxed row lands — the box is the row's only
@@ -734,46 +743,49 @@
     min-width: 0;
     min-height: 0;
     overflow-y: auto;
-    padding: 8px;
-    border-right: 1px solid var(--line);
+    /* No rule down the side of the column: with the cards raised on the page's own
+       surface (see .settings-dock) the seam is a change of shade, and a line drawn
+       beside a change of shade is one edge too many in a 540px panel. The gutter is
+       the separation — wider at the bottom so the last row is not glued to the frame. */
+    padding: 10px 4px 14px 6px;
     scrollbar-width: thin;
 }
 
-/* One name each, full width, stacked — drawn as a ruled table: a framed list,
-   hairline row rules, a numbered first column, and the section seam as a thicker
-   rule between the two halves. */
+/* One name each, full width, stacked — a framed list whose rows are rounded
+   bars inside it, the frame the only line the list draws: the row the pointer
+   is on is the row that lights, and the ruled table's hairlines only ever said
+   "these rows are separate", which the bars now say by their own shape. The
+   rows inset from the frame by the frame's own breath, so a lit row reads as a
+   bar laid on the card, not as paint reaching the edges. */
 .set-nav-list {
     display: flex;
     flex-direction: column;
-    gap: 0;
+    /* a hair of air between the rows: enough that a hovered one reads as its own
+       shape rather than as paint on a stack of them */
+    gap: 1px;
     overflow: hidden;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--bg);
     counter-reset: nav;
+    padding: 0;
 }
 
 .set-nav-item {
     position: relative;
     flex: none;
     display: grid;
-    grid-template-columns: 28px 1fr;
+    grid-template-columns: 26px 1fr;
     align-items: center;
     border: 0;
-    border-radius: 0;
-    border-top: 1px solid var(--line);
+    border-radius: 7px;
     background: none;
     color: var(--text-dim);
-    padding: 7px 10px 7px 4px;
-    font-size: 0.6875rem;
+    padding: 8px 8px 8px 2px;
+    font-size: 0.75rem;
     text-align: left;
     white-space: nowrap;
     overflow: hidden;
     cursor: pointer;
-}
-
-.set-nav-item:first-child {
-    border-top: 0;
+    /* the row is one object: the wash, the ink and the bar arrive together */
+    transition: background .14s ease, color .14s ease;
 }
 
 /* The row's number, in its own column: a table of contents says where each entry
@@ -784,8 +796,11 @@
     font-family: var(--font-mono);
     font-size: 0.625rem;
     color: var(--text-dim);
-    opacity: .7;
+    /* A figure is a mark beside the name, not a second name: at .7 it was reading as
+       loud as the three characters it numbers. */
+    opacity: .55;
     text-align: center;
+    transition: opacity .14s ease;
 }
 
 .set-nav-item:hover {
@@ -793,30 +808,35 @@
     background: var(--hover-bg);
 }
 
+.set-nav-item:hover::before {
+    opacity: .85;
+}
+
 /* The lit entry is the card on screen: the accent wash across the whole row and a
-   2px bar on the row's left edge — the same mark the group titles carry, saying the
-   same thing about the same card. The number lights up with the row. */
+   2px bar on the row's left edge. The word and the number are the column's brightest
+   and heaviest — said with brightness rather than the accent colour, which on the
+   accent-tinted ground was reading as no text at all under a dark or custom accent. */
 .set-nav-item.active {
-    color: var(--accent);
+    color: var(--text);
+    font-weight: 600;
     background: var(--accent-soft);
     box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .set-nav-item.active::before {
-    color: var(--accent);
+    color: var(--text);
     opacity: 1;
     font-weight: 600;
 }
 
-/* The seam between the hand-written cards and the raw-settings groups: inside the
-   framed table it is a full-width band, one step darker than the rows around it —
-   the table of contents in two parts, and the seam is where the second begins. */
+/* The seam between the hand-written cards and the raw-settings groups: one inset
+   rule across the list — the table of contents in two parts, and the seam is
+   where the second begins. It insets from the rows' own edges so it reads as a
+   break in the list rather than as a line across the column. */
 .set-nav-sep {
-    height: 3px;
-    margin: 0;
+    height: 0;
+    margin: 6px 10px;
     border-top: 1px solid var(--line);
-    border-bottom: 1px solid var(--line);
-    background: var(--bg-2);
 }
 
 /* The arrows are drawn in borders rather than loaded as glyphs — one arrow, two
@@ -850,10 +870,13 @@
    cards past it are simply not there. */
 .set-slide {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    /* The card is a sheet on the panel, not a pane pressed into its corner: the inset
+       is the air it stands in on all four sides, so its own frame and the panel's are
+       two edges with a gap between them instead of two lines on the same pixel. */
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
     overflow-y: auto;
     visibility: hidden;
     transition: transform .34s cubic-bezier(.4, 0, .2, 1), visibility .34s;
@@ -861,6 +884,21 @@
 
 .set-slide.on {
     visibility: visible;
+}
+
+/* The card's own floor: a fade where the scroller ends, so a row caught by the edge
+   reads as "there is more below" rather than as a row cut in half. Sticky and pulled
+   back up by its own height, which is what keeps it out of the scroll's arithmetic —
+   it is a shade over the surface, not a strip added to the card. */
+.set-slide::after {
+    content: "";
+    position: sticky;
+    bottom: 0;
+    display: block;
+    height: 20px;
+    margin-top: -20px;
+    pointer-events: none;
+    background: linear-gradient(to bottom, transparent, var(--bg-2));
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -899,33 +937,36 @@
 }
 
 /* --- the cards at dock width, second pass ---
-   The first pass re-fit the geometry the sheet handed down. This one re-lays the three
-   cards whose layout was written for a column twice this wide: the routing mode cards,
-   the DNS card's three columns, and the raw-settings groups that still asked for a grid
-   of columns. All of it is scoped to the dock, so the sheet's own rules are untouched. */
+   The first pass re-fit the geometry the sheet handed down. This one re-lays the
+   cards whose layout was written for a column twice this wide: the DNS card's
+   three columns, and the raw-settings groups that still asked for a grid
+   of columns. All of it is scoped to the dock, so the sheet's own rules are untouched.
+   The routing card is not among them any more: its rail, fields frame and list
+   panels were written for this width from the first line. */
 
-/* The routing card. Four mode cards across ~380px is ~80px a card — a Chinese name and
-   a note fighting for one line. Two by two reads as the table of directions it is, and
-   every card gets room for its note. */
-.settings-dock .rt-cards {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 7px;
+/* The capsule in the dock's width: five strategy keywords are the widest run of
+   segments any card holds, and they have to hold one line — a choice that wraps to a
+   second line is read as two choices, and the last keyword standing alone under the
+   other four is the one the reader is least likely to look for.
+
+   The room comes out of the segments' own sides and their face, which is the caption
+   size the card's labels already wear: at the pill's default padding and size the five
+   of them came to more than the card has, at any type scale above the default. The
+   words never break inside a segment either — a keyword split in two is not the
+   keyword. At a type scale well past the default they do wrap again, which is the one
+   place a second line is the lesser evil: a fifth option off the edge of the card, or
+   a keyword cut in half, is worse than a capsule two lines tall.
+
+   The rounding steps down from the pill to the card's own corner along with it: a
+   capsule that had wrapped wore semicircle ends for no reason. */
+.settings-dock .seg {
+    border-radius: 10px;
 }
 
-.settings-dock .rt-card {
-    padding: 8px 10px;
-    gap: 2px;
-}
-
-/* The rule lists, one to a line: minmax(220px) in a 380px column put two boxes beside
-   each other with neither wide enough for a rule line, and the block card's two lists
-   read as one squeezed pair. */
-.settings-dock .rt-lists {
-    grid-template-columns: minmax(0, 1fr);
-}
-
-.settings-dock .rt-list textarea {
-    height: 120px;
+.settings-dock .seg-item {
+    padding: 3px 4px;
+    font-size: 0.625rem;
+    white-space: nowrap;
 }
 
 /* The DNS card, stacked. Three columns of ~115px each put the two resolver catalogues into
@@ -992,25 +1033,6 @@
     padding: 0 12px 10px;
 }
 
-/* The nameplate is back — but as a sticky: the band holds at the top of the card's
-   scroller while the rows it names go by under it. Its own background and hairline
-   are what make that honest — the field behind it is covered exactly to the band's
-   edge — and as a positioned element it paints over the rows beneath it by the
-   browser's own order, so no z-index war is declared here. It lifts off its old
-   seat only when the card's own bottom comes up to meet it, which in a slide of
-   one card is the end of the scroll. */
-.settings-dock .set-group-title {
-    margin: 0 -12px 9px;
-    position: sticky;
-    top: 0;
-    /* Above the card's own positioned rows: .kind-box is relative, and two
-       positioned siblings with no explicit order paint in document order — the
-       frame coming after the band would slide over it and read as the band being
-       transparent. One step of z takes the whole story back to "covered by the
-       band", in every theme, because the band's ground is a theme variable. */
-    z-index: 1;
-}
-
 .settings-dock .set-group .jf-field {
     margin-bottom: 6px;
 }
@@ -1031,29 +1053,50 @@
 .kind-box {
     position: relative;
     border: 1px solid var(--line);
-    border-radius: 6px;
-    /* The legend rides the top edge, so the frame opens under it rather than behind
-       the card head; the bottom padding is the last field's own margin minus a step,
-       so the frame hugs its contents the way the card's other rows hug theirs. */
-    margin: 7px 0 9px;
-    padding: 10px 10px 2px;
+    border-radius: 8px;
+    /* The frame is a table now, not a box around boxes: it carries the one outer
+       edge and clips it, and the rows inside are joined by hairlines rather than
+       each standing in a pill of its own. The legend is a band across the top, so
+       the frame opens under it. */
+    margin: 8px 0;
+    padding: 0;
+    overflow: hidden;
+    /* Clipping the band's corners to the rounded frame is what the overflow above is
+       for — but it also drops a flex item's automatic minimum size to zero, which let
+       a frame be squeezed shorter than its own rows and cut the last of them off (the
+       DNS card lost its second resolver this way). Stating the floor as the content
+       undoes that: the frame is never shorter than what it holds, and the card scrolls
+       instead of clipping. */
+    min-height: min-content;
+    background: var(--bg);
 }
 
 .look-box-title {
-    position: absolute;
-    top: 0;
-    left: 9px;
-    transform: translateY(-50%);
-    padding: 0 6px;
+    /* A header band, not a word riding the border: it names the block the way a
+       table's caption names its rows, on its own ground with a rule under it.
+       Uppercase and wide tracking go — these legends are Chinese, where the
+       spacing only pulls characters apart from a word that was never meant to be
+       three words. */
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 11px;
     background: var(--bg-2);
     color: var(--text-dim);
-    font-size: 0.625rem;
-    text-transform: uppercase;
-    letter-spacing: .08em;
-    /* The line the legend sits on is the frame's, and a word set on a line that runs
-       behind it must occupy that line fully or the border peeks through the gaps. */
-    line-height: 1.4;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    line-height: 1.3;
     white-space: nowrap;
+}
+
+.look-box-title::before {
+    content: '';
+    flex: none;
+    width: 3px;
+    height: 11px;
+    border-radius: 2px;
+    background: var(--accent);
 }
 
 /* Inside the looks box the rows carry no label of their own — the frame's legend is
@@ -1224,6 +1267,16 @@
     width: min(780px, 92vw);
 }
 
+/* The QR dialog hugs its picture: width auto rather than the modal's fixed 520px,
+   because the picture is the whole of what the dialog says — a frame wider than
+   the code it holds is a frame with a hole in it. The code itself is 320px (see
+   showQR in useActions), so the dialog comes out at that plus the wrap's padding,
+   and nothing else. */
+.modal.qr {
+    width: auto;
+    max-width: 92vw;
+}
+
 /* The generated-config preview: a reading pane rather than a form. Its box is a share
    of the window in both directions — the dialog is the window's size, not a number
    written here — and its height is not the reader's to drag: one field that can be
@@ -1288,16 +1341,22 @@
 .modal input {
     width: 100%;
     background: var(--bg);
-    border: 1px solid var(--line);
+    border: 1px solid var(--line-strong);
     border-radius: 6px;
     color: var(--text);
     padding: 8px 10px;
     font-size: 0.8125rem;
     outline: none;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.modal input:hover:not(:focus) {
+    border-color: var(--text-dim);
 }
 
 .modal input:focus {
     border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .modal-foot {
@@ -1643,17 +1702,101 @@
 .jf-field textarea {
     width: 100%;
     background: var(--bg);
-    border: 1px solid var(--line);
+    /* the well's edge is --line-strong — the same step the search field and the
+       routing card's fields wear (see .node-search, .gf-row input): a control
+       standing on the card says where it begins */
+    border: 1px solid var(--line-strong);
     border-radius: 6px;
     color: var(--text);
     padding: 6px 8px;
     font-size: 0.8125rem;
     outline: none;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.jf-field input:hover:not(:focus),
+.jf-field textarea:hover:not(:focus) {
+    border-color: var(--text-dim);
 }
 
 .jf-field input:focus,
 .jf-field textarea:focus {
     border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* A field carries its own name inside it. The name standing outside leaves the
+   row with an empty box and nothing to say what goes in it, and the column it stood
+   in is width the value could have used.
+
+   The name goes in at the box's left, dim, and a hairline separates it from the
+   value — the same pair the name and the value were before, one step closer
+   together and inside one border.
+
+   Every row of a kind takes it, in every card: a card that has one row with its
+   name in and one with its name out reads as two forms in one frame. So the rule
+   is the control rather than the card — a plain input and a dropdown take the name
+   in, and the three that have a shape of their own (a switch, a tall list, a
+   hotkey's own field) keep the name where it was. */
+/* The row the rules below are about — a named field whose control is a value the
+   reader types or picks: an input, a dropdown, or the drawn dropdown. Not the
+   switches (their box is the state, not a value), not the tall lists (`.jf-object`,
+   `.jf-stack`, `.jf-long` — their name rides their own border), and not the hotkey
+   field (it has a listening state of its own). Written out in each rule rather than
+   held in a variable: CSS has no such thing, and a selector that must match in five
+   places is better repeated than guessed at. */
+/* A field carries its own name inside it. The name standing outside leaves the row
+   with an empty box and nothing to say what goes in it, and the column it stood in is
+   width the value could have used. The name goes in at the box's left, dim, and a
+   hairline separates it from the value — the same pair the name and the value were
+   before, one step closer together and inside one border. */
+.settings-dock .set-group .jf-field:has(> label):not(.jf-object, .jf-stack, .jf-long):not(:has(.hk-input)):has(input:not([type="checkbox"]), select, .rt-select) {
+    /* Already a ruled row (see .set-group .jf-field). The value cell gives up its
+       own box: the hairline between rows is the only line it wears, and the name
+       and the value are the row's two columns rather than a word inside a pill. */
+    padding: 8px 11px;
+}
+
+.settings-dock .set-group .jf-field:has(> label):not(.jf-object, .jf-stack, .jf-long):not(:has(.hk-input)):has(input:not([type="checkbox"]), select, .rt-select) > label {
+    margin: 0;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-dim);
+}
+
+/* The control is the cell's value, not a box set inside it: no border, no ground
+   of its own, the text sitting on the row's surface. The drawn dropdown obeys the
+   same rule — the button inside it is the value, not a control of its own. */
+.settings-dock .set-group .jf-field:has(> label):not(.jf-object, .jf-stack, .jf-long):not(:has(.hk-input)):has(input:not([type="checkbox"]), select, .rt-select) :is(input:not([type="checkbox"]), select, .rt-select-btn) {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 2px 0;
+    width: 100%;
+    min-width: 0;
+    color: var(--text);
+    text-align: left;
+}
+
+/* A number or a one-word answer reads tidier against the right edge of its cell than
+   trailing into empty space; the long ones — paths, addresses, the drawn dropdown's
+   value — keep the left edge so nothing is cut off at the card. */
+.settings-dock .set-group .jf-field:has(> label):not(.jf-object, .jf-stack, .jf-long):not(:has(.hk-input)):has(input[type="number"]) :is(input[type="number"], select) {
+    text-align: right;
+}
+
+/* The focused row lifts and takes an accent tick on its left edge: the whole line
+   answers, because the whole line is the field. */
+.settings-dock .set-group .jf-field:has(> label):not(.jf-object, .jf-stack, .jf-long):not(:has(.hk-input)):has(input:not([type="checkbox"]), select, .rt-select):focus-within {
+    background: var(--bg-3);
+    box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* A note under a field belongs under the whole row, not under the value alone. */
+.settings-dock .set-group .jf-field:has(> label):not(.jf-object, .jf-stack, .jf-long):not(:has(.hk-input)):has(input:not([type="checkbox"]), select, .rt-select) > .jf-hint {
+    grid-column: 1 / -1;
 }
 
 /* A hotkey field holds a combination rather than a caret, so while it listens its focus
@@ -1772,11 +1915,14 @@
    is: a switch, a capsule with a knob, off to the left on the card's own
    surface and on to the right in the accent.
 
-   One rule for every switch in the app: every .jf-check is inside a modal, so
-   this is the only place the box is styled, and the several layouts that place
-   one (a card row, the MTU line, the theme row, beside the 兜底解析 select)
-   go on setting their own margins and leaving the box alone. */
-.modal .jf-check input[type="checkbox"] {
+   One rule for every switch in the app: the box is styled once, and the
+   several layouts that place one (a card row, the MTU line, the theme row,
+   beside the 兜底解析 select) go on setting their own margins and leaving the
+   box alone. It was once written under .modal, on the assumption that every
+   .jf-check lived in a dialog — the settings sheet is not a dialog, and its
+   switches were the browser's own squares while every other one in the app was
+   a capsule. */
+.jf-check input[type="checkbox"] {
     -webkit-appearance: none;
     appearance: none;
     position: relative;
@@ -1795,7 +1941,7 @@
 /* The knob, absolute inside the box so it travels by translate — the one property the
    compositor moves on its own. Its geometry is what centres it: 12px in an 18px box
    with a 1px border leaves 2px above and below, and 2px in from the left at rest. */
-.modal .jf-check input[type="checkbox"]::after {
+.jf-check input[type="checkbox"]::after {
     content: '';
     position: absolute;
     top: 2px;
@@ -1809,19 +1955,19 @@
 
 /* On: the accent fill and the colour the app puts on top of one (see .btn.primary), so
    the switch and the button agree about what "on" looks like. */
-.modal .jf-check input[type="checkbox"]:checked {
+.jf-check input[type="checkbox"]:checked {
     background: var(--accent);
     border-color: var(--accent);
 }
 
-.modal .jf-check input[type="checkbox"]:checked::after {
+.jf-check input[type="checkbox"]:checked::after {
     translate: 16px 0;
     background: var(--on-fill);
 }
 
 /* Keyboard only: the pointer already gets the caption lighting up on hover (see
    .set-group .jf-check:hover), and a ring on every click would be noise. */
-.modal .jf-check input[type="checkbox"]:focus-visible {
+.jf-check input[type="checkbox"]:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
 }
@@ -1958,6 +2104,19 @@
 
 .lan-ip:hover {
     color: var(--text);
+}
+
+/* The start-up TUN prewarm's receipt, at the bar's far edge: a green tick. The
+   colour is the whole message — the app's own green, the one the node table uses
+   for a live answer — and it says plainly that the first TUN switch-on is warm. */
+.tun-prewarm-ok {
+    display: inline-flex;
+    align-items: center;
+    color: var(--green);
+}
+
+.tun-prewarm-ok .ic {
+    font-size: 0.875rem;
 }
 
 /* The bar's centre slot: the test-in-progress words. They answer a question
@@ -2277,4 +2436,203 @@
     color: var(--red);
     outline: none;
 }
-
+
+/* --- the settings ledger: the rows that are not a single value ---
+   The nested object, the long value and the tall list each used to draw a box of
+   their own with a legend riding its top border. Inside the ledger that is a room
+   with a door drawn twice: the table already has one edge and hairlines between
+   its rows. So these become rows too — a caption line naming them, and their
+   content borderless beneath it, joined to the table by the same rules as every
+   other row. */
+
+/* A nested object is one row that opens into a few more. */
+.settings-dock .set-group .jf-field.jf-object {
+    grid-template-columns: 1fr;
+    padding: 0;
+}
+
+.settings-dock .set-group .jf-nested {
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    margin: 0;
+    background: none;
+}
+
+.settings-dock .set-group .jf-nested::before {
+    content: attr(data-title);
+    position: static;
+    transform: none;
+    display: block;
+    padding: 7px 11px 5px;
+    background: none;
+    color: var(--text-dim);
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    line-height: 1.3;
+    white-space: normal;
+}
+
+/* A nested object drops its own name: the fields inside each carry their label, and
+   the frame already says what they belong to, so "入站认证" over "用户名 / 密码" is a
+   title over titles. A line list keeps its caption — its numbered rows name nothing
+   on their own. */
+.settings-dock .set-group .jf-nested:has(> .jsonform)::before {
+    content: none;
+}
+
+/* With that caption gone, the block's own top rule and its first field's would sit on
+   the same pixel and read as one double line; the block's rule is the separator, so the
+   first field drops its own. */
+.settings-dock .set-group .jf-nested:has(> .jsonform) > .jsonform > .jf-field:first-child {
+    border-top: 0;
+}
+
+/* The fields inside it are ruled rows like the ones outside. */
+.settings-dock .set-group .jf-nested .jf-field {
+    grid-template-columns: minmax(88px, max-content) minmax(0, 1fr);
+    padding: 7px 11px;
+    border-top: 1px solid var(--line);
+}
+
+.settings-dock .set-group .jf-nested .jf-field > label {
+    text-align: left;
+}
+
+/* A long value and a tall list: a caption line, then the box borderless under it. */
+.settings-dock .set-group .jf-field.jf-long,
+.settings-dock .set-group .jf-field.jf-stack {
+    position: static;
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-column: 1 / -1;
+    gap: 0;
+    padding: 0;
+}
+
+.settings-dock .set-group .jf-field.jf-long > label,
+.settings-dock .set-group .jf-field.jf-stack > label {
+    position: static;
+    transform: none;
+    padding: 7px 11px 5px;
+    background: none;
+    color: var(--text-dim);
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    line-height: 1.3;
+    white-space: normal;
+}
+
+.settings-dock .set-group .jf-field.jf-long textarea,
+.settings-dock .set-group .jf-field.jf-stack textarea {
+    width: 100%;
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    background: transparent;
+    padding: 6px 11px 8px;
+}
+
+.settings-dock .set-group .jf-field.jf-long:hover,
+.settings-dock .set-group .jf-field.jf-stack:hover {
+    background: none;
+}
+
+/* A hotkey row: the combination is the cell's value, right-aligned and borderless,
+   and only the listening state lifts a ground behind it. */
+.settings-dock .set-group .jf-field:has(.hk-input) {
+    padding: 8px 11px;
+}
+
+.settings-dock .set-group .jf-field .hk-input {
+    width: 100%;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 2px 0;
+    text-align: left;
+    color: var(--text);
+}
+
+.settings-dock .set-group .jf-field .hk-input:hover:not(.listening) {
+    border: 0;
+    background: transparent;
+}
+
+.settings-dock .set-group .jf-field:has(.hk-input):focus-within {
+    background: var(--bg-3);
+    box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* The port row is one row of the table too: the frame's band names it, and the
+   address, the port and the two probes are its value. */
+.settings-dock .set-group .port-stack {
+    padding: 9px 11px;
+    border-top: 1px solid var(--line);
+}
+
+/* The rule-set card, ledgered: each category is one table — its bar the header
+   band, its files the ruled body — so it reads with the rest of the panel instead
+   of as loose bars floating over empty space. */
+.settings-dock .set-group .rs-group {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 0 0 8px;
+    background: var(--bg);
+}
+
+.settings-dock .set-group .rs-nav {
+    margin: 0;
+    padding: 7px 11px;
+    background: var(--bg-2);
+}
+
+.settings-dock .set-group .rs-nav-toggle {
+    font-weight: 600;
+    color: var(--text-dim);
+}
+
+.settings-dock .set-group .rs-list {
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    margin: 0;
+    padding: 0;
+}
+
+.settings-dock .set-group .rs-row {
+    padding: 7px 11px;
+    border-top: 1px solid var(--line);
+}
+
+.settings-dock .set-group .rs-row + .rs-row {
+    border-top: 1px solid var(--line);
+}
+
+.settings-dock .set-group .rs-row:hover {
+    background: var(--hover-bg);
+}
+
+/* The card's own actions, a footer band under the tables rather than a loose row. */
+.settings-dock .set-group .rs-group + .input-row,
+.settings-dock .set-group .rs-empty + .input-row {
+    padding: 9px 11px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+}
+
+/* The routing card's strategy selects give up their box too, so their values sit on
+   the row like every other card's; the drawn dropdown's button is the value. */
+.settings-dock .rt-fields select.rt-input,
+.settings-dock .rt-fields .rt-select-btn {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 2px 0;
+    text-align: left;
+}

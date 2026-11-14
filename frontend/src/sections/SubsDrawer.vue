@@ -12,7 +12,7 @@ import {PANEL_W_MAX, PANEL_W_MIN} from '../lib/layout';
 import {flagISOOf, nameWithoutFlag} from '../components/NodeName.vue';
 import Flag from '../components/Flag.vue';
 import GroupEditorDialog from '../components/GroupEditorDialog.vue';
-import {BookmarksFilled, Edit2Filled, Refresh1Filled, CloseCircleFilled, Delete2Filled, QrcodeFilled} from '../lib/icons';
+import {Edit2Filled, Refresh1Filled, CloseCircleFilled, Delete2Filled, QrcodeFilled, Link3Filled, FileExportFilled} from '../lib/icons';
 
 const props = defineProps<{
     groups: main.GroupInfo[];
@@ -45,6 +45,11 @@ const emit = defineEmits<{
     updateSub: [id: number];
     deleteGroup: [id: number];
     showUrlQR: [url: string];
+    // The subscription's address to the clipboard, and its whole node list as a
+    // config file in the format the export list offered: the two things a card's
+    // link and its nodes are worth taking away.
+    copyUrl: [url: string];
+    exportConfig: [id: number];
     toggleEdit: [id: number];
     editDone: [];
     editNotify: [text: string, kind?: 'ok' | 'err'];
@@ -222,23 +227,22 @@ const swallowCtx = (e: MouseEvent) => {
                             @click="emit('openGroup', d.g.id)"
                             @keydown="onRowKey($event, d.g.id)"
                             @contextmenu="swallowCtx">
-                            <td>
-                                <span class="type-tag">
-                                    <BookmarksFilled class="ic"/>
-                                    <span class="tag-count">{{ d.g.profileCount }}</span>
-                                </span>
-                            </td>
-                            <td class="name">
-                                <!-- The name in a fixed column, with the
-                                    filler kept in its own hidden span:
-                                    spaces hold the column's width and are
-                                    not part of the name. The full name is
-                                    in the tooltip, since a name longer than
-                                    the column is cut short here. The name
-                                    shows as the panel gave it — no wrapper
-                                    brackets of the app's own. -->
-                                <span class="sub-label" dir="auto"
-                                      :title="d.g.name || t('groups.unnamed')"><Flag v-if="d.flagISO" :iso="d.flagISO"/>{{ d.nameFit.text }}<span aria-hidden="true">{{ d.nameFit.pad }}</span></span>
+                            <!-- The count used to stand here in a pill of its own. The
+                                glyph beside the number said what the card says anyway,
+                                and a count is a figure of the card rather than a label on
+                                its name — so the number moved to the card's foot, where the
+                                other figures are (see .sub-count), and the name has the
+                                row to itself. -->
+                            <td class="name" colspan="2"><span class="name-row">
+                                <!-- The name, outlined so a card says whose it is at a
+                                    glance rather than by its position on the row. The
+                                    filler that used to hold a fixed column's width is gone
+                                    with the column: the allowance bar now starts where the
+                                    name ends, so there is no gap to fill. The full name is
+                                    in the tooltip, since a name longer than the room it has
+                                    is cut short here. -->
+                                <span class="sub-name" dir="auto"
+                                      :title="d.g.name || t('groups.unnamed')"><Flag v-if="d.flagISO" :iso="d.flagISO"/>{{ d.nameFit.text }}</span>
                                 <!-- One slot at the end of the name, read two
                                     ways. At rest it is the allowance: that is
                                     the figure a column of cards is scanned
@@ -314,9 +318,26 @@ const swallowCtx = (e: MouseEvent) => {
                                                 @click.stop="emit('showUrlQR', d.g.url)">
                                             <QrcodeFilled class="ic"/>
                                         </button>
+                                        <!-- The two things a subscription is worth taking
+                                            away: its address, as text this time, and its
+                                            node list as a config file. Both are readings
+                                            rather than changes, so they keep the base
+                                            colour like the QR button beside them. -->
+                                        <button v-if="d.g.url" class="sub-act"
+                                                :title="t('btn.copySubUrl')"
+                                                :aria-label="t('btn.copySubUrl')"
+                                                @click.stop="emit('copyUrl', d.g.url)">
+                                            <Link3Filled class="ic"/>
+                                        </button>
+                                        <button class="sub-act"
+                                                :title="t('btn.exportSub')"
+                                                :aria-label="t('btn.exportSub')"
+                                                @click.stop="emit('exportConfig', d.g.id)">
+                                            <FileExportFilled class="ic"/>
+                                        </button>
                                     </span>
                                 </span>
-                            </td>
+                            </span></td>
                         </tr>
                         <!-- The hue travels with the card, not with the
                             name row: the selected stripe is drawn on both
@@ -375,6 +396,13 @@ const swallowCtx = (e: MouseEvent) => {
                                             it feeds stops refreshing. -->
                                         {{ t('sub.expire') }} {{ fmtTime(d.usage.expire) }}
                                     </span>
+                                    <!-- The node count, at the card's right end. It is the
+                                        figure the pill beside the name used to carry; the
+                                        pill's glyph is gone with it, so the line under the
+                                        name is the one place it can be read as a total. -->
+                                    <span class="sub-count"
+                                          :title="`${d.g.profileCount} ${t('sub.nodes')}`"
+                                          :aria-label="`${d.g.profileCount} ${t('sub.nodes')}`">{{ d.g.profileCount }}</span>
                                 </div>
                             </td>
                         </tr>

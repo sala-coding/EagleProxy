@@ -451,31 +451,6 @@ table.profiles tbody {
     color: hsl(var(--tab-hue, 212) 58% 36%);
 }
 
-/* In the subscription list the tag is not a protocol label but a badge, and it
-   carries the row's node count inside its outline to the right of the glyph — the
-   count is a fact about the subscription, so it belongs inside the subscription's
-   own badge rather than in a column of its own. flex is scoped to this table
-   because the main node table's tag holds a single word and must stay inline. */
-.subdrop-table .type-tag {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-variant-numeric: tabular-nums;
-    line-height: 1.35;
-}
-
-/* The count reads as a number inside a badge, not as a second label, so it is
-   dimmed a step below the glyph and kept off the outline's own colour. */
-.subdrop-table .type-tag .tag-count {
-    font-size: 0.625rem;
-    opacity: .8;
-    /* a count is read down the column as much as across it, so the digits keep
-       one width each and the pills do not breathe with the numbers inside them */
-    font-variant-numeric: tabular-nums;
-}
-
 /* Thumbs-up marker for a low-latency node. Absolutely placed in the cell's
    bottom-left corner so the centred number never shifts; the cell is the
    positioning context. */

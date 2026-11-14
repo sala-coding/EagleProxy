@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,16 +21,39 @@ import (
 	"eagle/internal/vpn"
 )
 
-// adapterCheckTicks is how often the main loop asks whether the adapter is still
-// there, in 250 ms ticks — ten seconds. Frequent enough that a device taken away
-// is back before the next TUN start, rare enough that the table read it costs is
-// invisible.
-const adapterCheckTicks = 40
+// The loop's beats are wall-clock intervals rather than tick counts, because the tick
+// itself got short: a command waits for this loop, and the reader who pressed the
+// switch waited with it — a 250 ms pass added up to that much to every start. The loop
+// now wakes every commandPoll (below) and the two periodic jobs keep their own clocks.
+const (
+	// adapterCheckEvery is how often the loop asks whether the adapter is still there.
+	// Frequent enough that a device taken away is back before the next TUN start, rare
+	// enough that the table read it costs is invisible.
+	adapterCheckEvery = 10 * time.Second
 
-// sysDNSIntervalTicks is how often the resolver takeover is reconciled, in 250 ms ticks —
-// one second. Faster than the adapter check because it is the one thing here the reader is
-// waiting on: the takeover should land as the node starts, not up to ten seconds later.
-const sysDNSIntervalTicks = 4
+	// sysDNSEvery is how often the resolver takeover is reconciled. Faster than the
+	// adapter check because it is the one thing here the reader is waiting on: the
+	// takeover should land as the node starts, not up to ten seconds later.
+	//
+	// 250ms and not the old second: the NCSI wake waits on this clock — the app
+	// writes the state file and then polls for every interface to carry the loopback
+	// — and a state file the wake has just written sat unread for up to a second,
+	// half the wake's whole budget, for nothing. The job costs two small file reads
+	// and a no-op reconcile when nothing moved, and the loop itself already wakes
+	// every commandPoll, so the shorter beat adds no passes at all.
+	sysDNSEvery = 250 * time.Millisecond
+
+	// commandPoll is how long the loop rests between passes. This is the delay a
+	// command waits for before anything happens at all, so it is short; what the pass
+	// itself costs is two small file reads and, when due, one of the jobs above.
+	//
+	// 100ms and not 25: the loop wakes forty times a second at 25, which measured 1.4%
+	// of a core against 0.76% at the old quarter-second beat — for 75ms less latency on
+	// a start that takes two seconds. A tenth of a second is the point where the wake
+	// count stops being visible in the process's own CPU and the wait is still far below
+	// every other stage of a switch-on.
+	commandPoll = 100 * time.Millisecond
+)
 
 // adapterMu serialises adapter preparation between the start-up goroutine and
 // the loop's periodic check.
@@ -36,12 +61,44 @@ var adapterMu sync.Mutex
 
 // adapterReady and lastPrepareErr remember the previous answer, so the log says
 // something when the answer changes rather than every ten seconds.
+//
+// preparedWant is the same idea for the work rather than the line: it records which
+// request the device was last built for — "adapter" (a capture is up), "prewarm" (the
+// app asked ahead of time) — so a tick that finds the same request does not build the
+// device again. Preparing is CreateAdapter, a PnP creation measured at a second plus,
+// and a create whose handle closes takes the device with it: without this memo the tick
+// rebuilt it every ten seconds on a machine whose TUN was simply off.
+//
+// A memo and not a flag, because the earlier version was a flag that stayed true for
+// the life of the process, and it took the two paths that need to act on an absent
+// device with it: the cleanup of a broken leftover, and the rebuild after the device
+// was removed on purpose (see ActionIdle, which clears it, and ensureAdapterNow, which
+// clears it to force a real attempt).
 var (
 	adapterReady       bool
+	preparedWant       string
 	lastPrepareErr     string
 	lastAdapterCleanup time.Time
 	lastDNSNote        string
+	// skipAdapterProbeUntil is when the open test may be asked again after it proved
+	// the device unusable: the question costs fifteen seconds on a broken device, and
+	// the answer cannot change inside the cleanup's own brake (see ensureAdapter).
+	skipAdapterProbeUntil time.Time
 )
+
+// adapterWant answers which build request is on the table right now, from the state
+// file rather than from a cached bool: the app rewrites it on every mode change, and
+// that rewrite is exactly the moment the memo has to be reconsidered.
+func adapterWant() string {
+	st := ReadState(dataDir())
+	switch {
+	case st.Adapter:
+		return "adapter"
+	case st.Prewarm:
+		return "prewarm"
+	}
+	return ""
+}
 
 // RunServer is the whole server program. It is entered with --tun-serve by the
 // scheduled task, reads the app config once for the data directory, and then
@@ -82,14 +139,19 @@ func RunServer() {
 	// server is up by watching the heartbeat: a first beat that arrived only after
 	// a three-second device creation would read as "no server" and send the app
 	// down the slow path with a prompt of its own.
-	adapterReady := make(chan struct{})
+	// Named for what it signals, not for the flag it used to share a name with: the
+	// package-level adapterReady says "the device is usable", this says "the start-up
+	// preparation is finished" — and a local that shadows a package variable is a trap
+	// for the next edit (this one caught today's: assigning to "adapterReady" here was a
+	// compile error about a chan struct{} assigned a bool).
+	adapterStartup := make(chan struct{})
 	go func() {
 		// Only the adapter is prepared here. A front-end left over from a previous
 		// life is not this moment's business: the app may be about to adopt it, and
 		// a sweep here would kill a front-end that is doing its job. The sweep
 		// belongs where the intent is known — right before a new front-end is
 		// spawned, see ActionStart.
-		defer close(adapterReady) // also on a panic: the main loop waits on this forever otherwise
+		defer close(adapterStartup) // also on a panic: the main loop waits on this forever otherwise
 		defer func() {
 			if r := recover(); r != nil {
 				log("adapter preparation panic: %v", r)
@@ -160,8 +222,8 @@ func RunServer() {
 	// on the loop tick while Wait writes it from the watcher raced every 250
 	// milliseconds. Every "is it still with us" check resolves on the channel.
 	var child *childProc
-	ticks := 0
-	sysTicks := 0
+	lastAdapterCheck := time.Now()
+	lastSysDNS := time.Now()
 	for {
 		// The heart is written by its own goroutine (see above), deliberately
 		// not here: this loop can stall for seconds inside one pass.
@@ -172,9 +234,8 @@ func RunServer() {
 		// the wire replies first, and a ten-second window of forged answers is exactly the
 		// thing being fixed. Cheap to ask — one small file, read only when its stamp moved
 		// is not worth arranging for a file this size.
-		sysTicks++
-		if sysTicks >= sysDNSIntervalTicks {
-			sysTicks = 0
+		if time.Since(lastSysDNS) >= sysDNSEvery {
+			lastSysDNS = time.Now()
 			st := ReadState(dataDir())
 			// The state file describes a machine that has a UI process behind it — the
 			// resolver forwarder on 53 and the front-end both live there. A crash takes
@@ -207,9 +268,8 @@ func RunServer() {
 		// while this process lives — the app's own cleanup removes a broken one,
 		// a reader can uninstall it by hand — and the whole point here is that the
 		// next start does not pay for a device that could have been built already.
-		ticks++
-		if ticks >= adapterCheckTicks {
-			ticks = 0
+		if time.Since(lastAdapterCheck) >= adapterCheckEvery {
+			lastAdapterCheck = time.Now()
 			if st := ReadState(dataDir()); st.Adapter || st.Prewarm {
 				ensureAdapter()
 			}
@@ -223,7 +283,7 @@ func RunServer() {
 				// open an adapter that is still being built. Waiting for the
 				// preparation already in flight is cheaper than that failure, and
 				// it is a closed channel the moment the first one is done.
-				<-adapterReady
+				<-adapterStartup
 				if child != nil && child.cmd.Process != nil && !childReaped(child.exited) {
 					log("start ignored: child pid %d already running", child.cmd.Process.Pid)
 					break
@@ -251,29 +311,23 @@ func RunServer() {
 				// start". Only this process can clear it (the app is unelevated),
 				// and here is where it knows the adapter is about to be needed.
 				swept := reapFrontsIfAny(cfg, childPID(child))
-				// The device is normally here already — this server built it
-				// ahead of time — but the idle reclaim takes it apart when no
-				// node uses it, and the re-preparation runs on a ten-second
-				// tick this start does not wait for.
+				// The device is left to the core. Preparing it here is a PnP create
+				// (measured 0.86s on this machine) done *before* the child is spawned,
+				// so it buys the child nothing it could not do itself — the child's own
+				// start-up is where the interface is configured anyway, and a create
+				// inside that start overlaps work this serial call cannot.
 				//
-				// Prepare, not Find. Find only answers "an interface of that name
-				// is in the table", and the state that makes a start fail is the
-				// opposite one: the name is taken and the device cannot be opened
-				// (the leftover a killed core leaves behind — "exists but cannot be
-				// opened: Element not found"). A broken adapter is still in the
-				// table, so the Find check passed it through to a spawn that could
-				// only fail, while the ten-second tick was the only thing that
-				// noticed. Prepare is the check the core itself will make, and it
-				// is microseconds when the device is healthy.
+				// What the check used to catch — "the name is taken and the device
+				// cannot be opened", the leftover a killed core leaves — is caught by
+				// the child's own failure instead, and repaired there (see the exit
+				// watcher below). The interface table is still read, because a line
+				// saying whether this start had a device to open is the one thing the
+				// timing argument needed and a spawn alone does not tell.
 				checkAt := time.Now()
-				if err := tunfast.Prepare(configbuilder.TunAdapterName()); err != nil {
-					log("adapter unusable before start (%v); clearing and rebuilding", err)
-					ensureAdapterNow()
-				}
-				// Timed because this is one of the two places a cold TUN start can spend
-				// its seconds, and the log is where that argument gets settled.
+				name := configbuilder.TunAdapterName()
+				_, findErr := tunfast.Find(name)
 				if d := time.Since(checkAt); d > 20*time.Millisecond {
-					log("adapter check before start: %v", d.Round(time.Millisecond))
+					log("adapter lookup before start: %v (present=%v)", d.Round(time.Millisecond), findErr == nil)
 				}
 				c, errF, err := spawnChild(core, cfg)
 				if err != nil {
@@ -322,20 +376,30 @@ func RunServer() {
 				// start skipped its sweep, the broken adapter stayed, and TUN
 				// never came back. Whoever confirms the adapter is gone (the app,
 				// in stopTunFront / sweepTunLeftovers) removes the file.
-				go func(p *exec.Cmd, f *os.File, done chan struct{}) {
-					_ = p.Wait()
+				go func(cp *childProc, f *os.File) {
+					_ = cp.cmd.Wait()
 					code := 0
-					if p.ProcessState != nil {
-						code = p.ProcessState.ExitCode()
+					if cp.cmd.ProcessState != nil {
+						code = cp.cmd.ProcessState.ExitCode()
 					}
 					var size int64
+					var stderr string
 					if f != nil {
 						if st, err := f.Stat(); err == nil {
 							size = st.Size()
 						}
+						// The message decides whether the device is worth repairing, so
+						// it is read here while the handle is still open (see below).
+						if size > 0 && size <= 64<<10 {
+							if _, err := f.Seek(0, io.SeekStart); err == nil {
+								if b, rerr := io.ReadAll(io.LimitReader(f, 64<<10)); rerr == nil {
+									stderr = string(b)
+								}
+							}
+						}
 						_ = f.Close()
 					}
-					close(done)
+					close(cp.exited)
 					// The code and whether stderr said anything are the two facts that
 					// tell "the core refused its config" apart from "something killed
 					// it": a refused start writes stderr and exits on its own, a killed
@@ -346,7 +410,27 @@ func RunServer() {
 					} else {
 						log("child exited (code %d; no stderr)", code)
 					}
-				}(c, errF, child.exited)
+					// A start that died by itself on a device it could not open is the
+					// leftover a killed core leaves behind: CreateAdapter answers "already
+					// exists", OpenAdapter answers "element not found", and every later
+					// start fails the same way until the device is cleared. Measured on
+					// this machine: that exact pair in tun-front.err.log, and the app sat
+					// 30 seconds on "adapter address never appeared" before the tick
+					// noticed. Repairing here is what turns that into one retry.
+					//
+					// Guarded by asked: a child this server stopped exits code 1 with an
+					// empty stderr too, and repairing on that made every TUN switch-off
+					// pay a PowerShell sweep of the device tree (measured: 13 seconds of
+					// "cleared 0 broken adapter(s)" between a stop and the next start).
+					// Matched on the failure rather than on the exit code: a core that
+					// refused a field of its config also exits code 1 with a message, and
+					// sweeping the device tree after every one of those would cost the
+					// reader 13 seconds per failed start to fix nothing.
+					if !cp.asked.Load() && strings.Contains(stderr, "configure tun interface") {
+						log("child could not configure the adapter; repairing it")
+						ensureAdapterNow()
+					}
+				}(child, errF)
 
 			case ActionStop:
 				pid := childPID(child)
@@ -358,12 +442,15 @@ func RunServer() {
 					}
 				}
 				if pid > 0 {
+					if child != nil {
+						child.asked.Store(true)
+					}
 					kill(pid)
 					log("child stopped on command (pid %d)", pid)
 				}
 				child = nil
 
-			case ActionTeardown:
+			case ActionIdle:
 				// Order matters: a device a live core holds open cannot be removed, so
 				// the child goes first and its exit is waited for. The book is read as
 				// well as the child, because a front-end this server never raised (an
@@ -376,6 +463,9 @@ func RunServer() {
 					}
 				}
 				if pid > 0 {
+					if child != nil {
+						child.asked.Store(true)
+					}
 					kill(pid)
 					// taskkill is synchronous, but teardown lags it by a beat: the
 					// handles close as the process finishes dying, and the removal
@@ -383,7 +473,7 @@ func RunServer() {
 					for i := 0; i < 20 && vpn.IsRunning(pid); i++ {
 						time.Sleep(100 * time.Millisecond)
 					}
-					log("child stopped for teardown (pid %d)", pid)
+					log("child stopped for idle (pid %d)", pid)
 				}
 				child = nil
 				name := configbuilder.TunAdapterName()
@@ -400,18 +490,33 @@ func RunServer() {
 					// presents one — and that second shape is what makes every later
 					// start fail. The sweep removes it, and it belongs here rather than
 					// in the app: the call needs the token, which is this process's.
-					if n, sErr := vpn.CleanStaleTunAdapters(); sErr != nil {
+					if n, sErr := vpn.CleanStaleTunAdapters(configbuilder.TunAdapterName()); sErr != nil {
 						log("adapter cleanup failed: %v", sErr)
 					} else if n > 0 {
 						log("cleared %d broken adapter(s) after teardown", n)
 					}
 				}
-				log("server exiting on command (teardown)")
-				ClearHeartbeat(dataDir())
-				return
+				// The device is gone on purpose, so the memo of what it was built for is
+				// gone with it: the next request — a switch-on, or the prewarm the app
+				// arms again — has to build one rather than be told the work was already
+				// done (see preparedWant). This is the clear that a process-lifetime flag
+				// could not make, and the reason a fresh app session found the tick
+				// silent over an absent device.
+				adapterMu.Lock()
+				preparedWant = ""
+				adapterMu.Unlock()
+				// Stays resident. Turning TUN off is a mode change, not the end of the
+				// session: the reader switches it back on, and the next start should pay
+				// for a device rather than for a process, a UAC run and a driver load.
+				// The tick will not rebuild what was just removed — the app clears
+				// Adapter and Prewarm in the state file before it sends this.
+				log("server idle: device removed, waiting for the next start")
 
 			case ActionExit:
 				if pid := childPID(child); pid > 0 {
+					if child != nil {
+						child.asked.Store(true)
+					}
 					kill(pid)
 					log("child stopped for exit (pid %d)", pid)
 				}
@@ -426,7 +531,7 @@ func RunServer() {
 		if child != nil && childReaped(child.exited) {
 			child = nil // reaped by the watcher above; the slot stays free
 		}
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(commandPoll)
 	}
 }
 
@@ -609,17 +714,87 @@ func ensureAdapter() {
 	// start-up — the "sing-box started (3.11s)" of a config small enough to start in
 	// a tenth of a second. Find answers the ordinary case for free; Prepare is kept
 	// for the one it cannot answer, a device that is not in the table at all.
+	want := adapterWant()
+	// Nothing asks for a device: no memo either, so the next request — the reader
+	// switching TUN on, or the app arming the prewarm again — is treated as new work
+	// rather than as one this process has already done (see ActionIdle).
+	if want == "" {
+		preparedWant = ""
+	}
 	if _, err := tunfast.Find(name); err == nil {
-		if lastPrepareErr != "" {
-			lastPrepareErr = ""
+		// A row in the interface table is not a working device. A leftover answers Find
+		// and then fails to open — measured on this machine: Find ok (luid set),
+		// Prepare "exists but cannot be opened: Element not found" — and trusting Find
+		// let this function log "adapter ready" in twenty-one milliseconds over an
+		// adapter that could not carry a packet, and never clean it.
+		//
+		// Opening is therefore the test, but only while no core holds the device:
+		// opening and closing a live session wakes the driver out of the state the
+		// core is using, which is what the Find-only path was written to avoid (see
+		// the note above). No front-end, no session — so no risk.
+		// A capture is recorded but the pid book names no front-end: either the book was
+		// lost or the process holding the device is one this server never raised. Both
+		// are the wrong moment to open and close the device — that is what disturbs a
+		// live session — so the device is left alone and a start that cannot use it
+		// reports it instead (the exit watcher repairs that one).
+		if want == "adapter" && !frontHeld() {
+			return
 		}
-		if !adapterReady {
-			adapterReady = true
-			log("adapter ready: %s", name)
+		if frontHeld() {
+			preparedWant = want
+			if lastPrepareErr != "" {
+				lastPrepareErr = ""
+			}
+			if !adapterReady {
+				adapterReady = true
+				log("adapter ready: %s", name)
+			}
+			return
 		}
-		// The adapter's resolver is not written here: it belongs to a node, not to a
-		// device, and this function knows nothing about nodes (see
-		// reconcileAdapterResolver).
+		// A device that just failed the open test is not asked again within the
+		// minute: the answer cannot have changed, and the question costs fifteen
+		// seconds of the loop (see the failed branch below).
+		if time.Now().Before(skipAdapterProbeUntil) {
+			return
+		}
+		if perr := tunfast.Prepare(name); perr != nil {
+			log("adapter present but unusable (%v); clearing", perr)
+			preparedWant = ""
+			adapterReady = false
+			lastPrepareErr = perr.Error()
+			// Straight to the cleanup, never to a second build attempt: on a device
+			// that answers "exists but cannot be opened" one Prepare measured 15.26
+			// seconds (see the note on prepare_windows.go), so retrying it here —
+			// twice per ten-second tick — did not repair anything and held the loop,
+			// and with it every command, for a minute at a time.
+			//
+			// And then left alone for a minute. The cleanup may not have helped (a
+			// device that stays broken is still in the table on the next tick), and
+			// asking the same question again is another fifteen seconds of a loop that
+			// commands have to get through. One minute is the same brake the cleanup
+			// itself keeps.
+			rebuildBrokenAdapter(name)
+			skipAdapterProbeUntil = time.Now().Add(time.Minute)
+			return
+		} else {
+			preparedWant = want
+			if lastPrepareErr != "" {
+				lastPrepareErr = ""
+			}
+			if !adapterReady {
+				adapterReady = true
+				// "warmed", not "ready": nothing holds this device, and it is gone the
+				// moment the handle that made it closes — what is ready is the driver,
+				// not a capture.
+				log("adapter warmed: %s (device not held)", name)
+			}
+			return
+		}
+	}
+
+	// Built already for this same request, and nothing has changed it since: the work
+	// would be a create whose close takes the device away again (see preparedWant).
+	if preparedWant == want && want != "" {
 		return
 	}
 	// Not in the table: never created, or prepared but never configured the way the
@@ -627,6 +802,7 @@ func ensureAdapter() {
 	// is there but not listed — and it is the only thing that can make one.
 	err := tunfast.Prepare(name)
 	if err == nil {
+		preparedWant = want
 		// Said when the answer changes, not every ten seconds: this runs forever,
 		// and a line about nothing is what buries the lines that matter.
 		if lastPrepareErr != "" {
@@ -634,34 +810,49 @@ func ensureAdapter() {
 		}
 		if !adapterReady {
 			adapterReady = true
-			log("adapter ready: %s", name)
+			// Warmed rather than ready: this call created the device and closed it
+			// again, so what it leaves behind is a driver that has done the work
+			// once — the device itself goes with the handle (see the note on prepare).
+			log("adapter warmed: %s (device not held)", name)
 		}
 		// The adapter's resolver is not written here either: it belongs to a node,
 		// not to a device (see reconcileAdapterResolver).
 		return
 	}
 	adapterReady = false
-	// A device that exists but cannot be opened is the broken leftover that makes
-	// every later start fail, so it is cleared and built again — at most once a
-	// minute. The cleanup is a PowerShell pass and the loop reaches this every ten
-	// seconds: without the brake, a device that stays broken keeps the main loop
-	// busy in the one place it must not be, the path a start command takes.
-	if time.Since(lastAdapterCleanup) > time.Minute {
-		lastAdapterCleanup = time.Now()
-		if n, cerr := vpn.CleanStaleTunAdapters(); cerr == nil && n > 0 {
-			log("cleared %d broken adapter(s), rebuilding", n)
-			if err = tunfast.Prepare(name); err == nil {
-				lastPrepareErr = ""
-				adapterReady = true
-				log("adapter ready: %s", name)
-				return
-			}
-		}
-	}
+	rebuildBrokenAdapter(name)
 	if msg := err.Error(); msg != lastPrepareErr {
 		lastPrepareErr = msg
 		log("adapter prepare failed: %v", err)
 	}
+}
+
+// rebuildBrokenAdapter clears the leftover devices and builds ours again, at most once
+// a minute.
+//
+// The brake is for repetition, not for the work: a device that stays broken is cleared
+// once, and if the rebuild fails too, the next attempt waits. Without it the loop — the
+// one place a start command has to get through — would sit in a PowerShell sweep every
+// ten seconds. A caller that has just proved the device unusable resets the clock first
+// (see the verification branch in ensureAdapter), because that first cleanup is the one
+// that has to happen.
+func rebuildBrokenAdapter(name string) {
+	if time.Since(lastAdapterCleanup) <= time.Minute {
+		return
+	}
+	lastAdapterCleanup = time.Now()
+	n, cerr := vpn.CleanStaleTunAdapters(configbuilder.TunAdapterName())
+	if cerr != nil || n == 0 {
+		return
+	}
+	log("cleared %d broken adapter(s), rebuilding", n)
+	if err := tunfast.Prepare(name); err != nil {
+		return
+	}
+	lastPrepareErr = ""
+	adapterReady = true
+	preparedWant = adapterWant()
+	log("adapter warmed: %s (device not held)", name)
 }
 
 // applySelfDNS points the adapter's resolver at itself, where the main core's
@@ -705,21 +896,36 @@ func reconcileAdapterResolver(serving bool) {
 	}
 }
 
+// frontHeld reports whether a front-end is running on this machine's device.
+//
+// The pid book names it, and a live process behind that pid is what holds the wintun
+// session — the one thing that makes opening the device a bad idea (it wakes the driver
+// out of the state the core is using; see ensureAdapter).
+func frontHeld() bool {
+	info := FrontPIDOf(dataDir())
+	return info != nil && vpn.IsRunning(info.PID)
+}
+
 // ensureAdapterNow is ensureAdapter for a start that is about to happen: it skips the
 // one-a-minute brake the ten-second loop needs, because a start is the one caller that
 // cannot wait for it — the core is about to be launched on a device this call already
 // knows is broken. Clearing and rebuilding is a few seconds; a core launched on the
 // broken device is a failed start the reader has to press again.
 func ensureAdapterNow() {
+
 	adapterMu.Lock()
 	defer adapterMu.Unlock()
 	name := configbuilder.TunAdapterName()
+	// A start is the one caller that has to look for itself: the device may have been
+	// taken away since the tick last prepared one (see preparedWant).
+	preparedWant = ""
 	if err := tunfast.Prepare(name); err == nil {
+		preparedWant = adapterWant()
 		adapterReady = true
 		return
 	}
 	lastAdapterCleanup = time.Now()
-	if n, cerr := vpn.CleanStaleTunAdapters(); cerr != nil {
+	if n, cerr := vpn.CleanStaleTunAdapters(configbuilder.TunAdapterName()); cerr != nil {
 		log("adapter cleanup failed: %v", cerr)
 	} else {
 		log("cleared %d broken adapter(s)", n)
@@ -728,6 +934,7 @@ func ensureAdapterNow() {
 		log("adapter rebuild failed: %v", err)
 		return
 	}
+	preparedWant = adapterWant()
 	lastPrepareErr = ""
 	adapterReady = true
 	log("adapter ready: %s", name)
@@ -783,14 +990,24 @@ func errLogPath() string {
 func openErrLog() (*os.File, error) {
 	path := errLogPath()
 	_ = os.Rename(path, path+".prev")
-	return os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	// Read as well as write: the watcher reads this file back after the child exits to
+	// see *why* it died (see the exit goroutine), and a write-only handle fails that read
+	// with "bad file descriptor" — which is how the repair for a device the core could
+	// not configure sat there as dead code while the log line above it reported the byte
+	// count it had clearly managed to measure.
+	return os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o644)
 }
 
 // childProc is the server's tracked front-end: the command and a channel the
 // watcher goroutine closes the moment Wait has reaped the process.
+//
+// asked is set by whichever branch of the loop kills the child. The watcher cannot tell
+// a core that refused its config from one this server just stopped — both exit code 1 —
+// and the difference decides whether the adapter is worth repairing (see the watcher).
 type childProc struct {
 	cmd    *exec.Cmd
 	exited chan struct{}
+	asked  atomic.Bool
 }
 
 // childReaped reports whether the watcher has finished reaping the child.

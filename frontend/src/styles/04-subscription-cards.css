@@ -35,29 +35,11 @@
     /* Only the outer top corners are rounded. Rounding both of them would notch the
        seam between the two columns and the card would read as two plates. 10px to
        the side of the table frame's own 10px — one radius the app's containers share. */
-    border-radius: 10px 0 0 0;
+    /* Both top corners now: the name row is one cell since the count left its own
+       column (see .sub-count), so there is no seam to leave square and no second half
+       to round. */
+    border-radius: 10px 10px 0 0;
     background: var(--card-face);
-}
-
-/* The seam is one pixel, and this is the rule that makes it one: the second cell's
-   border is the whole of it. The first cell's own 4px --card-gap border-right is
-   dropped here, because that trough is the card standing off the panel — a statement
-   about the card's outer edges, which has nothing to say about the division between
-   two of its columns. On the far side of a panel-coloured trough the seam read as a
-   band with a line in it rather than as a line. The four pixels go back into the
-   pocket the badge is centred in, which is the pocket that was widened for a
-   three-figure count in the first place. */
-.subdrop-table tbody tr.sub-card td:first-child {
-    border-right: 0;
-}
-
-/* the second column's half of the top corners, and the seam between the two faces */
-.subdrop-table tbody tr.sub-card td:nth-child(2) {
-    border-radius: 0 10px 0 0;
-    /* Written as a shorthand because the rule above gave this cell the same 4px side
-       border as the outer edge, and recolouring that would have turned the seam into a
-       4px trough. */
-    border-left: 1px solid var(--sep-fill);
 }
 
 /* the first card sits directly under the caption rather than floating in a gap of
@@ -84,17 +66,16 @@
     border-bottom: 7px solid var(--card-gap);
 }
 
-/* The outline, in three sides per half of the card, so that the two halves draw one
+/* The outline, one half of the card per rule, so that the two halves draw one
    unbroken edge: the name row carries the top and both sides, the figures row the
-   sides and the bottom. The seam between the two columns is not an edge and gets no
-   line — the first cell draws no right-hand one for the same reason its --card-gap
-   border was dropped above: an edge belongs on the outside of the card. */
+   sides and the bottom. The name row is one cell — the count moved into it (see
+   .sub-count), so there is no seam inside it any more — and its rule draws the
+   right-hand edge too, which the two-cell spelling left to a second cell that no
+   longer exists: the card's upper half ran down the page with no line on its right,
+   and the outline stopped wherever the numbers began. */
 .subdrop-table tbody tr.sub-card td:first-child {
-    box-shadow: inset 1px 0 0 var(--card-line), inset 0 1px 0 var(--card-line);
-}
-
-.subdrop-table tbody tr.sub-card td:nth-child(2) {
-    box-shadow: inset -1px 0 0 var(--card-line), inset 0 1px 0 var(--card-line);
+    box-shadow: inset 1px 0 0 var(--card-line), inset -1px 0 0 var(--card-line),
+    inset 0 1px 0 var(--card-line);
 }
 
 .subdrop-table tbody tr.sub-detail td {
@@ -112,28 +93,56 @@
     filter: brightness(1.08);
 }
 
-/* The selected card is marked by a bar of the subscription's own hue down its left
-   edge, and it runs the full height of the card because both of its rows are marked.
-   Its colour is the subscription's own rather than the app accent: the badge in the
-   row above wears that hue, and the bar is the same statement made down the whole
-   edge — "this card" in the subscription's colour, not "the selected one" in the
-   app's. Taking the hue from --tab-hue means the two can never disagree, and that hue
-   is set on the row by SubsDrawer.vue (see hueFor in lib/metrics.ts), so both rows carry it.
-   Drawn as an inset shadow because a table cell cannot wear a second border on a side
-   that already has one; at the base of the badge's background at full strength,
-   because a 3px bar cannot be translucent the way a filled pill can.
-   Two rules rather than one since the outline arrived: the bar takes the place of the
-   card's own left-hand line, and each half of the card still brings its share of the
-   outline with it — the top from the name row, the bottom and the right from the
-   figures. Written out rather than left to the outline rules, because a box-shadow set
-   here would otherwise be replaced by them, not added to. */
+/* The selected card is marked by a line of the subscription's own hue down its left
+   side, embedded in the card — standing off its rounded ends — and centred on the
+   card's height: equal insets above and below. Its colour is the subscription's own
+   rather than the app accent: the badge in the row above wears that hue, and the line
+   is the same statement made down the whole edge — "this card" in the subscription's
+   colour, not "the selected one" in the app's. Taking the hue from --tab-hue means the
+   two can never disagree, and that hue is set on the row by SubsDrawer.vue (see hueFor
+   in lib/metrics.ts), so both rows carry it.
+   Drawn as a background rather than the inset shadow it used to be: an inset shadow
+   follows the cell's rounded corners, and a bar that bent round the 10px curve read
+   as a crescent — a background image does not bend, so the line stays straight where
+   the corner turns. The two halves each carry their span of it — the name row from
+   12px under the card's top to the seam, the figures row from the seam to 12px above
+   the card's foot — and the halves meet, so the card reads one unbroken line.
+   Two rules rather than one since the outline arrived: each half of the card still
+   brings its share of the outline with it — the top from the name row, the bottom
+   and the right from the figures. Written out rather than left to the outline rules,
+   because a box-shadow set here would otherwise be replaced by them, not added to. */
+/* The line's colour, defined on the rows rather than on the table: --tab-hue is
+   set per row (see hueStyle in SubsDrawer.vue), and a custom property resolves
+   its own var() where it is DEFINED — on the table it would read no row's hue
+   and every card's line would fall back to one blue. On the rows it resolves
+   per card, and the pair is the same one the node table's protocol column wears
+   (see table.profiles td.type in 06-node-table.css) — the line and the words
+   are two readings of one fact, "which subscription", and they answer in one
+   colour or the reader sees two facts. */
+.subdrop-table tbody tr {
+    --card-hue: hsl(var(--tab-hue, 212) 32% 58%);
+}
+
+[data-variant="light"] .subdrop-table tbody tr {
+    --card-hue: hsl(var(--tab-hue, 212) 45% 52%);
+}
+
 .subdrop-table tbody tr.sub-card.active td:first-child {
-    box-shadow: inset 3px 0 0 hsl(var(--tab-hue, 212) 45% 50%), inset 0 1px 0 var(--card-line);
+    box-shadow: inset 1px 0 0 var(--card-line), inset -1px 0 0 var(--card-line),
+    inset 0 1px 0 var(--card-line);
+    background-image: linear-gradient(var(--card-hue), var(--card-hue));
+    background-repeat: no-repeat;
+    background-size: 3px calc(100% - 12px);
+    background-position: 0 12px;
 }
 
 .subdrop-table tbody tr.sub-detail.active td:first-child {
-    box-shadow: inset 3px 0 0 hsl(var(--tab-hue, 212) 45% 50%), inset -1px 0 0 var(--card-line),
+    box-shadow: inset 1px 0 0 var(--card-line), inset -1px 0 0 var(--card-line),
     inset 0 -1px 0 var(--card-line);
+    background-image: linear-gradient(var(--card-hue), var(--card-hue));
+    background-repeat: no-repeat;
+    background-size: 3px calc(100% - 12px);
+    background-position: 0 0;
 }
 
 /* On the light theme the card is the white one and the panel behind it is the greyer
@@ -171,21 +180,8 @@
 }
 
 /* The light theme's badge sits at a different saturation — see .type-tag — so the
-   bar follows the badge of its own theme rather than picking one of the two and
-   being a shade off in the other. */
-[data-variant="light"] .subdrop-table tbody tr.active td:first-child {
-    box-shadow: inset 3px 0 0 hsl(var(--tab-hue, 212) 60% 50%);
-}
-
-/* The bar runs down both halves of the card: the figures under the name are part of the
-   same subscription, and the row above already says which one is open. */
-.subdrop-table tbody tr.sub-detail.active td {
-    box-shadow: inset 3px 0 0 hsl(var(--tab-hue, 212) 45% 50%);
-}
-
-[data-variant="light"] .subdrop-table tbody tr.sub-detail.active td {
-    box-shadow: inset 3px 0 0 hsl(var(--tab-hue, 212) 60% 50%);
-}
+   line follows the badge of its own theme rather than picking one of the two and
+   being a shade off in the other; it does so through --card-hue above. */
 
 /* The open subscription: the same accent wash the main table's selected row wears, so
    "which one am I on" is answered identically in both places. The wash stays the app
@@ -203,23 +199,6 @@
 .subdrop-table tbody tr:focus-visible {
     outline: 1px solid var(--accent);
     outline-offset: -1px;
-}
-
-/* The type tag holds the subscription's hue (set inline from the group id) and
-   states what the row is: a feed, not a node. A pill rather than the main table's
-   rectangle, because here it is a badge worn inside a cell rather than a column
-   heading, and it has to hold a second piece of information next to the glyph. */
-.subdrop-table .type-tag .ic {
-    font-size: 0.625rem;
-    opacity: .9;
-}
-
-.subdrop-table .type-tag .tag-count {
-    /* a hairline between the glyph and the number, so the pill reads as two facts
-       rather than one smudge — the divider takes the tag's own colour, which is why
-       it is currentColor and not a border tone */
-    padding-left: 5px;
-    border-left: 1px solid currentColor;
 }
 
 /* the table's own emptiness: centred under the header, on the same rhythm as a

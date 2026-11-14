@@ -269,30 +269,22 @@ const onSmartToggle = (key: 'select' | 'switch', on: boolean) => {
                     and .settings-dock .rt-dns). -->
                 <div class="dns-col">
                     <div class="rt-cell">
-                        <!-- The list's name and the one thing there is to do to
-                            it, on one line (see .rt-cell-head): 立即测速 is
-                            about the list rather than about any one row, and
-                            the caption under it is the ruler its rows are
-                            measured against — a button standing in there
-                            would sit over the column it names (see
-                            .dns-table-head). -->
-                        <span class="rt-cell-head">
-                            <label :title="t('cfg.remote_dns')">{{ t('routing.remoteDNS') }}</label>
-                            <!-- Offered only while there is something to measure
-                                through: this list is reached over the running
-                                node, so without one the button could only ever
-                                report that it has no path. The note under the
-                                table is what says so instead, and it is already
-                                there whenever this half has no numbers. -->
-                            <button v-if="smartOn && nodeOn" class="btn tiny" :disabled="dnsTesting.remote"
-                                    @click="smartPick(['remote'])">
-                                {{ t(dnsTesting.remote ? 'dns.smartTesting' : 'dns.smartTest') }}
-                            </button>
-                        </span>
+                        <!-- One box: the name at its left, the value in the middle,
+                            the measure button at its right — all inside the box, so
+                            the list under it keeps its own width and the button never
+                            sits over the column it names (see .dns-table-head). -->
+                        <label :title="t('cfg.remote_dns')">{{ t('routing.remoteDNS') }}</label>
                         <input class="rt-input" :value="form.remote_dns ?? ''"
                                :spellcheck="false"
                                placeholder="https://dns.google/dns-query"
                                @input="emit('edit', 'remote_dns', ($event.target as HTMLInputElement).value)"/>
+                        <!-- Offered only while there is something to measure through:
+                            this list is reached over the running node, so without one
+                            the button could only report that it has no path. -->
+                        <button v-if="smartOn && nodeOn" class="btn tiny ghost" :disabled="dnsTesting.remote"
+                                @click="smartPick(['remote'])">
+                            {{ t(dnsTesting.remote ? 'dns.smartTesting' : 'dns.smartTest') }}
+                        </button>
                     </div>
                     <ResolverTable :value="form.remote_dns ?? ''"
                                    :presets="REMOTE_DNS_PRESETS"
@@ -315,20 +307,17 @@ const onSmartToggle = (key: 'select' | 'switch', on: boolean) => {
                 </div>
                 <div class="dns-col">
                     <div class="rt-cell">
-                        <span class="rt-cell-head">
-                            <label :title="t('cfg.direct_dns')">{{ t('routing.directDNS') }}</label>
-                            <!-- This list's own 立即测速, over its own path:
-                                straight out, which is why this button works
-                                with or without a node running. -->
-                            <button v-if="smartOn" class="btn tiny" :disabled="dnsTesting.direct"
-                                    @click="smartPick(['direct'])">
-                                {{ t(dnsTesting.direct ? 'dns.smartTesting' : 'dns.smartTest') }}
-                            </button>
-                        </span>
+                        <label :title="t('cfg.direct_dns')">{{ t('routing.directDNS') }}</label>
                         <input class="rt-input" :value="form.direct_dns ?? ''"
                                :spellcheck="false"
                                placeholder="https://doh.pub/dns-query"
                                @input="emit('edit', 'direct_dns', ($event.target as HTMLInputElement).value)"/>
+                        <!-- This list's own measure button, over its own path: straight
+                            out, which is why it works with or without a node running. -->
+                        <button v-if="smartOn" class="btn tiny ghost" :disabled="dnsTesting.direct"
+                                @click="smartPick(['direct'])">
+                            {{ t(dnsTesting.direct ? 'dns.smartTesting' : 'dns.smartTest') }}
+                        </button>
                     </div>
                     <ResolverTable :value="form.direct_dns ?? ''"
                                    :presets="DIRECT_DNS_PRESETS"
@@ -455,8 +444,8 @@ const onSmartToggle = (key: 'select' | 'switch', on: boolean) => {
                     minutes, and it governs both policies: what is worth watching
                     for — a link that got slower, a resolver that moved — keeps
                     no schedule this side could guess at for the reader.
-                    立即测速 is not here: each list has one on its own title line
-                    (see .rt-cell-head), measuring that list over its own path. -->
+                    测选 is not here: each list has one at the right end of its own
+                    field box (see .rt-cell), measuring that list over its own path. -->
                 <div v-if="smartOn" class="jf-field">
                     <label :title="t('dns.smartHint')">{{ t('dns.smartEvery') }}</label>
                     <div class="rt-every">

@@ -18,8 +18,8 @@ import (
 // words into the console's stream, where the "core" log file is written at the
 // moment the line is raised, listener or no listener.
 func (a *App) notifySecondInstance() {
-	a.emitLog("core", logstore.Stamp(">>> 检测到重复启动，已切换到正在运行的实例"))
-	a.notifyMessage("检测到重复启动，已切换到正在运行的实例")
+	a.emitLog("core", logstore.Stamp(">>> 已有实例在运行，本次启动已交还该实例"))
+	a.notifyMessage("已有实例在运行，本次启动已交还该实例")
 }
 
 // ShowWindow shows and focuses the main window.
@@ -56,7 +56,7 @@ func (a *App) toggleSystemProxy() {
 	a.hotkeyMu.Lock()
 	defer a.hotkeyMu.Unlock()
 	if err := a.SetSystemProxyMode(!a.curSetting().SPModeSystemProxy()); err != nil {
-		a.notifyMessage("系统代理切换失败: "+err.Error(), true)
+		a.notifyMessage("系统代理切换失败："+err.Error(), true)
 		// The press may well have come from the tray with the window hidden; a
 		// failure nobody can see is a failure that looks like nothing happened.
 		a.ShowWindow()
@@ -75,7 +75,7 @@ func (a *App) toggleVPN() {
 	a.hotkeyMu.Lock()
 	defer a.hotkeyMu.Unlock()
 	if err := a.SetVPNMode(!a.curSetting().VPNMode()); err != nil {
-		a.notifyMessage("TUN 切换失败: "+err.Error(), true)
+		a.notifyMessage("TUN 切换失败："+err.Error(), true)
 		a.ShowWindow()
 	}
 }
@@ -113,7 +113,7 @@ func (a *App) nextProfile() {
 	// when it genuinely has to (see the comment there). A stop here is what made every
 	// press of this menu item rebuild the tun adapter.
 	if err := a.StartProfile(next.ID); err != nil {
-		a.notifyMessage("切换节点失败: "+err.Error(), true)
+		a.notifyMessage("切换节点失败："+err.Error(), true)
 		a.ShowWindow()
 		return
 	}

@@ -2,7 +2,7 @@
 import {computed} from 'vue';
 import {t} from '../../i18n';
 import {ROUTE_CARDS, SNIFF_MODES, STRATEGY_OPTIONS} from '../../lib/dns';
-import {CheckCircleFilled} from '../../lib/icons';
+import {EarthFilled, ForbidCircleFilled, TransferHorizontalFilled, WifiFilled} from '../../lib/icons';
 import SegmentedSwitch from '../SegmentedSwitch.vue';
 import EitherSwitch from '../EitherSwitch.vue';
 import RouteLists from '../RouteLists.vue';
@@ -81,84 +81,86 @@ const routeWarnings = computed<string[]>(() => {
     return [...new Set(out)];
 });
 
+const routeCount = (keys: string[]) => computed(() =>
+    keys.reduce((total, key) => total + String(props.form?.[key] ?? '').split('\n').filter(line => line.trim()).length, 0),
+);
+
+const directCount = routeCount(['direct_domain', 'direct_ip']);
+const proxyCount = routeCount(['proxy_domain', 'proxy_ip']);
+const blockCount = routeCount(['block_domain', 'block_ip']);
+
 const onEdit = (k: string, v: string) => emit('edit', k, v);
 const onAppend = (k: string, v: string) => emit('append', k, v);
 </script>
 
 <template>
-    <div class="rt-cards">
-        <button v-for="m in ROUTE_CARDS" :key="m" type="button"
-                :class="`rt-card${focus === m ? ' active' : ''}${egress === m ? ' current' : ''}`"
-                @click="emit('card', m)">
-            <span class="rt-card-name">
-                <CheckCircleFilled v-if="egress === m" class="ic"/><i v-else class="state-dot"/>{{ t(`egress.${m}`) }}
-            </span>
-            <span class="rt-card-note">{{ t(`routing.card.${m}`) }}</span>
-        </button>
-        <!-- The fourth card is not a fourth mode. Its lists are read ahead of
-            whatever the mode decides, so they refuse their matches under the
-            proxy card as readily as under the rule card — which is why it has
-            settings but switches nothing. -->
-        <button type="button"
-                :class="`rt-card rt-block${focus === 'block' ? ' active' : ''}`"
-                @click="emit('card', 'block')">
-            <span class="rt-card-name">
-                <i class="state-dot"/>{{ t('routing.card.blockName') }}
-            </span>
-            <span class="rt-card-note">{{ t('routing.card.block') }}</span>
-        </button>
-    </div>
+    <!-- Outbound mode as one control rail: the three directions are a
+        segmented switch wearing the mode's colour, the blocking layer a chip
+        beside it, and what the choice means is the line under them. The card
+        used to open with a hero — a big title, a live badge saying the same
+        word twice, and three stacked cards — which spent the whole first
+        screen on picking before anything could be edited. -->
+    <section class="rt-rail" :aria-label="t('egress.title')">
+        <div class="rt-rail-head">
+            <span class="rt-rail-label">{{ t('egress.title') }}</span>
+            <!-- Blocking is not a fourth direction: it is a layer over all
+                three, so it sits out of the switch as a chip that opens its
+                lists without changing where traffic goes. -->
+            <button type="button" :class="`rt-block-chip${focus === 'block' ? ' on' : ''}`"
+                    :aria-pressed="focus === 'block'" :title="t('routing.blockHint')"
+                    @click="emit('card', 'block')">
+                <ForbidCircleFilled class="ic"/>{{ t('routing.card.blockName') }}
+            </button>
+        </div>
+        <div class="rt-modes" role="radiogroup" :aria-label="t('egress.title')">
+            <button v-for="m in ROUTE_CARDS" :key="m" type="button" role="radio"
+                    :class="`rt-mode rt-mode-${m}${egress === m ? ' current' : ''}${focus === m ? ' active' : ''}`"
+                    :aria-checked="egress === m"
+                    @click="emit('card', m)">
+                <TransferHorizontalFilled v-if="m === 'rule'" class="ic"/>
+                <WifiFilled v-else-if="m === 'global'" class="ic"/>
+                <EarthFilled v-else class="ic"/>
+                <span>{{ t(`egress.${m}`) }}</span>
+            </button>
+        </div>
+        <p class="rt-rail-note">{{ t(`routing.modeHint.${egress}`) }}</p>
+    </section>
 
     <div v-if="!form" class="hint">加载中…</div>
     <div v-else class="rt-body">
-        <!-- The three fields the whole profile carries, above the fields the
-            focused mode does. Sniffing is what turns a connection into a
-            domain; the two strategies are how that domain — and the
-            addresses this app has to resolve for itself — become IPs. Read
-            in that order, they are the three questions in front of
-            everything else on this card.
-
-            They stand outside the per-mode bodies because the profile
-            carries them and the builder writes them whatever the mode is
-            (see noteSniffing and the default_domain_resolver in buildRoute),
-            while 兜底出站 further down is what only rule mode reads. -->
-        <div class="rt-wide">
-            <div class="rt-cell">
+        <!-- The profile-wide answers in one frame of label→control rows:
+            sniffing turns a connection into a domain, the two strategies
+            turn domains into IPs, the two DNS sides' strategies do the same
+            on each resolution path, and — in rule mode only — the fallback
+            catches what no list claimed. The builder writes all of them
+            whatever the mode is (see noteSniffing and addRuleDNS on the Go
+            side); the five-option strategies are a select's work, not five
+            segments stretched across a narrow card. -->
+        <section class="rt-fields">
+            <div class="rt-row">
                 <label :title="t('routing.sniffHint')">{{ t('routing.sniffing') }}</label>
                 <SegmentedSwitch :label="t('routing.sniffing')"
                                  :options="SNIFF_MODES"
                                  :model-value="String(form.sniffing_mode ?? 1)"
                                  @update:model-value="v => emit('edit', 'sniffing_mode', Number(v))"/>
             </div>
-            <div class="rt-cell">
-                <label :title="t('routing.domainStrategyHint')">
-                    {{ t('routing.domainStrategy') }}
-                </label>
-                <SegmentedSwitch :label="t('routing.domainStrategy')"
-                                 :options="STRATEGY_OPTIONS"
-                                 :model-value="form.domain_strategy ?? ''"
-                                 @update:model-value="v => emit('edit', 'domain_strategy', v)"/>
+            <div class="rt-row">
+                <label :title="t('routing.domainStrategyHint')">{{ t('routing.domainStrategy') }}</label>
+                <select class="rt-input" :value="form.domain_strategy ?? ''"
+                        :aria-label="t('routing.domainStrategy')"
+                        @change="emit('edit', 'domain_strategy', ($event.target as HTMLSelectElement).value)">
+                    <option v-for="o in STRATEGY_OPTIONS" :key="o.value" :value="o.value">{{ t(o.label) }}</option>
+                </select>
             </div>
-            <div class="rt-cell">
-                <label :title="t('routing.outboundStrategyHint')">
-                    {{ t('routing.outboundDomainStrategy') }}
-                </label>
-                <SegmentedSwitch :label="t('routing.outboundDomainStrategy')"
-                                 :options="STRATEGY_OPTIONS"
-                                 :model-value="form.outbound_domain_strategy ?? ''"
-                                 @update:model-value="v => emit('edit', 'outbound_domain_strategy', v)"/>
+            <div class="rt-row">
+                <label :title="t('routing.outboundStrategyHint')">{{ t('routing.outboundDomainStrategy') }}</label>
+                <select class="rt-input" :value="form.outbound_domain_strategy ?? ''"
+                        :aria-label="t('routing.outboundDomainStrategy')"
+                        @change="emit('edit', 'outbound_domain_strategy', ($event.target as HTMLSelectElement).value)">
+                    <option v-for="o in STRATEGY_OPTIONS" :key="o.value" :value="o.value">{{ t(o.label) }}</option>
+                </select>
             </div>
-        </div>
-        <!-- The two DNS sides' own strategies: the address family a name is
-            allowed to resolve into on each of the two paths — the foreign
-            answer (dns-remote) and the domestic one (dns-direct). Written by
-            the builder into the DNS rules that pick those two servers (see
-            addRuleDNS in the Go side); profile-wide like the three above,
-            with the empty value meaning "let the core decide". The SegmentedSwitch
-            the cells above use is a run of five once the two are added — a
-            select keeps the row to two cells. -->
-        <div class="rt-wide">
-            <div class="rt-cell">
+            <div class="rt-row">
                 <label :title="t('cfg.remote_dns_strategy')">{{ t('cfg.remote_dns_strategy') }}</label>
                 <select class="rt-input" :value="form.remote_dns_strategy ?? ''"
                         :aria-label="t('cfg.remote_dns_strategy')"
@@ -166,7 +168,7 @@ const onAppend = (k: string, v: string) => emit('append', k, v);
                     <option v-for="o in STRATEGY_OPTIONS" :key="o.value" :value="o.value">{{ t(o.label) }}</option>
                 </select>
             </div>
-            <div class="rt-cell">
+            <div class="rt-row">
                 <label :title="t('cfg.direct_dns_strategy')">{{ t('cfg.direct_dns_strategy') }}</label>
                 <select class="rt-input" :value="form.direct_dns_strategy ?? ''"
                         :aria-label="t('cfg.direct_dns_strategy')"
@@ -174,52 +176,56 @@ const onAppend = (k: string, v: string) => emit('append', k, v);
                     <option v-for="o in STRATEGY_OPTIONS" :key="o.value" :value="o.value">{{ t(o.label) }}</option>
                 </select>
             </div>
-        </div>
+            <div v-if="focus === 'rule'" class="rt-row">
+                <label>{{ t('routing.defOutbound') }}</label>
+                <EitherSwitch :label="t('routing.defOutbound')"
+                              :left="t('egress.direct')" :right="t('egress.global')"
+                              left-value="bypass" right-value="proxy"
+                              :model-value="form.def_outbound || 'proxy'"
+                              @update:model-value="v => emit('edit', 'def_outbound', v)"/>
+            </div>
+        </section>
         <template v-if="focus === 'block'">
-            <div class="hint">{{ t('routing.blockHint') }}</div>
-            <RouteLists :form="form" :keys="['block_domain', 'block_ip']"
-                        @edit="onEdit" @preset="onAppend"/>
+            <!-- The one thing the blocking lists are not obvious about: they refuse
+                whatever the chosen direction is. Said here, over the lists it names,
+                rather than up in the rail that is about the directions themselves. -->
+            <p class="rt-note rt-block-note">{{ t('routing.blockHint') }}</p>
+            <section class="rt-rule-panel rt-rule-block">
+                <header class="rt-rule-head">
+                    <span class="rt-rule-destination"><ForbidCircleFilled class="ic"/><h3>{{ t('routing.card.blockName') }}</h3></span>
+                    <span class="rt-rule-count">{{ blockCount }}</span>
+                </header>
+                <RouteLists :form="form" :keys="['block_domain', 'block_ip']"
+                            @edit="onEdit" @preset="onAppend"/>
+            </section>
         </template>
         <template v-else-if="focus === 'rule'">
-            <!-- One field where there were four: the three DNS cells
-                have a card of their own now (see below), and the
-                connection fallback is what is left of this row. Sized
-                like the cell it was rather than stretched across the
-                sheet — a two-word answer does not need the width of a
-                window to say itself in. -->
-            <div class="rt-solo">
-                <div class="rt-cell">
-                    <label>{{ t('routing.defOutbound') }}</label>
-                    <EitherSwitch :label="t('routing.defOutbound')"
-                                  :left="t('egress.direct')" :right="t('egress.global')"
-                                  left-value="bypass" right-value="proxy"
-                                  :model-value="form.def_outbound || 'proxy'"
-                                  @update:model-value="v => emit('edit', 'def_outbound', v)"/>
-                </div>
+            <div class="rt-route-matrix">
+                <section class="rt-rule-panel rt-rule-direct">
+                    <header class="rt-rule-head">
+                        <span class="rt-rule-destination"><EarthFilled class="ic"/><h3>{{ t('egress.direct') }}</h3></span>
+                        <span class="rt-rule-count">{{ directCount }}</span>
+                    </header>
+                    <RouteLists :form="form" :keys="['direct_domain', 'direct_ip']"
+                                @edit="onEdit" @preset="onAppend"/>
+                </section>
+                <section class="rt-rule-panel rt-rule-proxy">
+                    <header class="rt-rule-head">
+                        <span class="rt-rule-destination"><WifiFilled class="ic"/><h3>{{ t('egress.global') }}</h3></span>
+                        <span class="rt-rule-count">{{ proxyCount }}</span>
+                    </header>
+                    <RouteLists :form="form" :keys="['proxy_domain', 'proxy_ip']"
+                                @edit="onEdit" @preset="onAppend"/>
+                </section>
             </div>
-            <RouteLists :form="form"
-                        :keys="['direct_domain', 'direct_ip', 'proxy_domain', 'proxy_ip']"
-                        @edit="onEdit" @preset="onAppend"/>
-            <!-- Whitelist mode makes the direct lists redundant as
-                connection rules — anything they match is already
-                going where the fallback sends it — but not as DNS
-                rules, which the builder still writes from them
-                regardless of the mode. Said here rather than by
-                disabling the boxes: disabled would read as
-                "inactive", and half of the boxes still is. -->
             <div v-if="form.def_outbound === 'bypass'" class="rt-note">{{ t('routing.directFallback') }}</div>
-            <!-- The order the builder writes, said where the lists
-                are typed rather than left in the source. -->
-            <div class="rt-note">{{ t('routing.priorityHint') }}</div>
+            <div class="rt-priority">{{ t('routing.priorityHint') }}</div>
             <details class="rt-adv">
                 <summary>{{ t('routing.advanced') }}</summary>
                 <RouteLists :form="form" :keys="['custom']" mono
                             @edit="onEdit" @preset="onAppend"/>
                 <div class="rt-note">{{ t('routing.customHint') }}</div>
             </details>
-        </template>
-        <template v-else>
-            <div class="hint">{{ t(`routing.modeHint.${focus}`) }}</div>
         </template>
 
         <!-- The checks live outside the per-card bodies: the six lists

@@ -45,6 +45,7 @@
     "egress.saved": "出站模式已设为 {0}",
     "egress.savedRunning": "出站模式已设为 {0}（节点已重启）",
     "import.done": "已导入 {0} 个节点",
+    "import.fileDone": "已从文件导入 {0} 个节点",
     "config.previewFailed": "生成配置失败: {0}",
     "config.exported": "已导出到 {0}",
     "sub.updatedAll": "订阅更新完成",

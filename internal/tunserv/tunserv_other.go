@@ -66,5 +66,6 @@ type Command struct {
 const (
 	ActionStart = "start"
 	ActionStop  = "stop"
+	ActionIdle  = "idle"
 	ActionExit  = "exit"
 )

@@ -400,6 +400,9 @@ func (r *Runner) withTestCore(ent *db.ProxyEntity, wait time.Duration, fn func(p
 	if err := cmd.Start(); err != nil {
 		return 0, fmt.Errorf("failed to start core: %w", err)
 	}
+	if err := core.TrackProcess(cmd.Process.Pid); err != nil {
+		r.logf(fmt.Sprintf("[test] failed to bind core to job object: %v", err))
+	}
 
 	// Reap the process so a core that dies immediately (invalid config, missing
 	// dependency) is reported at once instead of polling the port until the
@@ -445,6 +448,9 @@ func (r *Runner) withTestCore(ent *db.ProxyEntity, wait time.Duration, fn func(p
 			// said nothing about the external core at all.
 			r.logf(fmt.Sprintf("[test] external core %s failed to start: %v", spec.Tag, err))
 			continue
+		}
+		if err := core.TrackProcess(ec.Process.Pid); err != nil {
+			r.logf(fmt.Sprintf("[test] failed to bind external core %s to job object: %v", spec.Tag, err))
 		}
 		extCmds = append(extCmds, ec)
 	}

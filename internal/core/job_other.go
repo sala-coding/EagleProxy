@@ -8,6 +8,9 @@ import (
 	"strings"
 )
 
+// TrackProcess is a no-op off Windows.
+func TrackProcess(pid int) error { return trackCoreProcess(pid) }
+
 // trackCoreProcess is a no-op off Windows. POSIX has no job objects; the sanity
 // net is the pidFile below plus the same "is this really our core" check, which
 // recognises a leftover from a previous run whatever killed it.

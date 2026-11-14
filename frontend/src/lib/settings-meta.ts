@@ -108,7 +108,9 @@ export const GROUP_IN_STARTUP = 'settings.group.ui';
 // section, and the vpn_bypass_* / vpn_rule_white rows together with core_box_cache_file have
 // the TUN card — the last of them because it is what keeps the FakeIP mapping). A key of the
 // second kind listed in a group as well would be one setting offered twice, and whichever the
-// reader touched last would be the one that stuck.
+// reader touched last would be the one that stuck. keep_tun_front is the newest of them: the
+// TUN card is where the adapter's lifetime is answered, and the row for it used to sit among
+// the keys nothing else claims.
 //
 // Hiding a key is not dropping it: the builder still reads every one of these (see
 // builder.go, and nekoray's own ConfigBuilder, which merges the same two custom-rule
@@ -125,6 +127,7 @@ export const SETTING_HIDDEN = new Set([
     'theme', 'language', 'inbound_address', 'inbound_socks_port', 'custom_route', 'egress_mode',
     'vpn_internal_tun', 'vpn_impl', 'vpn_mtu', 'vpn_ipv6', 'ipv6_auto', 'vpn_strict_route', 'fakedns',
     'vpn_hide_console', 'vpn_rule_white', 'vpn_bypass_process', 'vpn_bypass_cidr',
+    'keep_tun_front',
     'core_box_cache_file', 'sniffing_mode', 'lan_share',
 ]);
 

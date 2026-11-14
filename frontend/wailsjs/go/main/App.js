@@ -82,6 +82,10 @@ export function ExportConfigFile(arg1) {
   return window['go']['main']['App']['ExportConfigFile'](arg1);
 }
 
+export function ExportGroupConfig(arg1, arg2) {
+  return window['go']['main']['App']['ExportGroupConfig'](arg1, arg2);
+}
+
 export function ExportLink(arg1, arg2) {
   return window['go']['main']['App']['ExportLink'](arg1, arg2);
 }
@@ -148,6 +152,10 @@ export function GetSPMode() {
 
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
+}
+
+export function ImportConfigFile(arg1) {
+  return window['go']['main']['App']['ImportConfigFile'](arg1);
 }
 
 export function ImportLinks(arg1, arg2) {
@@ -340,6 +348,10 @@ export function TestDNS(arg1, arg2) {
 
 export function TestHotkey(arg1) {
   return window['go']['main']['App']['TestHotkey'](arg1);
+}
+
+export function TunPrewarmOK() {
+  return window['go']['main']['App']['TunPrewarmOK']();
 }
 
 export function UWPLoopback() {

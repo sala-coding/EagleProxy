@@ -48,6 +48,8 @@ export function ExitIP():Promise<Record<string, string>>;
 
 export function ExportConfigFile(arg1:number):Promise<string>;
 
+export function ExportGroupConfig(arg1:number,arg2:string):Promise<string>;
+
 export function ExportLink(arg1:number,arg2:boolean):Promise<string>;
 
 export function ExportLogs(arg1:string):Promise<string>;
@@ -81,6 +83,8 @@ export function GetRouting(arg1:string):Promise<setting.Routing>;
 export function GetSPMode():Promise<Record<string, boolean>>;
 
 export function GetSettings():Promise<Record<string, any>>;
+
+export function ImportConfigFile(arg1:string):Promise<main.ImportConfigResult>;
 
 export function ImportLinks(arg1:string,arg2:number):Promise<Array<number>>;
 
@@ -177,6 +181,8 @@ export function SystemFontScale():Promise<number>;
 export function TestDNS(arg1:Array<string>,arg2:boolean):Promise<Array<dnstest.Result>>;
 
 export function TestHotkey(arg1:string):Promise<boolean>;
+
+export function TunPrewarmOK():Promise<boolean>;
 
 export function UWPLoopback():Promise<boolean>;
 

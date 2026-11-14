@@ -571,7 +571,7 @@ const persist = async () => {
     // write that actually carries the panel's fields — the fields kept their new
     // values while the file kept the old ones, and one error toast was the only clue.
     const problems: unknown[] = [];
-    if (corePath.value.trim()) {
+    {
         try {
             await API.SetCorePath(corePath.value.trim());
             // The stack row is the core's answer, and the core has just changed.
@@ -1403,6 +1403,10 @@ const onPortInput = (e: Event) => {
             exists. -->
         <header class="set-dock-head">
             <span class="set-dock-title">{{ t('dlg.settings.title') }}</span>
+            <!-- The card on screen, named in the strip: the nav says where the reader
+                is, but it says it in a column they have to look away from the card to
+                read. The name here is the one the card carries, from the same key. -->
+            <span class="set-dock-here">{{ t(navTitles[slide] ?? '') }}</span>
         </header>
         <div class="set-dock-body">
             <nav class="set-nav" :aria-label="t('dlg.settings.title')">
@@ -1426,7 +1430,6 @@ const onPortInput = (e: Event) => {
                 <!-- set-side-labels: this card keeps the label column rather than putting
                     its labels above their controls — see the rule in App.css. -->
                 <div v-bind="slideOf('settings.group.startup', ' set-side-labels')">
-                    <div class="set-group-title">{{ t('settings.group.startup') }}</div>
                     <!-- The looks box: the type scale and the palette wrapped in one framed
                         fieldset — two rows that answer the same question (how the window
                         looks), named once by the frame's own legend (see .look-box in
@@ -1620,7 +1623,6 @@ const onPortInput = (e: Event) => {
                     card's shape now, and they were the reason this card was left full width
                     (see the note below about its label column). -->
                 <div v-bind="slideOf('settings.group.tun', ' set-tun')">
-                    <div class="set-group-title">{{ t('settings.group.tun') }}</div>
                     <TunCard v-if="obj" :obj="obj" :tun-on="tunOn" :core-version="coreVer" @patch="onJsonChange"
                              @notify="(m, k) => emit('notify', m, k)"/>
                     <div v-else class="hint">加载中…</div>
@@ -1635,7 +1637,6 @@ const onPortInput = (e: Event) => {
                     away from the mode it belongs to, and the mode itself was somewhere else
                     again. -->
                 <div v-bind="slideOf('settings.group.routing', ' set-routing')">
-                    <div class="set-group-title">{{ t('settings.group.routing') }}</div>
                     <RoutingCard :form="routeForm" :focus="routeFocus" :egress="egress"
                                  :lang-tick="langTick"
                                  @edit="editRoute" @append="appendRoute" @card="pickRouteCard"/>
@@ -1648,7 +1649,6 @@ const onPortInput = (e: Event) => {
                     (see buildDNS), so this is a card a reader can visit without having to
                     pick a mode first. Same profile, saved the same way. -->
                 <div v-bind="slideOf('settings.group.dns')">
-                    <div class="set-group-title">{{ t('settings.group.dns') }}</div>
                     <DnsCard v-if="routeForm"
                              :form="routeForm" :latency="dnsLatency" :node-on="nodeOn" :scale="uiScale"
                              :lang-tick="langTick"
@@ -1678,7 +1678,6 @@ const onPortInput = (e: Event) => {
                     never fall out of reach. -->
                 <template v-for="g in jsonSlides" :key="g.title">
                     <div v-bind="slideOf(g.title, jsonSlideExtra(g.title))">
-                        <div class="set-group-title">{{ t(g.title) }}</div>
                         <!-- A rule that holds for every row of the card states itself once,
                             above them. Only the hotkeys card has one. -->
                         <div v-if="g.note" class="hint">{{ t(g.note) }}</div>

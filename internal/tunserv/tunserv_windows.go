@@ -59,16 +59,18 @@ var (
 const (
 	ActionStart = "start"
 	ActionStop  = "stop"
-	// ActionTeardown is stop plus the device: the child goes, the adapter with it, and
-	// this server follows them out.
+	// ActionIdle is stop plus the device: the child goes, the adapter with it, and this
+	// server stays where it is.
 	//
-	// Separate from ActionExit because the device is the part only this process can take
-	// away (an adapter removal is a PnP call and it wants the token), and because the
-	// exit is what keeps it away: the loop rebuilds the device on a ten-second tick
-	// whenever the app's state still asks for one, and a server left running would undo
-	// the removal before the app's log line about it had finished printing.
-	ActionTeardown = "teardown"
-	ActionExit     = "exit"
+	// Separate from ActionStop because the device is the part only this process can take
+	// away (an adapter removal is a PnP call and it wants the token), and separate from
+	// ActionExit because turning TUN off is not the end of the session: the reader
+	// switches it back on and expects the next start to be warm, which is a server that
+	// is already running rather than one cold-started behind a UAC prompt. The rebuild
+	// the loop would otherwise perform on its ten-second tick is prevented by the state
+	// the app writes before sending this — Adapter false, Prewarm cleared.
+	ActionIdle = "idle"
+	ActionExit = "exit"
 )
 
 // FrontPID is the pid file's record. ConfigHash stamps the front config's

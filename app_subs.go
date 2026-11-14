@@ -2,10 +2,16 @@ package main
 
 import (
 	"eagle/internal/configbuilder"
+	"eagle/internal/db"
+	"eagle/internal/format"
 	"eagle/internal/sub"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -119,4 +125,175 @@ func (a *App) ExportConfigFile(id int) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+// ExportGroupConfig writes a whole subscription out in the format the reader
+// picked — sing-box JSON, Clash YAML, a share-link list, or that list base64
+// wrapped (the shape every panel reads as "订阅"). The builder puts the group's
+// node list behind its selector, so the sing-box file carries every node the
+// subscription holds rather than one of them — which node it is built from
+// decides what the config starts on, not what it contains. The file is named
+// after the subscription, since that is what it is; the extension follows the
+// format.
+//
+// A format that cannot speak every node still writes what it can: the skipped
+// ones are named in the window's console, because a file quietly missing nodes
+// is a file the reader trusts more than it deserves.
+func (a *App) ExportGroupConfig(gid int, kind string) (string, error) {
+	mgr := a.curMgr()
+	if mgr == nil {
+		return "", fmt.Errorf("backend not initialised")
+	}
+	g := mgr.SnapshotGroup(gid)
+	if g == nil {
+		return "", fmt.Errorf("subscription %d not found", gid)
+	}
+	if len(g.Order) == 0 {
+		return "", fmt.Errorf("subscription %q holds no nodes", g.Name)
+	}
+	if a.curCtx() == nil {
+		return "", fmt.Errorf("backend not initialised")
+	}
+
+	content, ext, filter, err := a.exportGroupContent(g, kind)
+	if err != nil {
+		return "", err
+	}
+	path, err := runtime.SaveFileDialog(a.curCtx(), runtime.SaveDialogOptions{
+		Title:           "导出订阅配置",
+		DefaultFilename: fileNameOf(g.Name, gid) + ext,
+		Filters:         []runtime.FileFilter{filter},
+	})
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		return "", nil
+	}
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// exportGroupContent builds one subscription's bytes in the asked format. The
+// extension and the dialog filter travel with it: the file offered is the one
+// the format spells.
+func (a *App) exportGroupContent(g *db.Group, kind string) ([]byte, string, runtime.FileFilter, error) {
+	switch kind {
+	case "singbox":
+		cfg, err := a.PreviewConfig(g.Order[0])
+		if err != nil {
+			return nil, "", runtime.FileFilter{}, err
+		}
+		return []byte(cfg), ".json", runtime.FileFilter{DisplayName: "JSON", Pattern: "*.json"}, nil
+
+	case "clash", "links", "base64":
+		ents := make([]*db.ProxyEntity, 0, len(g.Order))
+		for _, id := range g.Order {
+			if e := a.curMgr().SnapshotProfile(id); e != nil {
+				ents = append(ents, e)
+			}
+		}
+		if kind == "clash" {
+			doc, skipped := clashGroupDoc(g.Name, ents)
+			if len(doc["proxies"].([]interface{})) == 0 {
+				return nil, "", runtime.FileFilter{}, fmt.Errorf(
+					"订阅里的 %d 个节点 Clash 都不认识：%s", len(skipped), strings.Join(skipped, "、"))
+			}
+			if len(skipped) > 0 {
+				a.notifyMessage(fmt.Sprintf("Clash 导出跳过 %d 个节点：%s", len(skipped), strings.Join(skipped, "、")), false)
+			}
+			data, err := yaml.Marshal(doc)
+			if err != nil {
+				return nil, "", runtime.FileFilter{}, err
+			}
+			return data, ".yaml", runtime.FileFilter{DisplayName: "YAML", Pattern: "*.yaml;*.yml"}, nil
+		}
+
+		// The link list, and the same list base64 wrapped — the one shape every
+		// panel and every client has agreed on since subscriptions began.
+		var links, skipped []string
+		for _, e := range ents {
+			link := format.ToShareLink(e.Type, e.Bean, a.curSetting())
+			if link == "" {
+				skipped = append(skipped, e.Bean.Str("name")+" ("+e.Type+")")
+				continue
+			}
+			links = append(links, link)
+		}
+		if len(links) == 0 {
+			return nil, "", runtime.FileFilter{}, fmt.Errorf(
+				"订阅里的 %d 个节点都写不成分享链接：%s", len(skipped), strings.Join(skipped, "、"))
+		}
+		if len(skipped) > 0 {
+			a.notifyMessage(fmt.Sprintf("导出跳过 %d 个节点：%s", len(skipped), strings.Join(skipped, "、")), false)
+		}
+		joined := strings.Join(links, "\n")
+		if kind == "base64" {
+			return []byte(base64.StdEncoding.EncodeToString([]byte(joined))), ".b64",
+				runtime.FileFilter{DisplayName: "Base64 订阅", Pattern: "*.b64;*.txt"}, nil
+		}
+		return []byte(joined), ".txt", runtime.FileFilter{DisplayName: "文本", Pattern: "*.txt"}, nil
+	}
+	return nil, "", runtime.FileFilter{}, fmt.Errorf("未知的导出格式 %q", kind)
+}
+
+// clashGroupDoc wraps the group's nodes into a minimal Clash configuration:
+// the proxies, one select group named after the subscription, and a MATCH
+// rule pointing at it — a file that carries the nodes and runs as-is, without
+// pretending to be a rule set this app has its own opinion about.
+func clashGroupDoc(name string, ents []*db.ProxyEntity) (map[string]interface{}, []string) {
+	proxies := make([]interface{}, 0, len(ents))
+	names := make([]string, 0, len(ents))
+	var skipped []string
+	for _, e := range ents {
+		p := format.ToClashProxy(e.Type, e.Bean)
+		if p == nil {
+			skipped = append(skipped, e.Bean.Str("name")+" ("+e.Type+")")
+			continue
+		}
+		proxies = append(proxies, p)
+		names = append(names, e.Bean.Str("name"))
+	}
+	group := strings.TrimSpace(name)
+	if group == "" {
+		group = "PROXY"
+	}
+	doc := map[string]interface{}{
+		"mixed-port": 7890,
+		"mode":       "rule",
+		"proxies":    proxies,
+		"proxy-groups": []interface{}{
+			map[string]interface{}{"name": group, "type": "select", "proxies": append(names, "DIRECT")},
+		},
+		"rules": []interface{}{"MATCH," + group},
+	}
+	return doc, skipped
+}
+
+// fileNameOf is a subscription's name as Windows will take it: the characters a file
+// name cannot carry become underscores — dropped instead, two subscriptions would be
+// offered the same file — and a name that is nothing but those falls back to its number.
+// Cut to 48 characters, which leaves room for the extension and the folder.
+func fileNameOf(name string, gid int) string {
+	out := make([]rune, 0, len(name))
+	for _, c := range strings.TrimSpace(name) {
+		switch c {
+		case '\\', '/', ':', '*', '?', '"', '<', '>', '|':
+			out = append(out, '_')
+		default:
+			if c >= 0x20 {
+				out = append(out, c)
+			}
+		}
+		if len(out) >= 48 {
+			break
+		}
+	}
+	s := strings.Trim(strings.TrimSpace(string(out)), ".")
+	if s == "" {
+		return fmt.Sprintf("subscription-%d", gid)
+	}
+	return s
 }

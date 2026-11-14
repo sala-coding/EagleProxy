@@ -191,6 +191,20 @@ export namespace main {
 	        this.info = source["info"];
 	    }
 	}
+	export class ImportConfigResult {
+	    gid: number;
+	    ids: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportConfigResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.gid = source["gid"];
+	        this.ids = source["ids"];
+	    }
+	}
 	export class InboundPortStatus {
 	    address: string;
 	    port: number;

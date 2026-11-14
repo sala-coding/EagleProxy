@@ -239,11 +239,11 @@ func main() {
 						rel, err := app.CheckUpdate()
 						app.ShowWindow()
 						if err != nil {
-							app.notifyMessage("检查更新失败: "+err.Error(), true)
+							app.notifyMessage("检查更新失败："+err.Error(), true)
 							return
 						}
 						if rel == nil {
-							app.notifyMessage("已是最新版本，没有可用的更新")
+							app.notifyMessage("当前已是最新版本，无需更新")
 							return
 						}
 						app.notifyMessage("发现新版本 "+rel.TagName+"，详情见主窗口", true)

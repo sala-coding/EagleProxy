@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed} from 'vue';
+import {ref, watch} from 'vue';
 import {t} from "./i18n";
 import {fieldLabel} from "./lib/jsonform";
 import {AddFilled, CloseFilled} from './lib/icons';
@@ -12,26 +12,45 @@ import {AddFilled, CloseFilled} from './lib/icons';
 // netx.UserAgents) — was something to be counted. So the number is a column, and a line
 // separates the rows.
 //
-// A blank line is not an identifier and is not drawn as one: trailing blanks are dropped
-// from the display and come back only as an added row, which also means a file that ended
-// in a newline loses it on the first edit. Nothing reads that newline — the fetcher drops
-// blank lines too — but it is written, so it is said here rather than left to be found.
+// The rows are held as local state rather than read back off the string every time: a
+// trailing blank line is dropped when a value is first read (a file that ended in a
+// newline should not open with an empty row), but that same rule would eat the blank the
+// reader just added with 新增 and the button would look dead. So the array is the truth
+// while editing, and the string is only re-parsed when something outside changed it.
 //
 // value/onChange 是受控状态，映射为 v-model（defineModel）。
 const value = defineModel<string>({required: true});
 
-const rows = computed(() => {
-    const lines = (value.value ?? '').split('\n');
+const toRows = (s: string): string[] => {
+    const lines = (s ?? '').split('\n');
     while (lines.length > 1 && lines[lines.length - 1].trim() === '') lines.pop();
-    return lines;
+    return lines.length ? lines : [''];
+};
+
+const rows = ref<string[]>(toRows(value.value));
+
+// Follow an outside change (a profile switch, a reload) without echoing our own write
+// back through toRows — which would strip the blank row the reader just added.
+watch(value, (v) => {
+    if (v !== rows.value.join('\n')) rows.value = toRows(v);
 });
 
-const write = (next: string[]) => { value.value = next.join('\n'); };
+const write = () => { value.value = rows.value.join('\n'); };
 
 const editRow = (i: number, e: Event) => {
-    const next = rows.value.slice();
-    next[i] = (e.target as HTMLInputElement).value;
-    write(next);
+    rows.value[i] = (e.target as HTMLInputElement).value;
+    write();
+};
+
+const addRow = () => {
+    rows.value.push('');
+    write();
+};
+
+const delRow = (i: number) => {
+    if (rows.value.length === 1) rows.value = [''];
+    else rows.value.splice(i, 1);
+    write();
 };
 </script>
 
@@ -44,13 +63,13 @@ const editRow = (i: number, e: Event) => {
                    @input="editRow(i, $event)"/>
             <button type="button" class="ltable-del"
                     :title="t('btn.delete')" :aria-label="t('btn.delete')"
-                    @click="write(rows.length === 1 ? [''] : rows.filter((_, j) => j !== i))">
+                    @click="delRow(i)">
                 <CloseFilled class="ic"/>
             </button>
         </div>
         <!-- The row that is not there yet. A button rather than a blank last row, so the
              count of identifiers on screen is the count in the file. -->
-        <button type="button" class="ltable-add" @click="write([...rows, ''])">
+        <button type="button" class="ltable-add" @click="addRow">
             <AddFilled class="ic"/>{{ t('btn.add') }}
         </button>
     </div>

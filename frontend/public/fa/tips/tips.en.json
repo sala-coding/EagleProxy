@@ -45,6 +45,7 @@
     "egress.saved": "Outbound mode set to {0}",
     "egress.savedRunning": "Outbound mode set to {0} (node restarted)",
     "import.done": "Imported {0} profiles",
+    "import.fileDone": "Imported {0} profiles from file",
     "config.previewFailed": "Config generation failed: {0}",
     "config.exported": "Exported to {0}",
     "sub.updatedAll": "Subscriptions updated",

@@ -10,13 +10,13 @@
 // console's stream now (see notify in App.vue). What remains here reads what
 // is moving (rates, the test pill), which is not a sentence and has nowhere
 // else to be said.
-import {computed, ref, watch, nextTick, onMounted, onBeforeUnmount, type Ref} from 'vue';
+import {computed, ref, watch, onMounted, onBeforeUnmount, type Ref} from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import {t} from '../i18n';
 import {countryName, purityLevel, SPEED_RUNNING_KEYS} from '../lib/metrics';
 import {fmtRate} from '../lib/format';
 import {STOPPED} from '../composables/shared-consts';
-import {CopyFilled, LoadingFilled, StopFilled, CloseFilled} from '../lib/icons';
+import {CheckCircleFilled, CopyFilled, LoadingFilled, StopFilled} from '../lib/icons';
 
 const props = defineProps<{
     traffic: { up: number; down: number; upRate: number; downRate: number; count: number };
@@ -26,20 +26,14 @@ const props = defineProps<{
     running: number;
     exitIp: Record<string, string> | null;
     infoOpen: boolean;
+    // The start-up TUN prewarm reached a live resident server: the bar's green tick.
+    tunPrewarmOK: boolean;
     // Refs owned by App.vue's composables and effects.
     statusbarRef: Ref<HTMLDivElement | null>;
     nodeIpRef: Ref<HTMLButtonElement | null>;
     infoRef: Ref<HTMLDivElement | null>;
     // Bumped on a language change so the words here are re-read (see App.vue).
     langTick: number;
-    // The node search, moved down from the titlebar: the field the reader types
-    // the query into and the two counters beside it. The state — query, open or
-    // closed — lives in App; this dock draws the cluster and hands the presses
-    // back (see the cluster in the template).
-    searchOpen: boolean;
-    query: string;
-    searchShown: number;
-    searchPool: number;
 }>();
 
 const emit = defineEmits<{
@@ -52,14 +46,6 @@ const emit = defineEmits<{
     // Double-click on the bar's floor: the console is what unrolls from the
     // window's bottom edge, so the gesture belongs to this bar (see barDbl).
     logs: [];
-    // The node search's presses (see the cluster in the template): opening it,
-    // the query as it is typed, the keys (Enter hands a link over, Escape takes
-    // it back), the blur that closes an empty field, and the clear button.
-    openSearch: [];
-    setQuery: [v: string];
-    searchKey: [e: KeyboardEvent];
-    searchBlur: [];
-    clearQuery: [];
 }>();
 
 // Double-clicking the floor of the status bar unrolls the console. The controls on
@@ -126,14 +112,6 @@ const sourceText = computed(() => {
     return text;
 });
 const riskLevelOf = (v: number) => v < 30 ? 'low' : v < 60 ? 'mid' : 'high';
-
-// The search field, for the one thing App cannot reach from here: focusing it
-// the moment the cluster opens (App owns the open state; this dock owns the
-// input element).
-const searchInput = ref<HTMLInputElement | null>(null);
-watch(() => props.searchOpen, open => {
-    if (open) nextTick(() => searchInput.value?.focus());
-});
 
 // The machine's address on the LAN, shown only while LAN sharing is on: then it is
 // "ip:port", the two fields a phone's proxy settings ask for, and the one thing this
@@ -250,56 +228,6 @@ async function copyLan() {
         costing the list its bottom edge twice over. -->
     <div class="bottom-dock">
         <div class="statusbar" :ref="statusbarRef" @dblclick="barDbl">
-            <!-- The node search, moved down from the titlebar: the bar's left end
-                was empty floor, and the field takes it when it opens. The state —
-                query, open or closed — lives in App; the presses come back here
-                as events, and the focus follows the open (see searchInput). -->
-            <span :class="`status-search${searchOpen ? ' open' : ''}`">
-                <button v-if="!searchOpen" class="tb-btn search-open" type="button"
-                        :title="t('search.placeholder')"
-                        :aria-label="t('search.placeholder')"
-                        @click="emit('openSearch')">
-                    <!-- A bare magnifier, drawn here rather than glyphed: a library
-                        glyph would carry a baseline into a box whose only job is to
-                        sit on the bar's centre line. -->
-                    <svg class="search-glyph" viewBox="0 0 16 16" aria-hidden="true">
-                        <circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
-                        <path d="M10.6 10.6L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-                    </svg>
-                </button>
-                <template v-else>
-                    <span class="search-field">
-                        <svg class="search-ic" viewBox="0 0 16 16" aria-hidden="true">
-                            <circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
-                            <path d="M10.6 10.6L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-                        </svg>
-                        <input ref="searchInput"
-                               class="node-search"
-                               :value="query"
-                               :placeholder="t('search.placeholder')"
-                               :aria-label="t('search.placeholder')"
-                               @input="emit('setQuery', ($event.target as HTMLInputElement).value)"
-                               @keydown="emit('searchKey', $event)"
-                               @blur="emit('searchBlur')"/>
-                    </span>
-                    <template v-if="query.trim() !== ''">
-                        <span class="status-search-count" :title="t('search.scope')">
-                            {{ searchShown }}/{{ searchPool }}
-                        </span>
-                        <!-- The press is kept off the button so the field keeps the
-                            caret: clearing is followed by the next word, and a field
-                            that drops focus as it is emptied makes the reader click
-                            back into it for every correction. -->
-                        <button class="status-search-x"
-                                :title="t('search.clear')"
-                                :aria-label="t('search.clear')"
-                                @mousedown.prevent
-                                @click="emit('clearQuery')">
-                            <CloseFilled class="ic"/>
-                        </button>
-                    </template>
-                </template>
-            </span>
             <!-- The bar's left end after the search: the rates that used to hold
                 it have moved into the right-hand group, on the exit address's
                 left (see .status-right), and the settings opener that shared
@@ -315,57 +243,57 @@ async function copyLan() {
                 outside or on Escape. Rows appear only when the field behind them
                 exists: an API that did not answer leaves no gap to read. -->
             <div v-if="infoOpen && exitIp" class="exit-panel" :ref="infoRef" role="dialog" :aria-label="t('ip.info')">
-                <div class="exit-row">
-                    <span class="exit-k">{{ t('ip.address') }}</span>
-                    <span class="exit-v mono">
-                        <!-- The address's own country beside the address, the same
-                            artwork the bar's corner wears: the one thing about this
-                            number a reader recognises before reading it. -->
-                        <img v-if="exitIp.cc" class="node-flag" :src="`/fa/flag/${exitIp.cc}.svg`"
-                             alt="" aria-hidden="true" @error="flagBroken = true"/>
-                        {{ exitIp.ip }}
-                        <button class="exit-copy" :title="t('btn.copy')"
-                                :aria-label="t('btn.copy')"
-                                @click="copyIp">
-                            <CopyFilled class="ic"/>
-                        </button>
-                    </span>
-                </div>
-                <div v-if="exitIp.reverse" class="exit-row"><span class="exit-k">{{ t('ip.reverse') }}</span><span class="exit-v mono">{{ exitIp.reverse }}</span></div>
-                <div v-if="exitIp.asn" class="exit-row">
-                    <span class="exit-k">{{ t('ip.asn') }}</span>
-                    <span class="exit-v">{{ exitIp.asn }}{{ exitIp.asOrg ? ` — ${exitIp.asOrg}` : '' }}</span>
-                </div>
-                <div v-if="exitIp.isp" class="exit-row"><span class="exit-k">{{ t('ip.isp') }}</span><span class="exit-v">{{ exitIp.isp }}</span></div>
-                <div v-if="exitIp.org" class="exit-row"><span class="exit-k">{{ t('ip.org') }}</span><span class="exit-v">{{ exitIp.org }}</span></div>
-                <div v-if="exitIp.cc" class="exit-row">
-                    <span class="exit-k">{{ t('ip.country') }}</span>
-                    <span class="exit-v">
-                        <img class="node-flag" :src="`/fa/flag/${exitIp.cc}.svg`" alt=""> {{ countryName(exitIp.cc) }} ({{ exitIp.cc.toUpperCase() }})
-                    </span>
-                </div>
-                <div v-if="exitIp.region" class="exit-row"><span class="exit-k">{{ t('ip.region') }}</span><span class="exit-v">{{ exitIp.region }}</span></div>
-                <div v-if="exitIp.city" class="exit-row"><span class="exit-k">{{ t('ip.city') }}</span><span class="exit-v">{{ exitIp.city }}</span></div>
-                <div v-if="exitIp.timezone" class="exit-row"><span class="exit-k">{{ t('ip.timezone') }}</span><span class="exit-v">{{ exitIp.timezone }}</span></div>
-                <div v-if="exitIp.lat && exitIp.lon" class="exit-row"><span class="exit-k">{{ t('ip.coords') }}</span><span class="exit-v">{{ exitIp.lat }}, {{ exitIp.lon }}</span></div>
-                <div v-if="exitIp.usage" class="exit-row"><span class="exit-k">{{ t('ip.usage') }}</span><span class="exit-v">{{ exitIp.usage }}</span></div>
-                <div v-if="exitIp.signals" class="exit-row"><span class="exit-k">{{ t('ip.signals') }}</span><span class="exit-v">{{ exitIp.signals }}</span></div>
-                <div v-if="exitIp.ipv" class="exit-row"><span class="exit-k">{{ t('ip.version') }}</span><span class="exit-v">{{ exitIp.ipv }}{{ exitIp.anycast ? ` · ${exitIp.anycast}` : '' }}</span></div>
-                <div v-if="exitIp.riskStatus" class="exit-row"><span class="exit-k">{{ t('ip.assessment') }}</span><span class="exit-v">{{ exitIp.riskStatus }}</span></div>
-                <div v-if="exitIp.residential" class="exit-row">
-                    <span class="exit-k">{{ t('ip.type') }}</span>
-                    <span class="exit-v">{{ exitIp.residential === '1' ? t('ip.residential') : t('ip.datacenter') }}</span>
-                </div>
-                <template v-if="exitIp.purity">
-                    <div class="exit-row">
-                        <span class="exit-k">{{ t('ip.purity') }}</span>
-                        <span class="exit-v purity-val"
-                              :data-level="purityLevel(exitIp.purity)">
-                            {{ exitIp.purity }}% · {{ t(`ip.purity.${purityLevel(exitIp.purity)}`) }}
+                <!-- 头部：这条地址本身。旗、地址、复制，一行读完；ASN 与归属放在下面一行，
+                     不再各占一行表格 —— 它们说的是同一个东西：这条地址属于谁。 -->
+                <div class="exit-hero">
+                    <img v-if="exitIp.cc && !flagBroken" class="node-flag"
+                         :src="`/fa/flag/${exitIp.cc}.svg`" alt="" aria-hidden="true"
+                         @error="flagBroken = true"/>
+                    <div class="exit-hero-main">
+                        <span class="exit-ip">{{ exitIp.ip }}</span>
+                        <span v-if="exitIp.asn || exitIp.asOrg" class="exit-hero-sub">
+                            <span v-if="exitIp.asn">{{ exitIp.asn }}</span>
+                            <i v-if="exitIp.asn && exitIp.asOrg" class="exit-hero-dot">·</i>
+                            <span v-if="exitIp.asOrg">{{ exitIp.asOrg }}</span>
                         </span>
                     </div>
+                    <button class="exit-copy" :title="t('btn.copy')"
+                            :aria-label="t('btn.copy')"
+                            @click="copyIp">
+                        <CopyFilled class="ic"/>
+                    </button>
+                </div>
+                <!-- 数据行：左标签、右值，行间一条发丝线，指针扫过时整行亮一点。 -->
+                <div class="exit-table">
+                    <div v-if="exitIp.reverse" class="exit-row"><span class="exit-k">{{ t('ip.reverse') }}</span><span class="exit-v mono">{{ exitIp.reverse }}</span></div>
+                    <div v-if="exitIp.isp" class="exit-row"><span class="exit-k">{{ t('ip.isp') }}</span><span class="exit-v">{{ exitIp.isp }}</span></div>
+                    <div v-if="exitIp.org" class="exit-row"><span class="exit-k">{{ t('ip.org') }}</span><span class="exit-v">{{ exitIp.org }}</span></div>
+                    <div v-if="exitIp.cc" class="exit-row">
+                        <span class="exit-k">{{ t('ip.country') }}</span>
+                        <span class="exit-v">{{ countryName(exitIp.cc) }} <em class="exit-code">{{ exitIp.cc.toUpperCase() }}</em></span>
+                    </div>
+                    <div v-if="exitIp.region" class="exit-row"><span class="exit-k">{{ t('ip.region') }}</span><span class="exit-v">{{ exitIp.region }}</span></div>
+                    <div v-if="exitIp.city" class="exit-row"><span class="exit-k">{{ t('ip.city') }}</span><span class="exit-v">{{ exitIp.city }}</span></div>
+                    <div v-if="exitIp.timezone" class="exit-row"><span class="exit-k">{{ t('ip.timezone') }}</span><span class="exit-v mono">{{ exitIp.timezone }}</span></div>
+                    <div v-if="exitIp.lat && exitIp.lon" class="exit-row"><span class="exit-k">{{ t('ip.coords') }}</span><span class="exit-v mono">{{ exitIp.lat }}, {{ exitIp.lon }}</span></div>
+                    <div v-if="exitIp.usage" class="exit-row"><span class="exit-k">{{ t('ip.usage') }}</span><span class="exit-v">{{ exitIp.usage }}</span></div>
+                    <div v-if="exitIp.signals" class="exit-row"><span class="exit-k">{{ t('ip.signals') }}</span><span class="exit-v">{{ exitIp.signals }}</span></div>
+                    <div v-if="exitIp.ipv" class="exit-row"><span class="exit-k">{{ t('ip.version') }}</span><span class="exit-v">{{ exitIp.ipv }}{{ exitIp.anycast ? ` · ${exitIp.anycast}` : '' }}</span></div>
+                    <div v-if="exitIp.riskStatus" class="exit-row"><span class="exit-k">{{ t('ip.assessment') }}</span><span class="exit-v">{{ exitIp.riskStatus }}</span></div>
+                    <div v-if="exitIp.residential" class="exit-row">
+                        <span class="exit-k">{{ t('ip.type') }}</span>
+                        <span class="exit-v">{{ exitIp.residential === '1' ? t('ip.residential') : t('ip.datacenter') }}</span>
+                    </div>
+                </div>
+                <!-- 纯净度：整块横贯，数字在右、色带在底，读的是同一个分。 -->
+                <div v-if="exitIp.purity" class="exit-purity">
+                    <span class="exit-k">{{ t('ip.purity') }}</span>
+                    <span class="exit-purity-val" :data-level="purityLevel(exitIp.purity)">
+                        <b>{{ exitIp.purity }}%</b>
+                        <span class="exit-purity-tag">{{ t(`ip.purity.${purityLevel(exitIp.purity)}`) }}</span>
+                    </span>
                     <div class="purity-band" :style="{'--pos': `${exitIp.purity}%`}"/>
-                </template>
+                </div>
                 <!-- The report behind that score, folded away: the panel is a glance,
                     and the per-source detail is for the reader who doubts the number. -->
                 <div v-if="riskDetail" class="exit-more">
@@ -491,6 +419,13 @@ async function copyLan() {
                         @click="copyLan">
                     {{ lanIp }}
                 </button>
+                <!-- The start-up TUN prewarm's receipt, at the bar's far edge: a green
+                    tick says the resident server is up, so the first TUN switch-on of the
+                    session opens a device instead of waiting out a cold task start. -->
+                <span v-if="tunPrewarmOK" class="tun-prewarm-ok"
+                      :title="t('status.tunPrewarm')" role="img" aria-label="TUN">
+                    <CheckCircleFilled class="ic"/>
+                </span>
             </div>
         </div>
     </div>

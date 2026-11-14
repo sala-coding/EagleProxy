@@ -147,16 +147,23 @@ export function useSubsPanel(subsDrop: Ref<boolean>) {
     watch(subsDrop, (_, __, onCleanup) => {
         const measure = () => {
             const cell = document.querySelector<HTMLElement>('.subdrop-table td.name');
-            const tail = cell?.querySelector<HTMLElement>('.row-tail');
-            const sep = cell?.querySelector<HTMLElement>('.sub-sep');
-            if (!cell || !tail || !sep) return;
+            // What the name has to leave room for is the slot's *contents*, not the slot:
+            // the slot stretches to take whatever the name leaves (the allowance bar is
+            // drawn at that width), so measuring it would always answer "no room left".
+            const acts = cell?.querySelector<HTMLElement>('.row-acts');
+            if (!cell) return;
+            // The hairline the name's channel used to carry is gone from the row, so it
+            // comes off the sum as zero rather than being waited for: requiring it is
+            // what silently stopped this measurement altogether, and the name kept the
+            // width the panel had on the day the hairline left.
+            const sep = cell.querySelector<HTMLElement>('.sub-sep');
             const cs = getComputedStyle(cell);
             const inner = cell.clientWidth
                 - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
             // gap reports the keyword "normal" rather than a number wherever the row is
             // not actually a flex row, and that has to fall back rather than turn the
             // arithmetic into a NaN and the column with it
-            const available = inner - tail.offsetWidth - sep.offsetWidth
+            const available = inner - (acts?.offsetWidth ?? 0) - (sep?.offsetWidth ?? 0)
                 - (parseFloat(cs.columnGap) || 0);
             // A column is half an em for the name and six tenths for the filler that
             // pads it — a CJK glyph is one em and counts as two columns, a dash is the

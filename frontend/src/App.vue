@@ -24,12 +24,13 @@ import EditorDialog from "./components/EditorDialog.vue";
 import ConnectionsDialog from "./components/ConnectionsDialog.vue";
 import {type Dict} from "./lib/metrics";
 import {EGRESS_MODES} from "./lib/layout";
+import {CONFIG_KINDS} from "./lib/format";
 import {type PanelExit} from "./lib/subdraw";
-import {FolderFilled, AddFilled, RightFilled, PlayFilled, StopFilled, TransferHorizontalFilled,
+import {FolderFilled, FolderOpenFilled, AddFilled, RightFilled, PlayFilled, StopFilled, TransferHorizontalFilled,
     DashboardFilled, FlashFilled, FileImportFilled, Edit2Filled, CopyFilled, Link2Filled,
-    Link3Filled, CodeFilled, FileExportFilled, QrcodeFilled, Delete2Filled,
+    Link3Filled, CodeFilled, QrcodeFilled, Delete2Filled,
     CloseFilled, Download3Filled, WifiFilled, EraserFilled, ShuffleFilled,
-    ArrowRightFilled, EarthFilled} from "./lib/icons";
+    ArrowRightFilled, ServerFilled} from "./lib/icons";
 import {STOPPED} from "./composables/shared-consts";
 import {useLogs} from "./composables/useLogs";
 import {useConsoleDrag} from "./composables/useConsoleDrag";
@@ -76,40 +77,21 @@ onMounted(() => {
 });
 onBeforeUnmount(() => window.removeEventListener('resize', syncWinMax));
 
-// The node search, moved up from the bottom dock into this titlebar. Same two
-// jobs the old box had: narrow the list, and a link pasted + Enter becomes a
-// subscription (see addSubFromSearch). Esc clears; anything that is not a link on
-// Enter is ignored — the placeholder already tells the reader both jobs.
+// The node search, in the middle of the titlebar. Same two jobs the old box had: narrow
+// the list, and a link pasted + Enter becomes a subscription (see addSubFromSearch).
+// Esc clears; anything that is not a link on Enter is ignored — the placeholder already
+// tells the reader both jobs.
 //
-// Collapsed, the search is a magnifier button at the bar's left end, and the bar's
-// other entries are not rendered while it is open (see the template): the field is the
-// one thing a press can land on, which is what "searching" has to look like on a strip
-// this crowded. The window controls stay — they are the window, not the list.
-const searchOpen = ref(false);
-
-function openSearch() {
-    // Every list on the bar closes with the entries it hangs off. The field's own
-    // focus is the status dock's business now (see searchInput in StatusDock) —
-    // the cluster moved down there with the state staying here.
-    egressOpen.value = false;
-    titleAddOpen.value = false;
-    titleTestOpen.value = false;
-    searchOpen.value = true;
-}
-
-// Collapsing is allowed only with nothing typed: a query left behind a closed field is a
-// filter whose cause is not on screen — the list narrowed and nothing says why.
-function closeSearch() {
-    if (query.value.trim() !== '') return;
-    searchOpen.value = false;
-}
+// The field is always there. It used to fold into a magnifier that unfolded on a press,
+// which cost a click for the app's most ordinary gesture and left the strip's centre
+// empty the rest of the time; a strip with room for it should show it.
+const searchInput = ref<HTMLInputElement | null>(null);
 
 const onTitleSearchKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
-        // First press takes the query back, the second collapses the field: the key that
-        // used to only clear now also ends the mode it opened.
-        if (query.value !== '') { query.value = ''; return; }
-        searchOpen.value = false;
+        // Escape takes the query back, and that is all it can do: the field is part of
+        // the strip rather than a mode the bar enters, so there is nothing to close.
+        query.value = '';
         return;
     }
     if (e.key !== 'Enter' || subBusy.value) return;
@@ -238,7 +220,7 @@ const egress = ref('rule');
 // taking one of two roads by what the rules say, which is what the mode does — the
 // straight arrow for direct, the globe for everything through the node. The colour
 // still carries the mode (see .titlebar-egress[data-mode] in 05-layout.css).
-const EGRESS_ICONS: Record<string, any> = {rule: ShuffleFilled, direct: ArrowRightFilled, global: EarthFilled};
+const EGRESS_ICONS: Record<string, any> = {rule: ShuffleFilled, direct: ArrowRightFilled, global: ServerFilled};
 const egressOpen = ref(false);
 const egressRef = ref<HTMLSpanElement | null>(null);
 // LAN sharing: the titlebar capsule that lets a phone on the same Wi-Fi use this
@@ -249,6 +231,10 @@ const egressRef = ref<HTMLSpanElement | null>(null);
 const lanShare = ref(false);
 const lanShareBusy = ref(false);
 const statusDockEl = ref<InstanceType<typeof StatusDock> | null>(null);
+// The start-up TUN prewarm reached a live resident server: the bar's green tick. Read
+// once on mount (the server is often already up by then) and pushed by the backend's
+// "tun:prewarm" event for the case where it comes up after the window opened.
+const tunPrewarmOK = ref(false);
 const refreshLanShare = () => {
     API.LANShare().then(v => { lanShare.value = !!v; }).catch(() => {});
 };
@@ -375,6 +361,18 @@ const ctxRef = ref<HTMLDivElement | null>(null);
 // The log's menu is a second instance of the same panel and needs the same placement
 // rule — it used to carry its own arithmetic, which is how it ended up over the bar.
 const logCtxRef = ref<HTMLDivElement | null>(null);
+// Which of the two menus has been measured and placed (see the placement below).
+// The menu itself, not a flag: a menu that has just been opened is a new object,
+// so it starts unplaced without anything having to reset it.
+//
+// The state is read by the style binding rather than written to the element,
+// because the binding is re-applied on every re-render of the window and
+// whatever it carries is written over the element then. The visibility written
+// straight to the element was wiped by the next re-render — and the pointer
+// touching one of the menu's rows is a re-render — so the menu disappeared the
+// moment it was ready to be used.
+const ctxPlaced = ref<{ x: number; y: number } | null>(null);
+const logCtxPlaced = ref<{ x: number; y: number } | null>(null);
 // Submenus in the node menu. One panel serves all of them, so a row that
 // owns one is described by data rather than by state of its own: `sub` is
 // the open row's key, and the row's element is handed over when it opens so
@@ -390,6 +388,50 @@ const subTimer = ref<number | null>(null);
 // dialogs
 const importOpen = ref(false);
 const importText = ref('');
+// The config chooser, shared by the file import (the folder in the search field)
+// and the subscription card's export: one popup for both, at the status bar's
+// left end — hung off the About button's right edge, the seat both doors' answer
+// shares. The pick aims whichever door opened it: import goes to the picker
+// filtered by the format, export names the file the dialog offers.
+const configPick = ref<{mode: 'import'} | {mode: 'export'; gid: number} | null>(null);
+const configMenuEl = ref<HTMLDivElement | null>(null);
+
+// A press outside the list — or Escape — puts it away, the same courtesy every
+// list on this window extends.
+watch(configPick, (v, _, onCleanup) => {
+    if (!v) return;
+    const onDown = (e: MouseEvent) => {
+        if (!configMenuEl.value?.contains(e.target as Node)) configPick.value = null;
+    };
+    const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') configPick.value = null;
+    };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    onCleanup(() => {
+        window.removeEventListener('mousedown', onDown);
+        window.removeEventListener('keydown', onKey);
+    });
+});
+
+// The seat: the bar's own left end. The row is measured against the About
+// button — its right edge is where the formats begin, snug against it — and
+// stands on the status bar's own band, top and height the bar's. It is fixed
+// rather than absolute because the anchor lives in the rail: a fixed box is
+// the one thing that clears every stacking context the drawer and the table
+// heap raise between here and there.
+watch(configPick, v => {
+    if (!v) return;
+    const about = document.querySelector('.appnav-about');
+    const bar = statusbarRef.value;
+    const el = configMenuEl.value;
+    if (!el || (!about && !bar)) return;
+    const band = bar ? bar.getBoundingClientRect() : about!.getBoundingClientRect();
+    const left = about ? about.getBoundingClientRect().right + 6 : band.left + 8;
+    el.style.left = `${Math.round(left)}px`;
+    el.style.top = `${Math.round(band.top)}px`;
+    el.style.height = `${Math.round(band.height)}px`;
+}, {flush: 'post'});
 const editor = ref<{ title: string; initial: Dict; onSave: (v: Dict) => Promise<void>; onDiscard?: () => Promise<void> } | null>(null);
 // The settings dialog, and which of its cards the caller came for: the rail's gear
 // asks for the form, its routing button for the routing card inside it — that card
@@ -562,8 +604,8 @@ const {
     start, stop, switchTo, resetMetrics, runBatch, stopSpeedtest, speedTest,
     updateSub, deleteGroup, gConfirmTimer, toggleSP, setEgressMode,
     addProfile, editProfile, cloneProfile, deleteProfile, copyLink,
-    doImport, importFromClipboard, doPreview, addSubFromSearch, moveTo,
-    showQR, showUrlQR, exportConfig, scanImage, openConns,
+    doImport, importConfigFile, importFromClipboard, doPreview, addSubFromSearch, moveTo,
+    showQR, showUrlQR, exportGroupConfig, copySubUrl, scanImage, openConns,
 } = A;
 
 // The DNS card's smart pick, on a timer.
@@ -941,46 +983,54 @@ watch([sortedProfiles, testing], (_, __, onCleanup) => {
 }, {flush: 'post'});
 
 // dismiss context menus (profile list and log) on any outside click
+//
+// A scroll in the first instant after a menu opened is the layout settling, not the
+// reader: opening the node menu selects its row, and the table answers with a two-pixel
+// scroll-anchoring adjustment — which, taken at face value, closed the menu the moment
+// it appeared. The reader cannot have scrolled within a quarter second of a right-click,
+// so scrolls that early are ignored; everything after them is a real dismissal.
+const ctxOpenedAt = {t: 0};
+const ctxClose = () => {
+    ctx.value = null;
+    logCtx.value = null;
+    // The submenu rides the menu's teardown too: the pointer resting on the
+    // row fires no mouseleave when the DOM leaves, so its 160ms close timer
+    // is never armed — leaving `sub` set here would re-render the old
+    // submenu, unpositioned, over the next menu opened anywhere.
+    sub.value = null;
+};
+const ctxCloseClick = () => ctxClose();
+const ctxCloseResize = () => ctxClose();
+// Scroll is capture-phase, so it fires for every scrolling box in the
+// page — and the two menus scroll independently. A scroll inside the
+// log console (user wheel, or the auto-scroll that new lines write)
+// says nothing about where the node menu sits, so it closes only the
+// log menu; any other scroll closes both. Without this split, a busy
+// log stream kept shutting the node's right-click menu the moment it
+// was opened.
+const ctxCloseScroll = (e: Event) => {
+    if (performance.now() - ctxOpenedAt.t < 250) return;
+    if (e.target instanceof Node && logRef.value?.contains(e.target as Node)) {
+        logCtx.value = null;
+        return;
+    }
+    ctxClose();
+};
+const ctxCloseKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') ctxClose();
+};
 watch([ctx, logCtx], (_, __, onCleanup) => {
     if (!ctx.value && !logCtx.value) return;
-    const close = () => {
-        ctx.value = null;
-        logCtx.value = null;
-        // The submenu rides the menu's teardown too: the pointer resting on the
-        // row fires no mouseleave when the DOM leaves, so its 160ms close timer
-        // is never armed — leaving `sub` set here would re-render the old
-        // submenu, unpositioned, over the next menu opened anywhere.
-        sub.value = null;
-    };
-    // Scroll is capture-phase, so it fires for every scrolling box in the
-    // page — and the two menus scroll independently. A scroll inside the
-    // log console (user wheel, or the auto-scroll that new lines write)
-    // says nothing about where the node menu sits, so it closes only the
-    // log menu; any other scroll closes both. Without this split, a busy
-    // log stream kept shutting the node's right-click menu the moment it
-    // was opened.
-    const onScroll = (e: Event) => {
-        if (e.target instanceof Node && logRef.value?.contains(e.target as Node)) {
-            logCtx.value = null;
-            return;
-        }
-        close();
-    };
-    const onKey = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') {
-            ctx.value = null;
-            logCtx.value = null;
-        }
-    };
-    window.addEventListener('click', close);
-    window.addEventListener('resize', close);
-    window.addEventListener('scroll', onScroll, true);
-    window.addEventListener('keydown', onKey);
+    ctxOpenedAt.t = performance.now();
+    window.addEventListener('click', ctxCloseClick);
+    window.addEventListener('resize', ctxCloseResize);
+    window.addEventListener('scroll', ctxCloseScroll, true);
+    window.addEventListener('keydown', ctxCloseKey);
     onCleanup(() => {
-        window.removeEventListener('click', close);
-        window.removeEventListener('resize', close);
-        window.removeEventListener('scroll', onScroll, true);
-        window.removeEventListener('keydown', onKey);
+        window.removeEventListener('click', ctxCloseClick);
+        window.removeEventListener('resize', ctxCloseResize);
+        window.removeEventListener('scroll', ctxCloseScroll, true);
+        window.removeEventListener('keydown', ctxCloseKey);
     });
 });
 
@@ -1008,15 +1058,31 @@ const watchTitleMenu = (open: Ref<boolean>, cluster: Ref<HTMLSpanElement | null>
     // submenu panel pays. Fixed rather than absolute on purpose: the table heap
     // draws its cards with perspective and translate3d, and a 3D heap paints over
     // absolutely-placed neighbours no matter their z-index — the node context menu
-    // only clears it because it is fixed. The anchor is the button's own rect, so
-    // the menu follows it wherever the entry sits on the bar.
+    // only clears it because it is fixed. Centred on the trigger rather than
+    // left-aligned to it: a list hanging off one corner of its glyph reads as
+    // belonging to the bar, not to the button that opened it. Clamped to the
+    // window, because the bar's right-end entries would centre half off it.
+    //
+    // The floor is the rail's own right edge, not the window's. The add entry is the
+    // bar's leftmost button and its list is 130px wide, so centring it under a 34px
+    // glyph put more than half of it over the rail — the list drew across the
+    // navigation column it has nothing to do with (measured: menu at x=14 with the
+    // rail 0–40). The rail is measured rather than assumed: it is the element that
+    // says where the content begins, and a number copied from its stylesheet would
+    // stop being true the day that width changes.
     watch(open, isOpen => {
         if (!isOpen) return;
         const btn = cluster.value?.querySelector('button');
         const el = menu.value;
         if (!btn || !el) return;
         const r = btn.getBoundingClientRect();
-        el.style.left = `${r.left}px`;
+        const nav = document.querySelector('.appnav');
+        const floor = (nav ? nav.getBoundingClientRect().right : 40) + 8;
+        const left = Math.max(floor, Math.min(
+            r.left + r.width / 2 - el.offsetWidth / 2,
+            window.innerWidth - el.offsetWidth - 8,
+        ));
+        el.style.left = `${Math.round(left)}px`;
         el.style.top = `${r.bottom + 6}px`;
     }, {flush: 'post'});
 };
@@ -1050,7 +1116,7 @@ const menuFloor = () => {
 // the window put it over the status bar. Two menus, one rule, so the next one that
 // gets a right-click cannot invent a third.
 watch([ctx, logCtx], () => {
-    const place = (el: HTMLDivElement | null, at: {x: number; y: number} | null) => {
+    const place = (el: HTMLDivElement | null, at: {x: number; y: number} | null, placed: Ref<{x: number; y: number} | null>) => {
         if (!at || !el) return;
         // Measured before the cap below is applied: a menu measured through its own
         // cap can only ever get shorter, a frame at a time.
@@ -1071,9 +1137,19 @@ watch([ctx, logCtx], () => {
         if (over > 0) {
             el.style.top = `${Math.max(8, top - over)}px`;
         }
+        // Placed. What the reader sees is one frame, at the clamped position — the
+        // provisional one the style binding starts from was never painted.
+        //
+        // The position stays on the element and out of the style binding on purpose:
+        // the binding is re-applied on every re-render, and it would put the
+        // provisional top back over the clamped one. The visibility is the one thing
+        // that cannot be left there, so it is state (ctxPlaced) and the binding
+        // carries it — the same value the element is given here.
+        el.style.visibility = 'visible';
+        placed.value = at;
     };
-    place(ctxRef.value, ctx.value);
-    place(logCtxRef.value, logCtx.value);
+    place(ctxRef.value, ctx.value, ctxPlaced);
+    place(logCtxRef.value, logCtx.value, logCtxPlaced);
 }, {flush: 'post'});
 
 // --- submenu plumbing, shared by every row that owns one ---
@@ -1337,15 +1413,20 @@ const ctxStyle = computed<CSSProperties | undefined>(() => ctx.value ? {
     // numbers in :style do not gain a px suffix the way React's did; these are
     // lengths, so each one carries its unit explicitly
     left: `${Math.min(ctx.value.x, window.innerWidth - 210)}px`,
-    // provisional; the layout effect above writes the clamped
-    // value once the menu's real height is known
-    top: `${Math.min(ctx.value.y, window.innerHeight - 360)}px`,
+    // The top and the height are the placement's to write (see place), and they
+    // are not carried here: this binding is re-applied on every re-render, and a
+    // provisional top in it would put the menu back where it started.
+    //
+    // The visibility is the one that has to be here, because it is the difference
+    // between a menu that is on screen and one that is not — and it is read from
+    // the state that says the menu has been placed, so a re-render keeps it on.
+    visibility: ctxPlaced.value === ctx.value ? 'visible' : 'hidden',
 } as CSSProperties : undefined);
 const logCtxStyle = computed<CSSProperties | undefined>(() => logCtx.value ? {
     left: `${Math.min(logCtx.value.x, window.innerWidth - 132)}px`,
-    // the top is the placement effect's to write, once the menu has
-    // been measured; this is only where it starts from
-    top: `${logCtx.value.y}px`,
+    // same reasons as the node menu's: the placement owns the top, the state owns
+    // the visibility
+    visibility: logCtxPlaced.value === logCtx.value ? 'visible' : 'hidden',
 } as CSSProperties : undefined);
 
 // A menu item that acts on the row the menu was opened on, then closes the menu.
@@ -1480,6 +1561,9 @@ onMounted(() => {
 // there is nothing to re-register).
 let logOff: (() => void)[] = [];
 onMounted(() => {
+    // The prewarm may already have finished before this window mounted, so read the
+    // flag once here; the event below covers the case where it lands afterwards.
+    API.TunPrewarmOK().then(v => { tunPrewarmOK.value = !!v; }).catch(() => {});
     // One update for the lines that arrived since the last beat (see pendingLogs).
     // EventsOn returns a cancel func: without it every re-run (and React
     // StrictMode's double mount in dev) would register a second listener
@@ -1648,6 +1732,9 @@ onMounted(() => {
         // steps through the four — and the bar reads it from the settings file rather
         // than from its own last press. This is that file changing.
         EventsOn("egress:changed", (mode: string) => egress.value = mode),
+        // The start-up TUN prewarm reached a live resident server: raise the bar's
+        // green tick. The backend sends this once, when the prewarm's wait ends.
+        EventsOn("tun:prewarm", (ok: boolean) => tunPrewarmOK.value = !!ok),
         // The two keys that belong to the window rather than to the backend: which
         // panel is open is this side's state, so the backend only says which one was
         // asked for (see emitHotkeyToWindow) — and it brings the window up first, so
@@ -1687,10 +1774,65 @@ onBeforeUnmount(() => {
              surface, the cluster on the right holds min / max / close. No
              caption text on the left, matching the system frame's Title: "". -->
         <div class="titlebar" @dblclick="titlebarDblClick">
-            <!-- The node search lives at the bottom status bar's left end now (see
-                StatusDock): the titlebar keeps only the entries that act on the
-                list, and the floor it freed goes to the window controls' breathing
-                room. -->
+            <!-- The node search, in the middle of the strip. It is the one line in the
+                window that is the window's whole width, so the field sits where a
+                reader looks for one; the strip's own entries keep the two ends. Placed
+                absolutely rather than as a flex item: the ends hold different numbers of
+                entries from one mode to the next, and a gap would move the field with
+                them. The wrapper opts out of the caption hit-test (see
+                .titlebar-search) so typing reaches the field and a double click on it
+                does not maximise the window. -->
+            <span class="titlebar-search" @dblclick.stop>
+                <span class="status-search">
+                    <span class="search-field">
+                        <svg class="search-ic" viewBox="0 0 16 16" aria-hidden="true">
+                            <circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+                            <path d="M10.6 10.6L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                        </svg>
+                        <!-- Always the field, never a button that unfolds into one: the
+                            strip has the room for it at every window width, and a search
+                            that has to be summoned is a search nobody uses. -->
+                        <input ref="searchInput"
+                               class="node-search"
+                               :value="query"
+                               :placeholder="t('search.placeholder')"
+                               :aria-label="t('search.placeholder')"
+                               @input="query = ($event.target as HTMLInputElement).value"
+                               @keydown="onTitleSearchKey"/>
+                        <!-- The config-file import, in the field's right end: a folder
+                            that opens the system picker. The one import that starts from
+                            a file rather than from pasted text, living where the text it
+                            answers would have been typed — and pressed off the field like
+                            the clear button, so the caret the reader is typing with stays. -->
+                        <button class="search-file" type="button"
+                                :title="t('btn.importFile')"
+                                :aria-label="t('btn.importFile')"
+                                @mousedown.prevent
+                                @click="configPick = {mode: 'import'}">
+                            <FolderOpenFilled class="ic"/>
+                        </button>
+                    </span>
+                    <template v-if="query.trim() !== ''">
+                        <span class="status-search-count" :title="t('search.scope')">
+                            {{ shownProfiles.length }}/{{ searchPool.length }}
+                        </span>
+                        <!-- The press is kept off the button so the field keeps the
+                            caret: clearing is followed by the next word, and a field
+                            that drops focus as it is emptied makes the reader click
+                            back into it for every correction. -->
+                        <button class="status-search-x"
+                                :title="t('search.clear')"
+                                :aria-label="t('search.clear')"
+                                @mousedown.prevent
+                                @click="query = ''">
+                            <CloseFilled class="ic"/>
+                        </button>
+                    </template>
+                </span>
+            </span>
+            <!-- About lives at the rail's foot now (see NavRail): a fact about the
+                program rather than about the list, and the bar's left end belongs to
+                what acts on the list. -->
             <!-- About lives at the rail's foot now (see NavRail): a fact about the
                 program rather than about the list, and the bar's left end belongs to
                 what acts on the list. -->
@@ -1708,7 +1850,7 @@ onBeforeUnmount(() => {
                         @click="titleAddOpen = !titleAddOpen">
                     <AddFilled class="ic"/>
                 </button>
-                <div v-if="titleAddOpen" class="egress-menu titlebar-menu" role="menu"
+                <div v-if="titleAddOpen" class="egress-menu titlebar-menu proto-menu" role="menu"
                      ref="titleMenuEl"
                      :aria-label="t('btn.add')">
                     <button v-for="p in PROTOCOLS" :key="p.id" role="menuitem"
@@ -1828,7 +1970,9 @@ onBeforeUnmount(() => {
                     @grip-key="onPanelGripKey" @grip-dbl="resetPanelW"
                     @open-group="openGroup" @hover-switch="hoverSwitch"
                     @update-sub="updateSub" @delete-group="deleteGroup"
-                    @showUrlQR="showUrlQR" @toggle-edit="gid2 => groupEditGid = groupEditGid === gid2 ? null : gid2"
+                    @showUrlQR="showUrlQR" @copy-url="copySubUrl"
+                    @export-config="gid2 => configPick = {mode: 'export', gid: gid2}"
+                    @toggle-edit="gid2 => groupEditGid = groupEditGid === gid2 ? null : gid2"
                     @edit-done="groupEditGid = null" @edit-notify="notify"/>
 
         <div class="body">
@@ -1924,16 +2068,9 @@ onBeforeUnmount(() => {
         <StatusDock ref="statusDockEl" :traffic="traffic"
                     :testing="testing" :testing-mode="testingMode" :test-progress="testProgress"
                     :running="running"
-                    :exit-ip="exitIP" :info-open="infoOpen"
+                    :exit-ip="exitIP" :info-open="infoOpen" :tunPrewarmOK="tunPrewarmOK"
                     :statusbar-ref="fwd.statusbarRef"
                     :node-ip-ref="fwd.nodeIpRef" :info-ref="fwd.infoRef" :lang-tick="langTick"
-                    :search-open="searchOpen" :query="query"
-                    :search-shown="shownProfiles.length" :search-pool="searchPool.length"
-                    @open-search="openSearch"
-                    @set-query="v => query = v"
-                    @search-key="onTitleSearchKey"
-                    @search-blur="closeSearch"
-                    @clear-query="query = ''"
                     @toggle-info="infoOpen = !infoOpen"
                     @copied="ok => notify(tip(ok ? 'copied' : 'log.copyFailed'), ok ? 'ok' : 'err')"
                     @stop-test="stopSpeedtest"
@@ -2009,9 +2146,6 @@ onBeforeUnmount(() => {
             <div class="ctx-sep"/>
             <button class="ctx-item" @click="closeCtxRun(doPreview)">
                 <CodeFilled class="ic"/>{{ t('btn.preview') }}
-            </button>
-            <button class="ctx-item" @click="closeCtxRun(exportConfig)">
-                <FileExportFilled class="ic"/>{{ t('btn.export') }}
             </button>
             <button class="ctx-item" @click="closeCtxRun(showQR)">
                 <QrcodeFilled class="ic"/>{{ t('btn.qr') }}
@@ -2106,6 +2240,29 @@ onBeforeUnmount(() => {
                 </button>
             </div>
         </Modal>
+
+        <!-- The config chooser, for both doors at once: import (the folder in the
+            search field) and export (a subscription card's button). One row for
+            both, laid inside the status bar's own left end — beside the About
+            button it hangs from, running left to right. The names are the files'
+            extensions and nothing else; the full name is the row's tooltip. The
+            pick aims the picker by it on the way in, and names the file on the
+            way out; the bytes are still read by their own shape on import, so a
+            file that is not what its suffix claims imports all the same. -->
+        <div v-if="configPick" class="config-bar-menu" role="menu" ref="configMenuEl"
+             :aria-label="t(configPick.mode === 'import' ? 'dlg.importFile.title' : 'dlg.exportFile.title')">
+            <button v-for="k in CONFIG_KINDS" :key="k.kind" role="menuitem"
+                    :title="t(k.tip)"
+                    @click="() => {
+                        const pick = configPick;
+                        configPick = null;
+                        if (!pick) return;
+                        if (pick.mode === 'import') importConfigFile(k.kind);
+                        else exportGroupConfig(pick.gid, k.kind);
+                    }">
+                {{ k.ext }}
+            </button>
+        </div>
 
         <EditorDialog v-if="editor" :title="editor.title" :initial="editor.initial"
                       :on-save="editor.onSave" :on-discard="editor.onDiscard" @close="editor = null"/>
@@ -2260,7 +2417,7 @@ onBeforeUnmount(() => {
                            @close="() => { connExit = null; connOpen = false; }"
                            @notify="notify"/>
 
-        <Modal v-if="qrOpen" :title="t('dlg.qr.title')" @close="qrOpen = false">
+        <Modal v-if="qrOpen" :title="t('dlg.qr.title')" extra-class="qr" @close="qrOpen = false">
             <div class="qr-wrap">
                 <img :src="qrDataUrl" alt="QR"/>
             </div>

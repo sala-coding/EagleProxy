@@ -53,7 +53,7 @@ func (a *App) applyHotkeys() {
 	bind(s.HotkeyLogs, "日志面板", func() { a.emitHotkeyToWindow("logs") })
 	bind(s.HotkeyDataDir, "打开数据目录", func() { _ = a.OpenDataDir() })
 	if len(clashes) > 0 {
-		a.notifyMessage("这些热键被两个动作共用，只有后者生效："+strings.Join(clashes, "、"), true)
+		a.notifyMessage("热键冲突：以下组合被两个动作共用，仅后者生效："+strings.Join(clashes, "、"), true)
 	}
 	if refused := hotkey.Apply(b); len(refused) > 0 {
 		// Said rather than swallowed. A combination Windows would not take is
@@ -61,7 +61,7 @@ func (a *App) applyHotkeys() {
 		// are "the key is not there" — and it is not a mistake on their side: the shell
 		// owns some of these (Alt+Tab), and another program may hold the rest.
 		a.logf("[hotkey] 未注册: " + strings.Join(refused, ", "))
-		a.notifyMessage("这些热键没能注册："+strings.Join(refused, "、")+"。组合可能已被系统或其它程序占用。", true)
+		a.notifyMessage("热键注册失败："+strings.Join(refused, "、")+"，组合可能已被系统或其他程序占用", true)
 	}
 }
 
@@ -114,7 +114,7 @@ func (a *App) toggleNode() {
 	defer a.hotkeyMu.Unlock()
 	stop := func() {
 		if err := a.StopProfile(); err != nil {
-			a.notifyMessage("停止节点失败: "+err.Error(), true)
+			a.notifyMessage("停止节点失败："+err.Error(), true)
 		}
 	}
 	if a.RunningProfile() != core.StoppedID {
@@ -125,7 +125,7 @@ func (a *App) toggleNode() {
 	// node, and a TUN setup with no node running is "nothing running" as far as this
 	// switch is concerned — the press below starts one.
 	if err := a.StartLastProfile(); err != nil {
-		a.notifyMessage("启用节点失败: "+err.Error(), true)
+		a.notifyMessage("启用节点失败："+err.Error(), true)
 		a.ShowWindow()
 	}
 }
@@ -191,7 +191,7 @@ func (a *App) setEgress(mode string) {
 		s.EgressMode = mode
 		return nil
 	}); err != nil {
-		a.notifyMessage("保存出站模式失败: "+err.Error(), true)
+		a.notifyMessage("保存出站模式失败："+err.Error(), true)
 		return
 	}
 	// The bar reads the mode out of the settings file (see refreshEgress), so this event
@@ -208,7 +208,7 @@ func (a *App) setEgress(mode string) {
 		return
 	}
 	if err := a.RestartProfile(); err != nil {
-		a.notifyMessage("切换出站模式失败: "+err.Error(), true)
+		a.notifyMessage("切换出站模式失败："+err.Error(), true)
 		return
 	}
 	a.notifyMessage("出站模式已设为" + egressName(mode))
@@ -289,7 +289,7 @@ func (a *App) nextRouting() {
 	// on the old one: the press announced a switch that had not happened, and
 	// charged a core restart for it.
 	if err := a.SetActiveRouting(next); err != nil {
-		a.notifyMessage("切换路由失败: " + err.Error())
+		a.notifyMessage("切换路由失败：" + err.Error())
 		return
 	}
 	// The rules live in the core's config and sing-box reads it once, so a
@@ -298,7 +298,7 @@ func (a *App) nextRouting() {
 	// routing:changed event has already gone out from SetActiveRouting.
 	if running := a.RunningProfile(); running != core.StoppedID {
 		if err := a.rebuildCoreForRouting(running); err != nil {
-			a.notifyMessage("切换路由失败: " + err.Error())
+			a.notifyMessage("切换路由失败：" + err.Error())
 		}
 	}
 }

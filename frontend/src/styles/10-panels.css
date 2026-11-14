@@ -3,23 +3,55 @@
    (Split out of App.css; the order of these files is the cascade.) */
 
 /* --- about ---
-   The name, then the facts, as label/value rows; the author's QR card sits to
-   the right of them. Everything after the name is set in the monospace face:
-   a revision and a version of Go are read character by character, and they are
-   the parts a bug report copies out. */
-/* The mark beside the name: the same artwork the exe and the tray wear, read out of the
-   icon directory rather than inlined, so the tree keeps one copy of it. Drawn at 32px
-   from the 64px file, which stays sharp on a 2x display. */
+   One ledger, the same grammar the settings panel uses: a header band with the mark
+   and the name, the build's facts as ruled rows (name left, value right), and the
+   actions as cells of a grid joined by hairlines — not buttons floating under a list.
+   The whole left column is a single bordered surface, so the band, the rows and the
+   cells share one edge instead of each wearing a box. The values keep the monospace
+   face: a revision and a version of Go are read character by character, and they are
+   what a bug report copies out. */
+.about-grid {
+    display: flex;
+    align-items: stretch;
+    gap: 16px;
+}
+
+/* The frame. overflow clips the band and the cells to the rounded corners, and the
+   content floor keeps it from being squeezed shorter than its own rows. */
+.about-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--bg);
+    min-height: min-content;
+}
+
+/* The header band: the mark and the name on their own ground, with the accent tick
+   that names every band in the app. */
 .about-head {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-bottom: 10px;
+    padding: 11px 12px;
+    background: var(--bg-2);
+}
+
+.about-head::before {
+    content: '';
+    flex: none;
+    width: 3px;
+    height: 15px;
+    border-radius: 2px;
+    background: var(--accent);
 }
 
 .about-logo {
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     border-radius: 7px;
 }
 
@@ -29,68 +61,66 @@
     color: var(--text);
 }
 
+/* The facts, one ruled row each. The hairline under each cell is the table's line
+   between rows; the first row's is the rule under the band. */
 .about-rows {
     display: grid;
-    grid-template-columns: 92px 1fr;
-    gap: 5px 10px;
+    grid-template-columns: 88px 1fr;
+    gap: 0;
     margin: 0;
     font-family: var(--font-mono);
     font-size: 0.6875rem;
 }
 
-.about-rows dt {
-    color: var(--text-dim);
-    text-align: right;
-    font-family: inherit;
+.about-rows dt,
+.about-rows dd {
+    padding: 8px 12px;
+    border-top: 1px solid var(--line);
 }
 
-/* Paths are long and the panel is narrow: they wrap rather than pushing the rows
-   wider than the dialog, and they are not truncated — the whole point of showing them
-   here is that they can be read out. */
+.about-rows dt {
+    color: var(--text-dim);
+    text-align: left;
+}
+
+/* Values are long and the panel is narrow: they wrap rather than pushing the row
+   wider than the dialog, and they are not truncated — the point of showing them here
+   is that they can be read out. */
 .about-rows dd {
     margin: 0;
     min-width: 0;
+    text-align: right;
     overflow-wrap: anywhere;
 }
 
-/* The card is two columns: the name, the facts and the actions on the left, the
-   author's QR card holding the right edge. stretch, not center — the columns are
-   the same height, so neither side floats in space: the actions' grid fills
-   whatever the QR card's height leaves, and the card follows the facts when they
-   grow. */
-.about-grid {
-    display: flex;
-    align-items: stretch;
-    gap: 18px;
-}
-
-.about-info {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-}
-
-/* The actions are the left column's floor: two by two, full width each, pushed
-   down so the column's spare height lands above them rather than below — the
-   facts stay at the top edge where the reading starts. */
+/* The actions are cells of the same table: a grid whose 1px gaps show through as
+   hairlines, each cell a full-width press. The odd one — 打开数据目录 — spans the
+   row, so the grid stays two-by-two over a full-width footer instead of leaving a hole. */
 .about-actions {
-    margin-top: auto;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    padding-top: 14px;
+    gap: 1px;
+    margin-top: 0;
+    padding-top: 0;
+    background: var(--line);
+    border-top: 1px solid var(--line);
 }
 
 .about-actions .btn {
     width: 100%;
     margin: 0;
     justify-content: center;
+    border: 0;
+    border-radius: 0;
+    background: var(--bg);
+    color: var(--text-dim);
 }
 
-/* The odd cell — 打开数据目录 — takes the whole row: it opens a folder rather
-   than a page, and spanning it is what keeps the grid two-by-three instead of
-   leaving a hole beside it. */
+.about-actions .btn:hover {
+    background: var(--hover-bg);
+    color: var(--text);
+}
+
 .about-actions .btn.wide {
     grid-column: 1 / -1;
 }
@@ -112,11 +142,8 @@
     padding: 9px 9px 7px;
     border: 1px solid var(--line);
     border-radius: 10px;
-    background: rgba(255, 255, 255, .03);
-}
-
-[data-variant="light"] .about-qr-card {
-    background: rgba(28, 35, 45, .04);
+    /* the same ground as the facts frame, so the two read as one table's two columns */
+    background: var(--bg);
 }
 
 /* The card's artwork, as the author drew it: a portrait sheet with the name and

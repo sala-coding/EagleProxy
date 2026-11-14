@@ -74,7 +74,11 @@
        its own. */
     border-radius: 10px;
     background: var(--bg-2);
-    border-right: 1px solid var(--line-strong);
+    /* The whole frame, not only the edge that faces the table. The panel stands clear of
+       the title bar, the rail and the status bar by --panel-gap, so all four of its edges
+       are in view — and an outline drawn on one of them left the other three to be found
+       by contrast, which is what a panel standing off its window should not ask. */
+    border: 1px solid var(--line-strong);
     box-shadow: 8px 0 26px rgba(0, 0, 0, .38);
     /* The hinge the panel turns on: the window's own left edge, not the panel's. The
        panel itself stands clear of the navigation rail by --panel-gap, so hinging on
@@ -165,6 +169,12 @@
        whatever is behind the panel — the same line .conn-list carries */
     overflow-y: auto;
     overflow-x: hidden;
+    /* Air above the first card and below the last, so a card stands off the panel's
+       outline the way it already stands off its sides (the side inset is painted as the
+       cells' own borders, which is why these are padding: the table is transparent here).
+       The bottom one matters now that the outline runs all the way round — a card
+       touching the frame's lower edge read as content cut off by it. */
+    padding: 8px 0;
 }
 
 /* The drawer's own entrance. It is the door swing (doorFlipIn) that the connect
@@ -191,14 +201,9 @@
     /* A step down from the 12.5 this table used to be, which is what the card's own
        text — the name above all — was drawn at. */
     font-size: 0.75rem;
-    /* The type column's width. It is generous for the badge it holds — the badge is
-       a pill with a glyph, a divider and a node count in it, and the cell also pays
-       for the card's side inset and 8px of padding on both sides. At 76px a
-       three-figure count came within a pixel of the cell's edge and clipped the
-       pill's right border. The detail row used to indent past this column; it now
-       spans the card instead, since the indent is what pushed the account figures
-       onto a second line. */
-    --sub-type-col: 84px;
+    /* There is no type column any more: the count it carried is at the card's foot
+       (see .sub-count), so the name starts where the card's inset does and takes the
+       whole row. --sub-type-col went with the pill. */
     /* How far a card stands off the panel on every side. Painted as borders in
        --card-gap, which is the panel's own colour in the dark theme and the
        greyer one below it in the light theme — the difference matters: on a dark
@@ -361,24 +366,29 @@
     border-left: 1px solid var(--line);
 }
 
-/* The pocket at the left of every card: a fixed width for the count pill, so the names
-   beside it start at the same place down the column. This table used to share the
-   arrangement with the main one, which has since dropped its column; here the pill
-   holds a count rather than a protocol, and the pocket is sized to it, so a wide number
-   does not push the name off the tag's edge. */
-.subdrop-table th:first-child,
-.subdrop-table td:first-child {
-    width: var(--sub-type-col);
-    text-align: center;
-    padding: 0 8px;
+/* The node count, at the card's foot. It is the figure the pill beside the name used to
+   carry, and it moved rather than shrank: a count is one of the card's numbers, so it
+   belongs on the line of numbers under the name, at the far end — `margin-left: auto` is
+   what puts it there, and what keeps the update and expiry figures together at the start
+   of the line instead of spreading three items across it. */
+.subdrop-table .sub-count {
+    margin-left: auto;
+    /* A little tighter than the meta text either side of it: the chip is a shape, and a
+       shape at the same size as the line it ends would read as one more word. */
+    padding: 0 5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .055);
+    /* The line's own tone, not the card's brightest ink: the count is a total the eye
+       finds on the way past, and in white it was the first thing the line said — which
+       is what made it read as a button rather than as a figure. */
+    color: var(--text-dim);
+    font-size: 0.625rem;
+    line-height: 1.6;
+    font-variant-numeric: tabular-nums;
 }
 
-/* The caption's own cell of that pair: the rows centre their count pill in the pocket,
-   the caption puts the list's name against the row's left edge. Written after the rule
-   above and at the same weight, so it is the later one that decides — and because the
-   two are the same specificity, the order here is not a detail. */
-.subdrop-table th.cap-name {
-    text-align: left;
+[data-variant="light"] .subdrop-table .sub-count {
+    background: rgba(0, 0, 0, .06);
 }
 
 /* The detail row: the account figures the subscription's panel last reported.
@@ -432,24 +442,66 @@
 }
 
 /* The form inside the unfolded row reuses .gform's rows; the inline shell
-   needs only its own spacing and the footer. */
+   gives the rows the ruled look the card's other rows carry: a hairline
+   between neighbours, the row's own padding keeping the line off the text.
+   The fields are the card's contents, and the card is a table — the form
+   reads as more of the same table rather than as a form pasted under it. */
 .subdrop-table .sub-edit-body .gform {
     display: flex;
     flex-direction: column;
     gap: 0;
 }
 
+.subdrop-table .sub-edit-body .gf-row {
+    padding: 7px 0;
+}
+
+.subdrop-table .sub-edit-body .gf-row + .gf-row {
+    border-top: 1px solid var(--line);
+}
+
 .subdrop-table .sub-edit-foot {
     display: flex;
-    justify-content: flex-end;
-    gap: 8px;
+    /* the verbs split: 放弃 sits at the row's left, 保存 at its right — the one
+       thing worth reaching for keeps the corner the row's other actions point
+       at, and the way out stands where an exit reads, at the edge */
+    justify-content: space-between;
+    /* the form's own closing line: the verbs stand below it, the way a modal's
+       foot stands under its body — one hairline says where the fields end */
+    margin-top: 8px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+}
+
+/* The foot's two verbs. The glyph is a quarter under the words it serves — at the
+   text's own size a filled × or ✓ reads as a picture beside the word, not as its
+   prefix — and the pair sit on one line as the flex row the button itself becomes,
+   centred together with a word's gap between them. */
+.subdrop-table .sub-edit-foot .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.subdrop-table .sub-edit-foot .btn .ic {
+    font-size: 0.75em;
+    vertical-align: 0;
 }
 
 /* The name cell holds the name and the row's three actions on one line, so it is
    the one flex row in the table. min-width:0 is what lets the name shrink instead
    of pushing the actions out of the cell. */
+/* The name row's cell stays a cell. It was a flex box once — `display: flex` on a <td>
+   takes the element out of the table's own layout, and the colspan that used to be
+   shared with the count pill's cell was simply ignored: the row stopped halfway across
+   the card and the panel's colour showed through beside it. The flex row lives one
+   level in now (.name-row), where it lays the name and the allowance slot out without
+   touching what the table thinks the cell is. */
 .subdrop-table td.name {
     text-align: left;
+}
+
+.subdrop-table .name-row {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -577,18 +629,37 @@
     background: rgba(0, 0, 0, .14);
 }
 
-/* The name proper, shown as the panel gave it. It is the flex item that
-   shrinks: the ellipsis and the min-width:0 both live on it, so a long name
-   gives up width instead of pushing the actions out of the cell. */
-.subdrop-table .sub-label {
+/* The name proper, shown as the panel gave it, inside an outline that says whose card
+   this is. It used to be a fixed column padded out with spaces to hold its width; the
+   bar beside it now starts where the name ends, so there is no width to hold and the
+   filler went with it. It is still the item that gives way: min-width:0 and the clipped
+   overflow are what keep a long name from pushing the allowance out of the card, and the
+   cut text is the one fitName measured. */
+.subdrop-table .sub-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 1 auto;
     min-width: 0;
+    /* A name that runs on would leave the bar a stub, so the chip gives way past this
+       share of the row: the name is read first and the bar is the figure under it. It
+       came down from 58% when the actions went from four to six — the slot they occupy
+       is the same width the bar is drawn at. */
+    max-width: 42%;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    padding: 0 7px;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, .035);
     /* the name is the row's content, so it wears the row's weight; the brackets
        only delimit it and stay quiet */
     color: var(--text);
     font-weight: 500;
+    line-height: 1.7;
+}
+
+[data-variant="light"] .subdrop-table .sub-name {
+    background: rgba(0, 0, 0, .04);
 }
 
 /* The channel between the name and the slot: the same hairline the seam between the two
@@ -618,7 +689,10 @@
 .subdrop-table .row-tail {
     display: grid;
     align-items: center;
-    flex: 0 0 auto;
+    /* The slot takes whatever the name left, so the bar begins at the name's edge and
+       runs to the card's — the width it shows is then the width it has. */
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 .subdrop-table .row-tail > * {
@@ -634,6 +708,12 @@
     justify-self: stretch;
 }
 
+/* The actions keep the card's right edge even though the slot is now the whole width
+   the name left: the slot grew for the bar, and the buttons belong where they were. */
+.subdrop-table .row-tail .row-acts {
+    justify-self: end;
+}
+
 /* The row's actions. They used to be in a right-click menu, which hid a row's whole
    vocabulary behind a gesture nothing advertised; now they are in the row itself,
    and they take the slot over from the allowance the moment the card is under the
@@ -642,10 +722,12 @@
 .subdrop-table .row-acts {
     display: inline-flex;
     align-items: center;
-    /* Wide enough to hold the rule below, and named so that rule can centre itself
-       in whatever the gap turns out to be. At 2px the three buttons read as one
-       cluster of glyphs rather than as three actions. */
-    --act-gap: 12px;
+    /* Wide enough to hold the rule below, and named so that rule can centre itself in
+       whatever the gap turns out to be. Tightened when the row grew from four actions to
+       six (the link and the export joined it): at 12px the cluster was wider than the
+       slot it overlays, and the two ends of the card began to compete for the same
+       pixels. */
+    --act-gap: 8px;
     gap: var(--act-gap);
     /* fully hidden, not dimmed: the bar is what belongs here while the pointer is
        away, and two things at half strength in one slot is one thing too many */
@@ -707,11 +789,15 @@
     /* the rule between two actions is hung off the second one, offset into the gap
        by the negative half above; that needs this as its coordinate system */
     position: relative;
-    width: 24px;
-    height: 24px;
+    /* The glyph is 1em (see .ic), so the font size here is the icon's size: 16px in a
+       32px target, which is what makes these readable at a glance rather than a row of
+        dots that has to be aimed at. */
+    width: 32px;
+    height: 32px;
+    font-size: 1rem;
     padding: 0;
     border: none;
-    border-radius: 6px;
+    border-radius: 7px;
     background: transparent;
     color: var(--text-dim);
     font-size: 0.6875rem;

@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -254,18 +253,16 @@ func canReplace(dir string) bool {
 // caught by it — and it is this that takes away the script a finished update
 // left behind, since a batch file cannot delete itself without the shell
 // complaining about it (see the script below).
-func cleanupUpdateTemps() {
+func cleanupUpdateTemps(pid int) {
 	dir := os.TempDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
+	prefix := fmt.Sprintf("eagle-update-%d", pid)
 	for _, e := range entries {
 		name := e.Name()
-		if !strings.HasPrefix(name, "eagle-update-") {
-			continue
-		}
-		if strings.HasSuffix(name, ".bat") || strings.HasSuffix(name, ".exe") {
+		if name == prefix+".bat" || name == prefix+".exe" {
 			_ = os.Remove(filepath.Join(dir, name))
 		}
 	}
@@ -334,7 +331,7 @@ func (a *App) DownloadUpdate() error {
 	// What an earlier update left in the temp folder goes first: the swap
 	// script of that run and the build it had downloaded. This run's own files
 	// are written after this, so they are never caught by it.
-	cleanupUpdateTemps()
+	cleanupUpdateTemps(os.Getpid())
 	// The download is tens of megabytes over whatever link the reader has, and
 	// the one thing the reader was told about it used to be a single line said
 	// before it began. The window is told how it is going — throttled, because
@@ -406,7 +403,7 @@ func (a *App) DownloadUpdate() error {
 	a.stopHelpersForUpdate()
 	// Said before the window goes, and the wait is short because the script is already
 	// counting: quitting first is what lets the move succeed at all.
-	a.notifyMessage("更新已下载，程序即将重启完成安装…")
+	a.notifyMessage("正在安装更新，程序即将重启…")
 	go func() {
 		time.Sleep(600 * time.Millisecond)
 		a.QuitApp()

@@ -5,8 +5,9 @@ import {AddFilled} from '../../lib/icons';
 
 // The rule sets card's body: one bar per category, each with its own list and
 // its own add button, and the card-level actions under them. The slide div
-// stays with SettingsDialog (this card carries no set-group-title of its own,
-// exactly as in the React original).
+// stays with SettingsDialog; the card carries no title band of its own (the
+// per-page nameplate was dropped — the dock header and the left nav already
+// name the page).
 //
 // React -> Vue mapping：所有动作（toggle/add/download/remove/downloadAll/
 // openDir/addCat）都是事件，后端调用留在 SettingsDialog；rsCatsOpen 由父级

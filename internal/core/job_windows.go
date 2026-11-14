@@ -32,6 +32,9 @@ var (
 
 // trackCoreProcess binds a freshly started core (or external helper) to this
 // process's job object so the OS kills it when this process dies.
+// TrackProcess binds a child process to the application's cleanup job.
+func TrackProcess(pid int) error { return trackCoreProcess(pid) }
+
 func trackCoreProcess(pid int) error {
 	if pid <= 0 {
 		return nil

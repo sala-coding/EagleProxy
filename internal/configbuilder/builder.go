@@ -185,11 +185,20 @@ type builder struct {
 	resolveStrategy     string
 	// rule sets pulled in by geoip:/geosite: rule items, tag -> download url
 	ruleSets map[string]string
-	// firstHopTag is the tag given to the first outbound of chain 0. Everything else in
-	// the config names that outbound, so it is normally "proxy"; when the rest of the
-	// group is carried along too, that name belongs to the selector and this one steps
-	// aside (see proxyGroup).
-	firstHopTag string
+	// firstHopSeen records that chain 0 built at least one hop — the asked-for
+	// node's chain produced an outbound. proxyGroup reads it instead of matching
+	// a sentinel tag: the first hop is named after its node now, so a fixed
+	// string would be wrong exactly when the name is right.
+	firstHopSeen bool
+	// lastTags caches the outbound tag each node's own outbound carries, by
+	// entity id. The node built once under its name is reached again by name
+	// wherever a second chain ends at the same node (the skipBuild path in
+	// buildChainInternal points its wiring at the tag that already exists).
+	lastTags map[int]string
+	// usedTags is every outbound tag this build has handed out, so one node's
+	// name never collides with another's, with a machine tag, or with the
+	// names the config itself references (see reservedTags).
+	usedTags map[string]int
 	// hotNodes maps a profile that ended up behind that selector to the outbound tag it
 	// answers to there — which is what a caller needs to point the selector at it.
 	hotNodes map[int]string
@@ -436,11 +445,12 @@ const ProxyTag = "proxy"
 // proxyGroup builds the proxy side of the config and returns the tag the rest of it should
 // point at.
 //
-// The node that was asked for keeps chain ID 0 but not the name: its first hop is called
-// something else, and the name everything else in the config uses — "proxy", which dns, the
-// route rules and the tun inbound all refer to — is given to a selector listing this node
-// and the rest of its group. The other nodes are built behind chain IDs of their own, which
-// is what keeps their tags apart.
+// The node that was asked for keeps chain ID 0 and its own name: its first hop is
+// tagged with the node's display name (see tagOf), and the name everything else in
+// the config uses — "proxy", which dns, the route rules and the tun inbound all
+// refer to — is given to a selector listing this node and the rest of its group.
+// The other nodes are built behind chain IDs of their own, which is what keeps
+// their machine tags apart; their own outbounds answer to their names too.
 //
 // The point of it: switching nodes no longer means starting the core again. sing-box reads
 // its config once, so a selector is the only way to move between nodes at all — and the
@@ -455,15 +465,12 @@ func (b *builder) proxyGroup(ent *db.ProxyEntity) (string, error) {
 		// A test config is one throwaway node: no selector, and nothing to rename in it.
 		return b.buildChain(0, ent)
 	}
-	// "proxy" is about to belong to the selector, so the first hop of the node that was
-	// asked for is given a name of its own.
-	b.firstHopTag = "proxy-0"
 	tag, err := b.buildChain(0, ent)
 	if err != nil {
 		return "", err
 	}
-	if tag != "proxy-0" {
-		// The chain decided it could not be built as asked; there is nothing to select.
+	if !b.firstHopSeen {
+		// The chain produced no hop at all; there is nothing to select.
 		return "", fmt.Errorf("this configuration cannot be set automatically, please try another")
 	}
 	b.hotNodes = map[int]string{ent.ID: tag}
@@ -575,6 +582,64 @@ func (b *builder) outboundComplete(ent *db.ProxyEntity) bool {
 	return false
 }
 
+// reservedTags are the outbound names the rest of the config references by
+// literal — the selector everything points at, the two direct outbounds the
+// split rules route through, and the DNS servers the dns block names. A node
+// named one of these would take the name for itself and leave the reference
+// dangling ("dependency[direct] not found" took the whole config down).
+var reservedTags = []string{
+	"proxy", "direct", "bypass",
+	"dns-remote", "dns-direct", "dns-local", "dns-fake",
+}
+
+// uniqueTag hands out want as an outbound tag, or want-2, want-3… when the
+// name is already taken. Every tag this build issues goes through here, so a
+// node's name colliding with another node's name — two subscriptions carrying
+// the same server under one label — or with a machine tag or a reserved name
+// ends in a suffix, not in a core that refuses the whole file.
+func (b *builder) uniqueTag(want string) string {
+	if b.usedTags == nil {
+		b.usedTags = make(map[string]int, len(reservedTags))
+		for _, r := range reservedTags {
+			b.usedTags[r] = 0
+		}
+	}
+	want = strings.TrimSpace(want)
+	if want == "" {
+		want = "outbound"
+	}
+	n := b.usedTags[want]
+	b.usedTags[want] = n + 1
+	if n == 0 {
+		return want
+	}
+	return fmt.Sprintf("%s-%d", want, n+1)
+}
+
+// tagOf is the outbound tag a node's own outbound answers to: its name, made
+// unique. The name is what yacd's list and the exported config show, so the
+// tag travels with the node instead of the machine spelling ("g-23") it used
+// to carry — a name the reader could not read was a name only the machine
+// knew. Cached per entity id: the node built once under its name is the same
+// tag wherever another chain ends at it.
+func (b *builder) tagOf(ent *db.ProxyEntity) string {
+	if t, ok := b.lastTags[ent.ID]; ok {
+		return t
+	}
+	if b.lastTags == nil {
+		b.lastTags = map[int]string{}
+	}
+	name := strings.TrimSpace(ent.Bean.Str("name"))
+	if name == "" {
+		// A node without a name keeps the machine spelling — the row is one the
+		// reader has not filled in yet, and the file still has to be valid.
+		name = fmt.Sprintf("g-%d", ent.ID)
+	}
+	t := b.uniqueTag(name)
+	b.lastTags[ent.ID] = t
+	return t
+}
+
 func (b *builder) buildChainInternal(chainID int, ents []*db.ProxyEntity) (string, error) {
 	chainTag := fmt.Sprintf("c-%d", chainID)
 	chainTagOut := ""
@@ -584,14 +649,14 @@ func (b *builder) buildChainInternal(chainID int, ents []*db.ProxyEntity) (strin
 	pastExternalStat := 0
 
 	for index, ent := range ents {
-		tagOut := fmt.Sprintf("%s-%d", chainTag, ent.ID)
+		tagOut := b.uniqueTag(fmt.Sprintf("%s-%d", chainTag, ent.ID))
 		isFirstProfile := index == len(ents)-1
 		// The front proxy's outbound already built by another member's chain is
 		// not rebuilt; this chain still needs its wiring, and only the build is
 		// what gets skipped.
 		skipBuild := false
 		if isFirstProfile {
-			tagOut = fmt.Sprintf("g-%d", ent.ID)
+			tagOut = b.tagOf(ent)
 			if b.globalProfiles[ent.ID] {
 				skipBuild = true
 			} else {
@@ -599,9 +664,13 @@ func (b *builder) buildChainInternal(chainID int, ents []*db.ProxyEntity) (strin
 			}
 		}
 		if chainID == 0 && index == 0 {
-			tagOut = "proxy"
-			if b.firstHopTag != "" {
-				tagOut = b.firstHopTag
+			b.firstHopSeen = true
+			if b.forTest {
+				// The test config names its one outbound "proxy", which is what
+				// the throwaway route points at; there is no selector to step aside.
+				tagOut = "proxy"
+			} else {
+				tagOut = b.tagOf(ent)
 			}
 		}
 
@@ -2119,17 +2188,52 @@ func (b *builder) ruleSetDefinitions(detour string) []interface{} {
 // — so a file fetched by hand drops in without being renamed. The path is made absolute
 // because the core is not necessarily started in the settings directory.
 func localRuleSet(dir, tag string) (string, bool) {
-	path := filepath.Join(dir, tag+".srs")
-	if info, err := os.Stat(path); err != nil || info.IsDir() {
-		return "", false
-	}
-	if !looksLikeRuleSet(path) {
+	path, ok := FindRuleSetFile(dir, tag)
+	if !ok {
 		return "", false
 	}
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
 	}
 	return path, true
+}
+
+// FindRuleSetFile locates a tag's usable local copy under dir, whether it sits in the
+// directory itself or in one of its country folders (the rule-set card files a fetched
+// or imported copy under its country's own folder — see the settings side). The tag is
+// a file name, so a separator in it is refused outright; the first usable copy wins,
+// the flat seat checked before the folders so a hand-dropped file still reads.
+func FindRuleSetFile(dir, tag string) (string, bool) {
+	if tag == "" || strings.ContainsAny(tag, `/\`) || strings.Contains(tag, "..") {
+		return "", false
+	}
+	name := tag + ".srs"
+	if p := filepath.Join(dir, name); ruleSetUsable(p) {
+		return p, true
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		if p := filepath.Join(dir, e.Name(), name); ruleSetUsable(p) {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+// ruleSetUsable is the same judgement localRuleSet makes before handing a file to the
+// core: present, a regular file, and carrying the rule-set header.
+func ruleSetUsable(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	return looksLikeRuleSet(path)
 }
 
 // looksLikeRuleSet reports whether the file starts with the binary rule-set header —

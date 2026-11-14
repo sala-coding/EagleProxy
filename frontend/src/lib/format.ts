@@ -114,3 +114,18 @@ export function parseSubUsage(info: string | undefined | null): SubUsage | null 
     if (!used && !total && !expire) return null;
     return {used, total, left, expire};
 }
+
+// The four shapes a config file or a subscription export arrives in — shared by
+// the import's and the export's chooser, one popup for both at the status bar's
+// left end. The row shows the file's extension and nothing else (`ext`, in the
+// monospace face like every other address in this app); `tip` is the full name
+// the row's tooltip says, for the pair of text shapes the suffix alone cannot
+// tell apart. The order is the order a reader will want: the shape this app
+// runs, the shape every other client runs, and the two plain text forms that
+// move nodes anywhere at all.
+export const CONFIG_KINDS = [
+    {kind: 'singbox', ext: '.json', tip: 'export.fmt.singbox'},
+    {kind: 'clash', ext: '.yaml', tip: 'export.fmt.clash'},
+    {kind: 'links', ext: '.txt', tip: 'export.fmt.links'},
+    {kind: 'base64', ext: '.b64', tip: 'export.fmt.base64'},
+] as const;

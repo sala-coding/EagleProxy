@@ -4,8 +4,8 @@ import (
 	"context"
 	"eagle/internal/autostart"
 	"eagle/internal/core"
-	"eagle/internal/dnstest"
 	"eagle/internal/dnsstub"
+	"eagle/internal/dnstest"
 	"eagle/internal/setting"
 	"encoding/json"
 	"fmt"
@@ -113,17 +113,16 @@ func settingKeys(t reflect.Type) map[string]interface{} {
 
 // UpdateSettings merges modified settings and persists them.
 func (a *App) UpdateSettings(in setting.Setting) error {
-	// Replace is a read of the live setting — it clones it and decodes the
-	// incoming fields onto that clone — so it belongs inside applyMu as much as
-	// the save does: a tray press that landed between the two used to write its
-	// field onto an object this one had already read, and the save below then
-	// carried the old value back.
+	// Replace is a read of the live setting — it clones the setting and decodes the
+	// incoming fields onto that clone — so it belongs inside applyMu as much as the
+	// save does.
 	a.applyMu.Lock()
 	cur := a.curSetting()
 	if cur == nil {
 		a.applyMu.Unlock()
 		return fmt.Errorf("settings not loaded")
 	}
+	before := cur.Clone()
 	next, err := cur.Replace(&in)
 	if err == nil {
 		err = a.applySettingLocked(next)
@@ -133,7 +132,19 @@ func (a *App) UpdateSettings(in setting.Setting) error {
 		return err
 	}
 	a.applyHotkeys()
+	if id := a.RunningProfile(); id != core.StoppedID &&
+		(settingsNeedCoreRestart(before, next) || !a.coreServesCurrentMode(id)) {
+		if err := a.RestartProfile(); err != nil {
+			return fmt.Errorf("设置已保存，但核心重启失败: %w", err)
+		}
+	}
 	return nil
+}
+
+// settingsNeedCoreRestart covers launch options that are not part of the generated
+// sing-box JSON. Config changes are detected by comparing the running config.
+func settingsNeedCoreRestart(before, after *setting.Setting) bool {
+	return before == nil || after == nil || before.VPNHideConsole != after.VPNHideConsole
 }
 
 // applySetting persists next and makes it the live settings object. The pointer
@@ -344,14 +355,14 @@ func (a *App) rebuildCoreForRouting(running int) error {
 		// Same memory the direct branch pays below: a rebuild under TUN is still a
 		// start as far as "记住上次节点" is concerned.
 		a.rememberStarted(running)
-		a.notifyMessage("路由已更新（已重建核心，网卡未动）")
+		a.notifyMessage("路由已更新，核心已重建，TUN 网卡未变动")
 		return nil
 	}
 	if err := a.curController().Start(running); err != nil {
 		return err
 	}
 	a.rememberStarted(running)
-	a.notifyMessage("路由已更新（已自动重启核心）")
+	a.notifyMessage("路由已更新，核心已自动重启")
 	return nil
 }
 
