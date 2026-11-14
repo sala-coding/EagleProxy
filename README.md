@@ -14,29 +14,35 @@
 </p>
 
 <p align="center">
+  <img src=".github/assets/main.png" width="92%" alt="EagleProxy 主界面">
+</p>
+<p align="center">
+  <sub>节点表格 · 组内热切换 · 实时速率与分类日志 —— 均为程序真实界面</sub>
+</p>
+
+<p align="center">
   <a href="https://github.com/sala-coding/EagleProxy/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD-FULL%20ZIP-2f7d5a?style=for-the-badge" alt="download full"></a>
   <a href="https://github.com/sala-coding/EagleProxy/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD-EXE%20ONLY-0b6cbd?style=for-the-badge" alt="download exe"></a>
 </p>
-
 <p align="center">
   <sub>首次安装选 <b>full</b>，覆盖升级选 <b>exe</b> · 解压即用 · 不写注册表 · 不装服务</sub>
 </p>
 
 ---
 
-### 功能
+### ✨ 功能
 
 <table>
 <tr>
-<td align="center" width="33%"><b>订阅</b><br><sub>链接导入<br>配额与到期自动解析</sub></td>
-<td align="center" width="33%"><b>热切换</b><br><sub>组内换节点<br>不重启内核</sub></td>
-<td align="center" width="33%"><b>双模式</b><br><sub>系统代理 / TUN<br>侧栏一键切换</sub></td>
+<td align="center" width="33%"><b>📥 订阅</b><br><sub>链接导入，导入本地<br>sing-box / Clash 配置文件<br>配额与到期自动解析</sub></td>
+<td align="center" width="33%"><b>⚡ 热切换</b><br><sub>组内换节点<br>不重启内核</sub></td>
+<td align="center" width="33%"><b>🧭 双模式</b><br><sub>系统代理 / TUN<br>侧栏一键切换<br>TUN 预热，开启零等待</sub></td>
 </tr>
-<tr><td colspan="3"><br><br></td></tr>
+<tr><td colspan="3"><br></td></tr>
 <tr>
-<td align="center"><b>局域网共享</b><br><sub>同网段设备<br>填一个地址即可</sub></td>
-<td align="center"><b>规则与 DNS</b><br><sub><code>.srs</code> 按国家管理<br>双列表 + 延迟优选</sub></td>
-<td align="center"><b>观测</b><br><sub>实时连接列表<br>分类着色的日志</sub></td>
+<td align="center"><b>📡 局域网共享</b><br><sub>同网段设备填一个地址<br>状态栏显示在线设备数</sub></td>
+<td align="center"><b>🧱 规则与 DNS</b><br><sub><code>.srs</code> 按国家管理<br>双列表 + 延迟优选<br>导出 sing-box / Clash / 链接</sub></td>
+<td align="center"><b>🔎 观测</b><br><sub>实时连接列表，一键断开<br>分类着色的日志</sub></td>
 </tr>
 </table>
 
@@ -44,13 +50,33 @@
   <sub>另有：全局热键与托盘 · 四种界面语言 · 关于卡检查 GitHub 更新</sub>
 </p>
 
-### 快速开始
+### 📸 界面
+
+<table>
+<tr>
+<td width="49.5%"><img src=".github/assets/subs.png" alt="订阅抽屉"></td>
+<td width="49.5%"><img src=".github/assets/connections.png" alt="连接面板"></td>
+</tr>
+<tr>
+<td align="center"><sub>订阅管理：配额进度条与到期提醒</sub></td>
+<td align="center"><sub>实时连接：流量、链路与一键断开</sub></td>
+</tr>
+</table>
+
+<p align="center">
+  <img src=".github/assets/settings.png" width="40%" alt="设置面板">
+</p>
+<p align="center">
+  <sub>设置面板：就地停靠，主题 / 语言 / 内核 / 网络一处改齐</sub>
+</p>
+
+### 🚀 快速开始
 
 1. 从 [Releases](https://github.com/sala-coding/EagleProxy/releases/latest) 下载 `Eagle-v*-windows-full.zip`
 2. 解压到任意目录，保持 `Eagle.exe` 与 `sing-box\` 同级
 3. 运行 `Eagle.exe`，导入订阅或粘贴分享链接，在节点表格里选一个节点启动
 
-### 内核
+### 🧩 内核
 
 内核不内嵌，程序在自身目录、`sing-box\` 子目录与数据目录附近查找 `sing-box.exe`；设置 → 核心路径会列出找到的每一个内核，点选即可切换。数据只放在程序目录的 `config\`。
 
@@ -62,7 +88,7 @@
 ```cmd
 wails dev
 wails build                               :: 打包，不带版本号
-.\build\release.ps1 -Version v1.0.17      :: 正式发布，注入版本号
+.\build\release.ps1 -Version v1.0.18      :: 正式发布，注入版本号
 ```
 
 产物：`build/bin/Eagle.exe`。

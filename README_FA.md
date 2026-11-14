@@ -14,29 +14,35 @@
 </p>
 
 <p align="center">
+  <img src=".github/assets/main.png" width="92%" alt="پنجرهٔ اصلی EagleProxy">
+</p>
+<p align="center">
+  <sub>جدول نودها · جابه‌جایی سریع · سرعت زنده و لاگ دسته‌بندی‌شده — همه تصاویر واقعی برنامه‌اند</sub>
+</p>
+
+<p align="center">
   <a href="https://github.com/sala-coding/EagleProxy/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD-FULL%20ZIP-2f7d5a?style=for-the-badge" alt="download full"></a>
   <a href="https://github.com/sala-coding/EagleProxy/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD-EXE%20ONLY-0b6cbd?style=for-the-badge" alt="download exe"></a>
 </p>
-
 <p align="center">
   <sub><b>full</b> برای نصب نخست، <b>exe</b> برای به‌روزرسانی روی نسخهٔ قبلی · بدون رجیستری و سرویس</sub>
 </p>
 
 ---
 
-### امکانات
+### ✨ امکانات
 
 <table>
 <tr>
-<td align="center" width="33%"><b>اشتراک‌ها</b><br><sub>لینک‌ها<br>حجم و انقضا خودکار</sub></td>
-<td align="center" width="33%"><b>جابه‌جایی سریع</b><br><sub>تغییر نود در گروه<br>بدون راه‌اندازی دوبارهٔ هسته</sub></td>
-<td align="center" width="33%"><b>دو حالت</b><br><sub>پروکسی سیستم / TUN<br>با یک کلیک</sub></td>
+<td align="center" width="33%"><b>📥 اشتراک‌ها</b><br><sub>لینک‌ها یا ورود فایل‌های محلی<br>پیکربندی sing-box / Clash<br>حجم و انقضا خودکار</sub></td>
+<td align="center" width="33%"><b>⚡ جابه‌جایی سریع</b><br><sub>تغییر نود در گروه<br>بدون راه‌اندازی دوبارهٔ هسته</sub></td>
+<td align="center" width="33%"><b>🧭 دو حالت</b><br><sub>پروکسی سیستم / TUN<br>با یک کلیک<br>TUN از قبل گرم است</sub></td>
 </tr>
-<tr><td colspan="3"><br><br></td></tr>
+<tr><td colspan="3"><br></td></tr>
 <tr>
-<td align="center"><b>شبکهٔ محلی</b><br><sub>یک نشانی<br>برای همهٔ دستگاه‌ها</sub></td>
-<td align="center"><b>قواعد و DNS</b><br><sub><code>.srs</code> بر پایهٔ کشور<br>دو فهرست، سریع‌ترین انتخاب می‌شود</sub></td>
-<td align="center"><b>پایش</b><br><sub>اتصال‌های زنده<br>لاگ دسته‌بندی‌شده</sub></td>
+<td align="center"><b>📡 شبکهٔ محلی</b><br><sub>یک نشانی برای همهٔ دستگاه‌ها<br>شمارندهٔ دستگاه‌ها روی نوار</sub></td>
+<td align="center"><b>🧱 قواعد و DNS</b><br><sub><code>.srs</code> بر پایهٔ کشور<br>دو فهرست، سریع‌ترین انتخاب می‌شود<br>برون‌بری sing-box / Clash / لینک</sub></td>
+<td align="center"><b>🔎 پایش</b><br><sub>اتصال‌های زنده با قطع یک‌کلیکی<br>لاگ دسته‌بندی‌شده</sub></td>
 </tr>
 </table>
 
@@ -44,13 +50,33 @@
   <sub>همچنین: کلیدهای میانبر و سینی سیستم · چهار زبان · بررسی به‌روزرسانی در GitHub</sub>
 </p>
 
-### شروع سریع
+### 📸 تصاویر
+
+<table>
+<tr>
+<td width="49.5%"><img src=".github/assets/subs.png" alt="کشوی اشتراک‌ها"></td>
+<td width="49.5%"><img src=".github/assets/connections.png" alt="پنل اتصال‌ها"></td>
+</tr>
+<tr>
+<td align="center"><sub>اشتراک‌ها: نوار حجم و هشدار انقضا</sub></td>
+<td align="center"><sub>اتصال‌ها: ترافیک، زنجیره، قطع با یک کلیک</sub></td>
+</tr>
+</table>
+
+<p align="center">
+  <img src=".github/assets/settings.png" width="40%" alt="پنل تنظیمات">
+</p>
+<p align="center">
+  <sub>پنل تنظیمات: پوسته / زبان / هسته / شبکه — همه در یک‌جا</sub>
+</p>
+
+### 🚀 شروع سریع
 
 1. `Eagle-v*-windows-full.zip` را از صفحهٔ [Releases](https://github.com/sala-coding/EagleProxy/releases/latest) دانلود کنید
 2. در هر پوشه‌ای از حالت فشرده خارج کنید، با `Eagle.exe` و `sing-box\` کنار هم
 3. `Eagle.exe` را اجرا کنید، اشتراک یا لینک نود را وارد کنید و از جدول یک نود را روشن کنید
 
-### هسته
+### 🧩 هسته
 
 هسته درون برنامه نیست: برنامه `sing-box.exe` را کنار خود، در پوشهٔ `sing-box\` و نزدیک پوشهٔ داده‌ها می‌جوید. در تنظیمات → مسیر هسته همهٔ هسته‌های یافته‌شده فهرست می‌شوند و انتخابشان یک کلیک است. داده‌ها در `config\` کنار برنامه می‌مانند.
 
@@ -62,7 +88,7 @@
 ```cmd
 wails dev
 wails build                               :: بسته‌بندی بدون شمارهٔ نسخه
-.\build\release.ps1 -Version v1.0.17      :: انتشار رسمی با شمارهٔ نسخه
+.\build\release.ps1 -Version v1.0.18      :: انتشار رسمی با شمارهٔ نسخه
 ```
 
 خروجی: `build/bin/Eagle.exe`.
