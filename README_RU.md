@@ -14,10 +14,10 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/main.png" width="92%" alt="Главное окно EagleProxy">
+  <img src=".github/assets/hero.png" width="100%" alt="Главное окно EagleProxy">
 </p>
 <p align="center">
-  <sub>Таблица узлов · горячее переключение · скорости и журнал по категориям — настоящие окна программы</sub>
+  <sub>Подписки, узлы, два режима, правила и DNS — на одном экране</sub>
 </p>
 
 <p align="center">
@@ -34,40 +34,30 @@
 
 <table>
 <tr>
-<td align="center" width="33%"><b>📥 Подписки</b><br><sub>ссылки или импорт локальных<br>конфигов sing-box / Clash<br>лимит и срок разбираются</sub></td>
-<td align="center" width="33%"><b>⚡ Горячее переключение</b><br><sub>смена узла в группе<br>без перезапуска ядра</sub></td>
-<td align="center" width="33%"><b>🧭 Два режима</b><br><sub>системный прокси / TUN<br>одним щелчком<br>TUN прогрет заранее</sub></td>
+<td width="50%" align="center"><b>📥 Подписки</b><br><sub>ссылки или локальные конфиги sing-box / Clash<br>лимит и срок разбираются</sub></td>
+<td width="50%" align="center"><b>⚡ Горячее переключение</b><br><sub>смена узла в группе без перезапуска ядра<br>TUN прогрет заранее — без ожидания</sub></td>
 </tr>
-<tr><td colspan="3"><br></td></tr>
 <tr>
-<td align="center"><b>📡 Локальная сеть</b><br><sub>один адрес для всех устройств<br>счётчик устройств на панели</sub></td>
-<td align="center"><b>🧱 Правила и DNS</b><br><sub><code>.srs</code> по странам<br>два списка, быстрейший выбирается<br>экспорт sing-box / Clash / ссылок</sub></td>
-<td align="center"><b>🔎 Наблюдение</b><br><sub>соединения в реальном времени<br>журнал по категориям</sub></td>
+<td align="center"><b>🧭 Два режима</b><br><sub>системный прокси / TUN, одним щелчком</sub></td>
+<td align="center"><b>📡 Локальная сеть</b><br><sub>один адрес для всех устройств, счётчик на панели</sub></td>
+</tr>
+<tr>
+<td align="center"><b>🧱 Правила и DNS</b><br><sub><code>.srs</code> по странам, два списка, быстрейший выбирается</sub></td>
+<td align="center"><b>🔎 Наблюдение</b><br><sub>соединения в реальном времени, журнал по категориям</sub></td>
 </tr>
 </table>
 
 <p align="center">
-  <sub>Ещё: горячие клавиши и трей · четыре языка интерфейса · проверка обновлений на GitHub</sub>
+  <sub>Ещё: горячие клавиши и трей · четыре языка интерфейса · экспорт в sing-box / Clash / ссылки · проверка обновлений на GitHub</sub>
 </p>
 
 ### 📸 Скриншоты
 
-<table>
-<tr>
-<td width="49.5%"><img src=".github/assets/subs.png" alt="панель подписок"></td>
-<td width="49.5%"><img src=".github/assets/connections.png" alt="панель соединений"></td>
-</tr>
-<tr>
-<td align="center"><sub>Подписки: полосы лимита и напоминания об оплате</sub></td>
-<td align="center"><sub>Соединения: трафик, цепочки, закрытие щелчком</sub></td>
-</tr>
-</table>
-
 <p align="center">
-  <img src=".github/assets/settings.png" width="40%" alt="панель настроек">
+  <img src=".github/assets/gallery.png" width="100%" alt="подписки, соединения и настройки">
 </p>
 <p align="center">
-  <sub>Панель настроек: тема / язык / ядро / сеть — в одном месте</sub>
+  <sub>Панель подписок (полосы лимита) · соединения в реальном времени · панель настроек</sub>
 </p>
 
 ### 🚀 Быстрый старт

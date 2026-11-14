@@ -14,10 +14,10 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/main.png" width="92%" alt="پنجرهٔ اصلی EagleProxy">
+  <img src=".github/assets/hero.png" width="100%" alt="پنجرهٔ اصلی EagleProxy">
 </p>
 <p align="center">
-  <sub>جدول نودها · جابه‌جایی سریع · سرعت زنده و لاگ دسته‌بندی‌شده — همه تصاویر واقعی برنامه‌اند</sub>
+  <sub>اشتراک‌ها، نودها، دو حالت، قواعد و DNS — همه در یک نما</sub>
 </p>
 
 <p align="center">
@@ -34,40 +34,30 @@
 
 <table>
 <tr>
-<td align="center" width="33%"><b>📥 اشتراک‌ها</b><br><sub>لینک‌ها یا ورود فایل‌های محلی<br>پیکربندی sing-box / Clash<br>حجم و انقضا خودکار</sub></td>
-<td align="center" width="33%"><b>⚡ جابه‌جایی سریع</b><br><sub>تغییر نود در گروه<br>بدون راه‌اندازی دوبارهٔ هسته</sub></td>
-<td align="center" width="33%"><b>🧭 دو حالت</b><br><sub>پروکسی سیستم / TUN<br>با یک کلیک<br>TUN از قبل گرم است</sub></td>
+<td width="50%" align="center"><b>📥 اشتراک‌ها</b><br><sub>لینک‌ها یا پیکربندی‌های محلی sing-box / Clash<br>حجم و انقضا خودکار</sub></td>
+<td width="50%" align="center"><b>⚡ جابه‌جایی سریع</b><br><sub>تغییر نود در گروه بدون راه‌اندازی دوبارهٔ هسته<br>TUN از قبل گرم است، بدون انتظار</sub></td>
 </tr>
-<tr><td colspan="3"><br></td></tr>
 <tr>
-<td align="center"><b>📡 شبکهٔ محلی</b><br><sub>یک نشانی برای همهٔ دستگاه‌ها<br>شمارندهٔ دستگاه‌ها روی نوار</sub></td>
-<td align="center"><b>🧱 قواعد و DNS</b><br><sub><code>.srs</code> بر پایهٔ کشور<br>دو فهرست، سریع‌ترین انتخاب می‌شود<br>برون‌بری sing-box / Clash / لینک</sub></td>
-<td align="center"><b>🔎 پایش</b><br><sub>اتصال‌های زنده با قطع یک‌کلیکی<br>لاگ دسته‌بندی‌شده</sub></td>
+<td align="center"><b>🧭 دو حالت</b><br><sub>پروکسی سیستم / TUN با یک کلیک</sub></td>
+<td align="center"><b>📡 شبکهٔ محلی</b><br><sub>یک نشانی برای همهٔ دستگاه‌ها، شمارنده روی نوار</sub></td>
+</tr>
+<tr>
+<td align="center"><b>🧱 قواعد و DNS</b><br><sub><code>.srs</code> بر پایهٔ کشور، دو فهرست، سریع‌ترین انتخاب می‌شود</sub></td>
+<td align="center"><b>🔎 پایش</b><br><sub>اتصال‌های زنده با قطع یک‌کلیکی، لاگ دسته‌بندی‌شده</sub></td>
 </tr>
 </table>
 
 <p align="center">
-  <sub>همچنین: کلیدهای میانبر و سینی سیستم · چهار زبان · بررسی به‌روزرسانی در GitHub</sub>
+  <sub>همچنین: کلیدهای میانبر و سینی سیستم · چهار زبان · برون‌بری به sing-box / Clash / لینک · بررسی به‌روزرسانی در GitHub</sub>
 </p>
 
 ### 📸 تصاویر
 
-<table>
-<tr>
-<td width="49.5%"><img src=".github/assets/subs.png" alt="کشوی اشتراک‌ها"></td>
-<td width="49.5%"><img src=".github/assets/connections.png" alt="پنل اتصال‌ها"></td>
-</tr>
-<tr>
-<td align="center"><sub>اشتراک‌ها: نوار حجم و هشدار انقضا</sub></td>
-<td align="center"><sub>اتصال‌ها: ترافیک، زنجیره، قطع با یک کلیک</sub></td>
-</tr>
-</table>
-
 <p align="center">
-  <img src=".github/assets/settings.png" width="40%" alt="پنل تنظیمات">
+  <img src=".github/assets/gallery.png" width="100%" alt="اشتراک‌ها، اتصال‌ها و تنظیمات">
 </p>
 <p align="center">
-  <sub>پنل تنظیمات: پوسته / زبان / هسته / شبکه — همه در یک‌جا</sub>
+  <sub>کشوی اشتراک‌ها (نوار حجم) · اتصال‌های زنده · پنل تنظیمات</sub>
 </p>
 
 ### 🚀 شروع سریع

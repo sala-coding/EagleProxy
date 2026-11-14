@@ -14,10 +14,10 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/main.png" width="92%" alt="EagleProxy 主界面">
+  <img src=".github/assets/hero.png" width="100%" alt="EagleProxy 主界面">
 </p>
 <p align="center">
-  <sub>节点表格 · 组内热切换 · 实时速率与分类日志 —— 均为程序真实界面</sub>
+  <sub>订阅、节点、双模式、规则与 DNS —— 一屏之内</sub>
 </p>
 
 <p align="center">
@@ -30,44 +30,34 @@
 
 ---
 
-### ✨ 功能
+### ✨ 特性
 
 <table>
 <tr>
-<td align="center" width="33%"><b>📥 订阅</b><br><sub>链接导入，导入本地<br>sing-box / Clash 配置文件<br>配额与到期自动解析</sub></td>
-<td align="center" width="33%"><b>⚡ 热切换</b><br><sub>组内换节点<br>不重启内核</sub></td>
-<td align="center" width="33%"><b>🧭 双模式</b><br><sub>系统代理 / TUN<br>侧栏一键切换<br>TUN 预热，开启零等待</sub></td>
+<td width="50%" align="center"><b>📥 订阅</b><br><sub>链接导入，或读入本地 sing-box / Clash 配置文件<br>配额与到期自动解析</sub></td>
+<td width="50%" align="center"><b>⚡ 热切换</b><br><sub>组内换节点，内核不重启<br>TUN 预热，首次开启零等待</sub></td>
 </tr>
-<tr><td colspan="3"><br></td></tr>
 <tr>
-<td align="center"><b>📡 局域网共享</b><br><sub>同网段设备填一个地址<br>状态栏显示在线设备数</sub></td>
-<td align="center"><b>🧱 规则与 DNS</b><br><sub><code>.srs</code> 按国家管理<br>双列表 + 延迟优选<br>导出 sing-box / Clash / 链接</sub></td>
-<td align="center"><b>🔎 观测</b><br><sub>实时连接列表，一键断开<br>分类着色的日志</sub></td>
+<td align="center"><b>🧭 双模式</b><br><sub>系统代理 / TUN，侧栏一键切换</sub></td>
+<td align="center"><b>📡 局域网共享</b><br><sub>一个地址给全网，状态栏显示在线设备数</sub></td>
+</tr>
+<tr>
+<td align="center"><b>🧱 规则与 DNS</b><br><sub><code>.srs</code> 按国家管理，双列表延迟优选</sub></td>
+<td align="center"><b>🔎 观测</b><br><sub>实时连接列表一键断开，分类着色日志</sub></td>
 </tr>
 </table>
 
 <p align="center">
-  <sub>另有：全局热键与托盘 · 四种界面语言 · 关于卡检查 GitHub 更新</sub>
+  <sub>另有：全局热键与托盘 · 四种界面语言 · 订阅可导出为 sing-box / Clash / 分享链接 · 关于卡检查 GitHub 更新</sub>
 </p>
 
 ### 📸 界面
 
-<table>
-<tr>
-<td width="49.5%"><img src=".github/assets/subs.png" alt="订阅抽屉"></td>
-<td width="49.5%"><img src=".github/assets/connections.png" alt="连接面板"></td>
-</tr>
-<tr>
-<td align="center"><sub>订阅管理：配额进度条与到期提醒</sub></td>
-<td align="center"><sub>实时连接：流量、链路与一键断开</sub></td>
-</tr>
-</table>
-
 <p align="center">
-  <img src=".github/assets/settings.png" width="40%" alt="设置面板">
+  <img src=".github/assets/gallery.png" width="100%" alt="订阅、连接与设置面板">
 </p>
 <p align="center">
-  <sub>设置面板：就地停靠，主题 / 语言 / 内核 / 网络一处改齐</sub>
+  <sub>订阅抽屉（配额进度条） · 实时连接（链路与一键断开） · 设置面板（就地停靠）</sub>
 </p>
 
 ### 🚀 快速开始

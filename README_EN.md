@@ -14,10 +14,10 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/main.png" width="92%" alt="EagleProxy main window">
+  <img src=".github/assets/hero.png" width="100%" alt="EagleProxy main window">
 </p>
 <p align="center">
-  <sub>Node table · hot switching · live rates and colour-coded logs — all real app windows</sub>
+  <sub>Subscriptions, nodes, two modes, rules and DNS — on one screen</sub>
 </p>
 
 <p align="center">
@@ -34,40 +34,30 @@
 
 <table>
 <tr>
-<td align="center" width="33%"><b>📥 Subscriptions</b><br><sub>links in, or import local<br>sing-box / Clash config files<br>quota and expiry parsed</sub></td>
-<td align="center" width="33%"><b>⚡ Hot switch</b><br><sub>change node in a group<br>no core restart</sub></td>
-<td align="center" width="33%"><b>🧭 Two modes</b><br><sub>system proxy / TUN<br>one click on the rail<br>TUN prewarmed, zero wait</sub></td>
+<td width="50%" align="center"><b>📥 Subscriptions</b><br><sub>links in, or read local sing-box / Clash config files<br>quota and expiry parsed</sub></td>
+<td width="50%" align="center"><b>⚡ Hot switch</b><br><sub>change node in a group, no core restart<br>TUN prewarmed, zero wait on the first switch</sub></td>
 </tr>
-<tr><td colspan="3"><br></td></tr>
 <tr>
-<td align="center"><b>📡 LAN sharing</b><br><sub>one address for the network<br>live device count on the bar</sub></td>
-<td align="center"><b>🧱 Rules and DNS</b><br><sub><code>.srs</code> per country<br>two lists, fastest picked<br>export sing-box / Clash / links</sub></td>
-<td align="center"><b>🔎 Insight</b><br><sub>live connections, one-click close<br>colour-coded logs</sub></td>
+<td align="center"><b>🧭 Two modes</b><br><sub>system proxy / TUN, one click on the rail</sub></td>
+<td align="center"><b>📡 LAN sharing</b><br><sub>one address for the network, live device count on the bar</sub></td>
+</tr>
+<tr>
+<td align="center"><b>🧱 Rules and DNS</b><br><sub><code>.srs</code> per country, two lists, fastest picked</sub></td>
+<td align="center"><b>🔎 Insight</b><br><sub>live connections with one-click close, colour-coded logs</sub></td>
 </tr>
 </table>
 
 <p align="center">
-  <sub>Also: global hotkeys and a tray menu · four interface languages · updates checked on GitHub</sub>
+  <sub>Also: global hotkeys and a tray menu · four interface languages · export to sing-box / Clash / share links · updates checked on GitHub</sub>
 </p>
 
 ### 📸 Screenshots
 
-<table>
-<tr>
-<td width="49.5%"><img src=".github/assets/subs.png" alt="subscriptions drawer"></td>
-<td width="49.5%"><img src=".github/assets/connections.png" alt="connections panel"></td>
-</tr>
-<tr>
-<td align="center"><sub>Subscriptions: quota bars and expiry warnings</sub></td>
-<td align="center"><sub>Connections: traffic, chains, one-click close</sub></td>
-</tr>
-</table>
-
 <p align="center">
-  <img src=".github/assets/settings.png" width="40%" alt="settings dock">
+  <img src=".github/assets/gallery.png" width="100%" alt="subscriptions, connections and settings">
 </p>
 <p align="center">
-  <sub>The settings dock: theme / language / core / network, edited in one place</sub>
+  <sub>Subscriptions drawer (quota bars) · live connections (chains, one-click close) · settings dock</sub>
 </p>
 
 ### 🚀 Quick start

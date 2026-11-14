@@ -1,11 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img" aria-label="EagleProxy">
   <defs>
     <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#12171e"/>
-      <stop offset="1" stop-color="#1a212a"/>
+      <stop offset="0" stop-color="#0f141b"/>
+      <stop offset="1" stop-color="#171e27"/>
     </linearGradient>
-    <radialGradient id="glow" cx="0.18" cy="0.05" r="0.8">
-      <stop offset="0" stop-color="#9fa76e" stop-opacity="0.18"/>
+    <radialGradient id="halo" cx="0.5" cy="0.42" r="0.55">
+      <stop offset="0" stop-color="#9fa76e" stop-opacity="0.17"/>
+      <stop offset="0.55" stop-color="#9fa76e" stop-opacity="0.05"/>
       <stop offset="1" stop-color="#9fa76e" stop-opacity="0"/>
     </radialGradient>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -15,12 +16,20 @@
 
   <rect width="1200" height="300" fill="url(#ground)"/>
   <rect width="1200" height="300" fill="url(#grid)"/>
-  <rect width="1200" height="300" fill="url(#glow)"/>
+  <rect width="1200" height="300" fill="url(#halo)"/>
 
   <g font-family="Segoe UI, Inter, Helvetica Neue, Arial, sans-serif" text-anchor="middle">
-    <text x="600" y="136" font-size="74" font-weight="600" fill="#e6edf3" letter-spacing="1">EagleProxy</text>
-    <text x="600" y="180" font-size="19" fill="#8b949e" letter-spacing="7">WINDOWS PROXY CLIENT</text>
+    <text x="600" y="142" font-size="76" font-weight="600" fill="#e6edf3" letter-spacing="1">EagleProxy</text>
+    <text x="600" y="184" font-size="16" fill="#8b949e" letter-spacing="5">SING-BOX CORE · SYSTEM PROXY &amp; TUN</text>
   </g>
 
-  <rect x="552" y="214" width="96" height="4" rx="2" fill="#9fa76e"/>
+  <g fill="#9fa76e">
+    <rect x="540" y="216" width="120" height="3" rx="1.5"/>
+    <rect x="586" y="228" width="28" height="3" rx="1.5" opacity="0.45"/>
+  </g>
+
+  <g font-family="Segoe UI, Inter, Helvetica Neue, Arial, sans-serif" font-size="12" letter-spacing="3" fill="#6e7681">
+    <text x="48" y="278">WINDOWS 10 / 11</text>
+    <text x="1152" y="278" text-anchor="end">GPL-3.0</text>
+  </g>
 </svg>
