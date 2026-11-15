@@ -18,9 +18,24 @@ export function fieldLabel(key: string): string {
 export const LONG_KEYS = new Set([
     'cs', 'cs_suffix', 'c_cfg', 'c_out', 'custom', 'dns_object',
     'custom_inbound', 'custom_route', 'vpn_bypass_process', 'vpn_bypass_cidr',
+    'sp_bypass',
     'core_map', 'direct_ip', 'direct_domain', 'proxy_ip', 'proxy_domain',
     'block_ip', 'block_domain',
 ]);
+
+// The empty-value placeholder per field: what the backend does when the value is
+// left blank. sp_bypass shows the factory default list (see defaultBypass in
+// internal/sysproxy) — a reader who sees an empty box cannot tell whether the
+// field does nothing or does something sensible; the placeholder says which.
+// Language-neutral on purpose: it is a list of addresses, the same for every UI
+// language, so it lives here rather than in the i18n tables.
+export const FIELD_PLACEHOLDERS: Record<string, string> = {
+    sp_bypass: '<local>;localhost;*.local;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.2*;172.30.*;172.31.*;192.168.*;*zhihu.com;*zhimg.com;*jd.com;*360buyimg.com;100ime-iat-api.xfyun.cn',
+};
+
+export function fieldPlaceholder(key: string): string | undefined {
+    return FIELD_PLACEHOLDERS[key];
+}
 
 // The fields whose value is a list of lines rather than one block of text: the
 // subscription fetcher's client identifiers, one per line, in the order they are tried.

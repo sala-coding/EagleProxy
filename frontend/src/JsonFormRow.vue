@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {ref} from 'vue';
-import {arrayToText, fieldHint, fieldLabel, fieldOptions, FIELD_OPTIONS, HOTKEY_KEY, isPlainObject, LINE_LIST_KEYS, LONG_KEYS, textToArray, type Json} from './lib/jsonform';
+import {arrayToText, fieldHint, fieldLabel, fieldOptions, fieldPlaceholder, FIELD_OPTIONS, HOTKEY_KEY, isPlainObject, LINE_LIST_KEYS, LONG_KEYS, textToArray, type Json} from './lib/jsonform';
 import HotkeyInput from './HotkeyInput.vue';
 import LineListInput from './LineListInput.vue';
 import JsonForm from './JsonForm.vue';
@@ -109,6 +109,7 @@ const onNumBlur = () => {
                @blur="onNumBlur"/>
         <textarea rows="3" v-else-if="LONG_KEYS.has(k)"
                   :value="(v as string) ?? ''"
+                  :placeholder="fieldPlaceholder(k)"
                   @input="emit('set', k, ($event.target as HTMLTextAreaElement).value)"/>
         <HotkeyInput v-else-if="HOTKEY_KEY.test(k)"
                      :model-value="(v as string) ?? ''"
@@ -126,6 +127,7 @@ const onNumBlur = () => {
         </select>
         <input v-else
                :value="(v as string) ?? ''"
+               :placeholder="fieldPlaceholder(k)"
                @input="emit('set', k, ($event.target as HTMLInputElement).value)"/>
         <div class="jf-hint" v-if="fieldHint(k)">{{ fieldHint(k) }}</div>
     </div>
