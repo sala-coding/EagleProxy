@@ -292,6 +292,12 @@ func cleanupUpdateTemps(pid int) {
 	}
 }
 
+// updateMirror is the acceleration mirror the download falls back to when the
+// direct link gives up: a URL-prefix proxy sitting in front of GitHub's release
+// assets — the same URL, one host prepended. It speaks Range, so the segmented
+// download works over it the same as over the origin.
+const updateMirror = "https://git.yylx.win/"
+
 // DownloadUpdate fetches the newest release's Windows build, hands the swap to a small
 // script and quits.
 //
@@ -365,18 +371,31 @@ func (a *App) DownloadUpdate() error {
 	// its end before the quit takes the window away.
 	lastEmit := time.Time{}
 	var lastDone int64
-	if err := update.Download(asset.URL, tmp, asset.Size, func(done, total int64) {
-		if done == lastDone && done != total {
-			return
+	dl := func(url string) error {
+		return update.Download(url, tmp, asset.Size, func(done, total int64) {
+			if done == lastDone && done != total {
+				return
+			}
+			if done != total && time.Since(lastEmit) < 250*time.Millisecond {
+				return
+			}
+			lastEmit, lastDone = time.Now(), done
+			runtime.EventsEmit(a.curCtx(), "update:progress", done, total)
+		})
+	}
+	// Two roads, tried in order: the direct link first — it is the honest one,
+	// straight from the release's CDN — and when it gives up, the acceleration
+	// mirror: the same URL with one community-run host prefixed. The mirror is
+	// a third way, not a replacement: it can rot or throttle in its turn, so a
+	// mirror failure is reported beside the direct one and the reader is left
+	// with the release page, which always works.
+	err = dl(asset.URL)
+	if err != nil {
+		a.logf("[update] 直连下载失败，改走镜像: " + err.Error())
+		if merr := dl(updateMirror + asset.URL); merr != nil {
+			runtime.EventsEmit(a.curCtx(), "update:progress", int64(-1), int64(0))
+			return fmt.Errorf("直连与镜像下载均失败：%v；镜像：%v", err, merr)
 		}
-		if done != total && time.Since(lastEmit) < 250*time.Millisecond {
-			return
-		}
-		lastEmit, lastDone = time.Now(), done
-		runtime.EventsEmit(a.curCtx(), "update:progress", done, total)
-	}); err != nil {
-		runtime.EventsEmit(a.curCtx(), "update:progress", int64(-1), int64(0))
-		return err
 	}
 	runtime.EventsEmit(a.curCtx(), "update:progress", asset.Size, asset.Size)
 	// The flag goes up here, before anything is torn down: the exit path reads it
