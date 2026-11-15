@@ -186,7 +186,14 @@ func updateSwapScript() string {
 		"move /y \"%%NEW%%\" \"%%SELF%%\" > nul 2>&1\r\n"+
 		"if not errorlevel 1 goto :done\r\n"+
 		"set /a TRIES+=1\r\n"+
-		"if %%TRIES%% LSS 30 goto :retry\r\n"+
+		// Sixty tries, not thirty. The file this move replaces is opened by every
+		// process running it, and one of them is the resident server: it reads its
+		// command slot between pieces of synchronous work that can hold it for
+		// fifteen seconds and more (a PnP adapter build, the PowerShell enumeration
+		// behind a front-end sweep). Measured here: the exit order landed at
+		// 19:07:38 and the move had given up at 19:07:38 — thirty tries were one
+		// second short of the wait the server itself asked for.
+		"if %%TRIES%% LSS 60 goto :retry\r\n"+
 		// Nothing was replaced: put the old build back where it belongs if the
 		// failed move left the path empty, and leave the line that says so.
 		"if not exist \"%%SELF%%\" copy /y \"%%SELF%%.old\" \"%%SELF%%\" > nul 2>&1\r\n"+
@@ -217,7 +224,7 @@ func updateSwapScript() string {
 		"tasklist /FI \"PID eq %%OLDPID%%\" 2>nul | \"%%SystemRoot%%\\System32\\find.exe\" \"%%OLDPID%%\" >nul\r\n"+
 		"if errorlevel 1 goto :startit\r\n"+
 		"set /a WAITS+=1\r\n"+
-		"if %%WAITS%% LSS 30 (\r\n"+
+		"if %%WAITS%% LSS 60 (\r\n"+
 		"  ping -n 2 127.0.0.1 > nul\r\n"+
 		"  goto :waitold\r\n"+
 		")\r\n"+
@@ -242,11 +249,16 @@ func (a *App) stopHelpersForUpdate() {
 		return
 	}
 	_ = tunserv.SendCommand(a.curDataDir(), tunserv.Command{Action: tunserv.ActionExit})
-	for i := 0; i < 15; i++ {
+	// Fifteen seconds rather than three: the server reads its command slot between
+	// pieces of synchronous work that can hold it far longer than a shutdown
+	// should take (see the retry budget in updateSwapScript — the same measurement
+	// from the other end), and every second this returns early is a second the
+	// script spends retrying a move that cannot land.
+	for i := 0; i < 60; i++ {
 		if !tunserv.ServerAlive(a.curDataDir()) {
 			return
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 	}
 	a.logf("[update] 常驻服务未退出，替换程序可能失败（脚本会重试）")
 }
