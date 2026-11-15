@@ -1229,6 +1229,34 @@ const onAbout = async () => {
     }
 };
 
+// The launch-time check, run once a moment after the window is up. It keeps the
+// reader's silence when there is nothing to say — no toast, no card — and when
+// there IS a newer release it opens the About card itself with the release
+// already in it: the version bar the reader would otherwise have to find the
+// button for. A check the reader did not ask for must not spend toasts on the
+// ordinary answer.
+const autoUpdateCheck = async () => {
+    if (updateBusy.value) return;
+    updateBusy.value = true;
+    try {
+        const rel = await API.CheckUpdate();
+        if (!rel) return;
+        updateRel.value = rel;
+        void onAbout();
+    } catch {
+        // A background check keeps its silence; the button in the card remains
+        // the place where failures get said.
+    } finally {
+        updateBusy.value = false;
+    }
+};
+
+// Late enough that the window paints first, early enough that the answer is on
+// screen while the reader is still settling in.
+onMounted(() => {
+    setTimeout(() => { void autoUpdateCheck(); }, 3000);
+});
+
 // The About card's update check. One at a time (a double press gets one answer
 // and one toast, not two requests), and the outcome is a toast either way: "no
 // update" stays quiet in the card, a newer release is named and its page opens
