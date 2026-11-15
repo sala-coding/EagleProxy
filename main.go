@@ -185,6 +185,10 @@ func main() {
 		HideWindowOnClose: runtime.GOOS == "windows",
 		OnStartup: func(ctx context.Context) {
 			app.startup(ctx)
+			// The window's big icon — the one the taskbar button draws — which
+			// Wails leaves unset (see winicon_windows.go). Its own goroutine: the
+			// window may not exist yet when this runs.
+			go applyBigWindowIcon()
 			// A tray action can fail in a way the user has to see — "start" with
 			// neither mode on, say — and the window may be hidden when it
 			// happens, so a failure brings the window back rather than leaving
