@@ -72,18 +72,6 @@
 
 内核不内嵌：程序在自身目录、`sing-box\` 子目录与数据目录附近查找 `sing-box.exe`。设置 → 核心路径会列出找到的每一个内核，点选即可切换——所以多个内核版本可以并存，随时换。
 
-## 🛠 从源码构建
-
-需要 [Go](https://go.dev) 1.25+、[Node.js](https://nodejs.org) 18+、[Wails CLI](https://wails.io/docs/gettingstarted/installation) v2。内核自备：把 `sing-box.exe` 与 `wintun.dll` 放进 `sing-box/`，或在设置里指定路径。
-
-```cmd
-wails dev                                 :: 开发调试
-wails build                               :: 打包，不带版本号
-.\build\release.ps1 -Version vX.Y.Z       :: 正式发布，注入版本号
-```
-
-产物：`build/bin/Eagle.exe`。
-
 ## ⚖️ 声明
 
 本项目仅是一个代理客户端程序，不提供、不分发任何节点或订阅服务；请遵守所在地区的法律法规。

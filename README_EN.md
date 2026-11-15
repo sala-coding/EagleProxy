@@ -72,18 +72,6 @@
 
 The core is not embedded: the program looks for `sing-box.exe` beside itself, in the `sing-box\` folder next to it, and around the data directory. Settings → core path lists every core it finds — switching builds is a pick, so several versions can live side by side.
 
-## 🛠 Building from source
-
-Needs [Go](https://go.dev) 1.25+, [Node.js](https://nodejs.org) 18+ and the [Wails CLI](https://wails.io/docs/gettingstarted/installation) v2. The core is yours to provide: put `sing-box.exe` and `wintun.dll` in `sing-box/`, or point at them in the settings.
-
-```cmd
-wails dev                                 :: develop
-wails build                               :: package, no version number
-.\build\release.ps1 -Version vX.Y.Z       :: official release, version stamped
-```
-
-The artefact lands in `build/bin/Eagle.exe`.
-
 ## ⚖️ Disclaimer
 
 This project is a proxy client only: it provides no nodes or subscription services of its own. Use it in accordance with the laws of your region.
