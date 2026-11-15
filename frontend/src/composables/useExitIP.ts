@@ -44,11 +44,19 @@ export function useExitIP(running: Ref<number>) {
     // already been asked about.
     watch([running, exitTick], (_, __, onCleanup) => {
         if (running.value === STOPPED) {
-            exitIP.value = null;
-            // And the panel that shows it goes with the address: left open behind a
-            // torn-down corner, it was still "open" as far as its own state went, and
-            // it reappeared by itself the moment the next node answered.
-            infoOpen.value = false;
+            // Held for a breath rather than blanked on the spot: several switches —
+            // LAN sharing, a mode change, a restart — stop and start the SAME node
+            // within a couple of seconds, and clearing the corner in that gap made the
+            // address and its flag look gone for good while the node was on its way
+            // back. A stop that is still a stop after the grace clears it as before.
+            const timer = window.setTimeout(() => {
+                exitIP.value = null;
+                // And the panel that shows it goes with the address: left open behind a
+                // torn-down corner, it was still "open" as far as its own state went, and
+                // it reappeared by itself the moment the next node answered.
+                infoOpen.value = false;
+            }, 3000);
+            onCleanup(() => window.clearTimeout(timer));
             return;
         }
         let alive = true;

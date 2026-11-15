@@ -243,6 +243,14 @@ button.node-ip {
     color: var(--text-dim);
     cursor: pointer;
     text-align: left;
+    /* The address and its flag are the one block on this bar that never gives way:
+       they say what the traffic looks like coming out the other side, and the LAN
+       endpoint beside them is the newer, longer entry — it shortens first (see
+       .lan-ip). Its own contents may still ellipsize in an extreme case. */
+    flex: 0 0 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     /* The address and its country's flag on one row: flex rather than inline
        flow, so the flag cannot wrap under a long address and the gap is the
        same whatever the figures' width. */

@@ -3,8 +3,10 @@ package main
 import (
 	"eagle/internal/core"
 	"eagle/internal/util"
+	"eagle/internal/vpn"
 	"fmt"
 	"net"
+	"os/exec"
 	"time"
 )
 
@@ -70,7 +72,21 @@ func (a *App) SetLANShare(on bool) (*LANState, error) {
 		a.applyMu.Unlock()
 		return nil, err
 	}
+	port := next.InboundSocksPort
 	a.applyMu.Unlock()
+	// The port is only half of "reachable from the LAN": Windows Firewall decides
+	// the other half, and on a network it calls Public — which is what a home
+	// Wi-Fi is by default — an unsolicited inbound packet is dropped unless a rule
+	// names it. Nothing in this app used to add one, so the switch reported a
+	// listener on every interface while every phone on the network timed out. The
+	// rule is named by port, not by the core's path: the path changes with every
+	// update, and a rule pointing at yesterday's binary would fail silently
+	// exactly the way this did. Its own goroutine because adding one needs the
+	// administrator token, and a prompt inside the locks above would hold both
+	// mode switches until it is answered.
+	if on {
+		go a.ensureLANFirewallRule(port)
+	}
 	// No core up: the flag is the whole of the work — the next start builds its
 	// config from it. The state says the node is not running, and the window says
 	// the switch takes effect when it is.
@@ -94,6 +110,43 @@ func (a *App) SetLANShare(on bool) (*LANState, error) {
 	// this is the record a bug report can be read against.
 	a.logf(fmt.Sprintf("[app] lan_share=%v endpoint=%q listening=%v", st.On, st.Endpoint, st.Listening))
 	return &st, nil
+}
+
+// lanFirewallRuleName is the rule this app owns for a shared port. One name per
+// port, so two switches on two ports do not overwrite each other's rule.
+func lanFirewallRuleName(port int) string { return fmt.Sprintf("Eagle LAN share %d", port) }
+
+// ensureLANFirewallRule allows the shared inbound port in Windows Firewall,
+// asking for the administrator token only when no such rule is there yet.
+// Declining leaves the switch on and the machine as it was — the log says what
+// is missing, which is more than the silent timeout this replaces.
+func (a *App) ensureLANFirewallRule(port int) {
+	if port <= 0 {
+		return
+	}
+	name := lanFirewallRuleName(port)
+	if lanRuleExists(name) {
+		return
+	}
+	// Chained in one elevated call: delete-then-add keeps a re-enable from
+	// stacking duplicate rules, and `>nul 2>&1` keeps a missing-rule delete from
+	// failing the add that follows it.
+	script := fmt.Sprintf(`netsh advfirewall firewall delete rule name="%s" >nul 2>&1 & netsh advfirewall firewall add rule name="%s" dir=in action=allow protocol=TCP localport=%d profile=any`,
+		name, name, port)
+	if code, err := vpn.RunElevatedWait("cmd.exe", []string{"/c", script}, ""); err != nil || code != 0 {
+		a.logf(fmt.Sprintf("[app] 局域网共享端口 %d 未放行，防火墙可能拦截局域网访问", port))
+		return
+	}
+	a.logf(fmt.Sprintf("[app] 局域网共享已放行端口 %d", port))
+}
+
+// lanRuleExists asks the firewall whether the rule is already registered. The
+// query needs no elevation — only the write does — so a switch pressed a second
+// time does not prompt again.
+func lanRuleExists(name string) bool {
+	cmd := exec.Command("netsh", "advfirewall", "firewall", "show", "rule", "name="+name)
+	util.HideConsole(cmd)
+	return cmd.Run() == nil
 }
 
 // lanState reads the switch back: whether sharing is on, whether a core is up,

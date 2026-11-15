@@ -62,7 +62,13 @@ table.profiles tbody tr:last-child td {
 
 /* --- state and rates --- */
 .status-right {
-    flex: 0 0 auto;
+    /* Shrinkable, not fixed: the group gains an entry the moment LAN sharing goes
+       on (the endpoint a phone dials), and a fixed width made that entry come out
+       of the group's left-hand end — the exit address and its flag slid past the
+       window edge instead of the group giving way. With shrink allowed, a narrow
+       window shows every entry, shortened, rather than dropping the one on the left. */
+    flex: 0 1 auto;
+    min-width: 0;
     display: flex;
     align-items: center;
     /* The gap between two entries, named because the dividers below have to measure

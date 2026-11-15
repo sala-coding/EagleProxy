@@ -2096,6 +2096,15 @@
     color: var(--text-dim);
     background: none;
     border: none;
+    /* Allowed to give way so the exit address beside it never has to: the endpoint
+       is longer than any address on the bar ("192.168.0.101:2080"), and a window too
+       narrow for both should shorten this one rather than push the address out. */
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 30vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     padding: 2px 4px;
     cursor: pointer;
     user-select: text;
