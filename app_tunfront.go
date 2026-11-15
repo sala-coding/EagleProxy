@@ -990,6 +990,12 @@ func (a *App) ensureTunServer() bool {
 		// asked earlier in the session and answered "not coming".
 		a.tunServerGone.Store(false)
 		if tunserv.ServerRunsSameBuild(a.curDataDir()) {
+			// A live same-build server is the tick's whole claim, wherever it was
+			// born: the prewarm's own wait window may have closed before the
+			// server appeared (a slow task start, a TUN session remembered on),
+			// and without this the bar stayed unticked for a session whose
+			// server was never once sick.
+			a.markTunPrewarmOK()
 			return true
 		}
 		// A server from an older build is still running its old code — no adapter
@@ -1109,6 +1115,9 @@ func (a *App) ensureTunServer() bool {
 	for time.Now().Before(readyDeadline) {
 		if tunserv.ServerAlive(a.curDataDir()) {
 			a.logf("[tunserv] 常驻服务已就绪")
+			// Same receipt the prewarm hands out: the server is up, and the TUN
+			// starts after this one will not pay the cold wait.
+			a.markTunPrewarmOK()
 			return true
 		}
 		if time.Now().After(bornDeadline) && !tunserv.ServerLogStamp(a.logDir()).After(logBefore) {
