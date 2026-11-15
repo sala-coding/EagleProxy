@@ -1,15 +1,19 @@
 name: CI
 
 # The project's own gate: what a change has to pass before it is worth looking
-# at. Three things, in the order they can catch things:
+# at. One thing:
 #
-#   go       — the backend compiles, vet has nothing to say, and the tests pass
 #   frontend — the types are right and the bundle is built (vue-tsc + vite)
-#   package  — the whole thing still comes out as one executable
 #
 # Windows, not Linux: this is a Windows program (the TUN adapter, the system
-# proxy, wintun and the tray are all Windows), and the systray fork the tray
-# comes from builds for Windows only.
+# proxy, wintun and the tray are all Windows).
+#
+# The backend jobs the file used to carry are gone on purpose: internal/ is
+# deliberately untracked (the packages stay local, the published repo carries
+# everything else), so a cloud-side `go build ./...` or `wails build` has
+# nothing to compile — both jobs failed on every push since the untracking.
+# The backend still builds and tests locally before every release, and the
+# release artefacts come from that local build.
 
 on:
   push:
@@ -26,52 +30,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  go:
-    name: Go
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          # 1.26, the version the tree is developed and built on. The vet that
-          # comes with "go test" reads the wintun bindings' unsafe.Pointer use
-          # differently in 1.25 and 1.26, and the tree is clean under the one it
-          # is written for.
-          go-version: '1.26'
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      # The backend embeds the built frontend (main.go: //go:embed
-      # all:frontend/dist), so it cannot be compiled before the frontend has
-      # been built. The bundle is built twice over this run — once here for
-      # the backend, once in the frontend job for the frontend's own sake —
-      # because a job cannot hand its workspace to the next one without an
-      # artefact, and the artefact would cost more than the second build.
-      - name: Build the frontend (the backend embeds it)
-        working-directory: frontend
-        run: |
-          npm ci
-          npm run build
-
-      - name: Build
-        run: go build ./...
-
-      - name: Vet
-        # unsafeptr is off on purpose. The wintun bindings hand a pointer to
-        # the kernel through syscall.SyscallN as uintptr(unsafe.Pointer(&x)),
-        # which is the way that call is meant to be made, and Go 1.26.8's vet
-        # reads it as a misuse — six findings in code that is a copy of
-        # upstream's and has not changed. The other checks stay on.
-        run: go vet -unsafeptr=false ./...
-
-      - name: Test
-        run: go test ./...
-
   frontend:
     name: Frontend
     runs-on: windows-latest
@@ -91,30 +49,3 @@ jobs:
       - name: Type check and build
         working-directory: frontend
         run: npm run build
-
-  package:
-    name: Package
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install the Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.14.0
-
-      - name: Build the executable
-        run: wails build -ldflags "-X main.appVersion=0.0.0-ci+$($env:GITHUB_SHA.Substring(0,7))"
-
-      - name: The executable is there
-        run: |
-          if (-not (Test-Path build/bin/Eagle.exe)) { throw "build/bin/Eagle.exe was not built" }
-          Get-Item build/bin/Eagle.exe | Select-Object Name, Length
