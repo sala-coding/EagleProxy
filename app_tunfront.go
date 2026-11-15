@@ -1166,6 +1166,15 @@ func (a *App) prewarmTunServer() {
 		return
 	}
 	if sits, terr := tunserv.TaskInstalled(exe); terr != nil || !sits {
+		// Said out loud because the silence is what this cost the reader: the tick
+		// simply never appeared, with nothing anywhere naming the missing piece.
+		// An installed task whose action names a file that no longer exists — the
+		// exe was renamed — reads the same way, which is why the line names both.
+		if terr != nil {
+			a.logf("[tunserv] 启动预热跳过: 无法确认计划任务（" + terr.Error() + "），首次开启 TUN 时会重建")
+		} else {
+			a.logf("[tunserv] 启动预热跳过: 计划任务未安装或指向了别的程序，首次开启 TUN 时会重建")
+		}
 		return
 	}
 	// Written before the task is asked to run, so the server's own start-up path reads
