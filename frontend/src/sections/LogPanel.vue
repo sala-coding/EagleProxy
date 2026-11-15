@@ -5,7 +5,7 @@
 import {computed, onBeforeUnmount, onMounted, ref, type Ref} from 'vue';
 import {t} from '../i18n';
 import {CONSOLE_MAX_SHARE, CONSOLE_MIN_H} from '../lib/layout';
-import {LOG_CATEGORIES, LOG_FILTERS, LOG_LEVELS, lineLevelOf, sectionText, splitStamp, type ShownLine} from '../lib/logfilter';
+import {LOG_CATEGORIES, LOG_FILTERS, LOG_LEVELS, lineLevelOf, renderLogMsg, sectionText, splitStamp, type ShownLine} from '../lib/logfilter';
 import {CopyFilled, Delete3Filled, LayoutBottomLine, PauseFilled, PlayFilled} from '../lib/icons';
 
 // The aria-valuemax of the grip: the window's own answer, read per render
@@ -62,11 +62,14 @@ const emit = defineEmits<{
 const views = computed(() => props.shownLogs.map(l => {
     const [stamp, msg] = splitStamp(l.line);
     const head = sectionText(msg);
+    // A marked line is spoken through the dictionary; the level (lineLevelOf)
+    // reads the same rendered words, so colour and wording agree.
+    const text = head !== null ? renderLogMsg(head) : renderLogMsg(msg);
     const lvl = lineLevelOf(l.line);
     const bad = head === null && lvl === 'error';
     const warn = head === null && lvl === 'warn';
     const cls = `logline${head === null ? ` cat-${l.cat}` : ' section'}${bad ? ' err' : warn ? ' warn' : ''}`;
-    return {l, stamp, head, msg, cls};
+    return {l, stamp, head, text, cls};
 }));
 
 // Double-clicking the head strip folds the panel away, the way the same gesture on a
@@ -252,16 +255,18 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onLevelOutside
                         </div>
                     </div>
                     <div v-for="v in views" :key="v.l.key" :class="v.cls"
-                         @contextmenu.prevent.stop="emit('lineCtx', {x: $event.clientX, y: $event.clientY, line: v.l.line})">
+                         @contextmenu.prevent.stop="emit('lineCtx', {x: $event.clientX, y: $event.clientY, line: v.text})">
                         <!-- The line carries its own menu, over the panel's —
                            which stays as the background's. Stopping the
                            bubble is what keeps the panel from replacing this
-                           menu with the one that has no line in it. -->
+                           menu with the one that has no line in it. The menu
+                           gets the rendered words, so "save as route" reads
+                           the address in the language it is shown in. -->
                         <!-- Always rendered, empty or not: the fixed-width
                             stamp column keeps every message starting on
                             the same x, whether or not its line has a time. -->
                         <span class="stamp">{{ v.stamp }}</span>
-                        <span class="msg">{{ v.head ?? v.msg }}</span>
+                        <span class="msg">{{ v.text }}</span>
                     </div>
                     <div v-if="logFilter !== 'all' && shownLogs.length === 0" class="logline dim">
                         {{ t('log.noMatch') }}

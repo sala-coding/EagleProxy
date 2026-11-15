@@ -8,6 +8,7 @@ import (
 	"eagle/internal/sub"
 	"eagle/internal/util"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -219,10 +220,13 @@ func (a *App) speedtest(ids []int, mode int, title string) ([]SpeedTestResult, e
 			title = "单个节点"
 		}
 		// Each run replaces the file instead of appending to it, so the log
-		// always describes the latest test of that mode.
+		// always describes the latest test of that mode. The heading goes out
+		// structured: the panel translates it, so the run's caption follows
+		// the window's language like every other line of the app's own making.
 		logs.Truncate(category)
-		logs.Section(category, fmt.Sprintf("%s · %s · %d 个节点", title, speedtestModeName(mode), len(ids)))
-		a.emitLog("core", logstore.Stamp(">>> 测速日志: "+logs.Path(category, time.Now())))
+		logs.Section(category, logstore.Stamp(markedLine("speedtest.sectionTitle", "",
+			title, speedtestModeName(mode), strconv.Itoa(len(ids)))))
+		a.emitLog("core", logstore.Stamp(markedLine("speedtest.logFileNote", "", logs.Path(category, time.Now()))))
 	}
 
 	n := a.curSetting().TestConcurrent
@@ -232,7 +236,7 @@ func (a *App) speedtest(ids []int, mode int, title string) ([]SpeedTestResult, e
 	// One line the reader can hold the run against: "并发 N" is what the scheduler
 	// is doing, so a run that reads slow can be told apart from one that is wide
 	// but waiting on slow nodes.
-	a.logSpeedtest(category, fmt.Sprintf(">>> 并发 %d · %d 个节点", n, len(ids)))
+	a.logSpeedtest(category, markedLine("speedtest.concurrency", "", strconv.Itoa(n), strconv.Itoa(len(ids))))
 
 	sem := make(chan struct{}, n)
 	var wg sync.WaitGroup
@@ -335,7 +339,7 @@ loop:
 			for _, r := range results {
 				logs.Write(category, a.speedtestResultLine(r))
 			}
-			logs.Section(category, speedtestModeName(mode)+" 结束")
+			logs.Section(category, logstore.Stamp(markedLine("speedtest.sectionEnd", "", speedtestModeName(mode))))
 		}
 	}
 	return results, nil

@@ -226,7 +226,7 @@ const pickTone = (e: Event) => {
 // The hover surface, as its own field: the colour a row, a menu item or a button
 // paints under the pointer (see --hover-bg in 01-theme.css). It follows the same
 // shape the theme colour keeps — a field, and it applies while it is being picked.
-const hoverColor = ref(computedHex(HOVER_VAR, '#232c38'));
+const hoverColor = ref(computedHex(HOVER_VAR, '#151518'));
 const pickHover = (e: Event) => {
     hoverColor.value = (e.target as HTMLInputElement).value;
     wearHover(hoverColor.value);

@@ -8,7 +8,7 @@ import {t} from '../i18n';
 import {tip} from '../tips';
 import {applyRoute, errText} from '../lib/shared';
 import {addressInLine, IP_IN_LINE} from '../lib/text';
-import {FILE_CATS, lineLevelOf, logMatchesFilter, tsOf, type LogLine, type ShownLine} from '../lib/logfilter';
+import {FILE_CATS, lineLevelOf, logMatchesFilter, renderLogLine, tsOf, type LogLine, type ShownLine} from '../lib/logfilter';
 import {LOG_FOLLOW_SLACK_PX} from '../lib/logpanel';
 
 type Notify = (text: string, kind?: 'ok' | 'err') => void;
@@ -227,7 +227,9 @@ export function useLogs(notify: Notify) {
     // clipboard binding is the fallback rather than an error.
     const copyLogs = async () => {
         logCtx.value = null;
-        const lines = shownLogs.value.map(l => l.line);
+        // What the panel shows, spoken: the lines go out rendered (translated),
+        // the same text the reader was reading.
+        const lines = shownLogs.value.map(l => renderLogLine(l.line));
         if (lines.length === 0) {
             notify(tip('log.nothingToCopy'));
             return;
@@ -292,7 +294,9 @@ export function useLogs(notify: Notify) {
     const exportLogs = async () => {
         logCtx.value = null;
         try {
-            const text = shownLogs.value.map(l => l.line).join('\n') + '\n';
+            // Rendered like the panel: the exported file is what was being read,
+            // in the language the window is in.
+            const text = shownLogs.value.map(l => renderLogLine(l.line)).join('\n') + '\n';
             const path = await API.ExportLogs(text);
             if (path) notify(tip('log.exported', path));
         } catch (e) {
@@ -462,7 +466,7 @@ export function useLogs(notify: Notify) {
         // on its own.) The open re-reads the buffer (loadAllLogs), which is what the
         // panel shows anyway — the batch above is already in `logs`, and the read
         // brings it back with the rest of the day.
-        if (!showLogs.value && batch.some(l => l.line.includes('[dns]'))) {
+        if (!showLogs.value && batch.some(l => l.line.includes('[dns]') || l.line.includes('"t":"dns"'))) {
             showLogs.value = true;
             void loadAllLogs();
         }

@@ -1,5 +1,52 @@
 import type {Component} from 'vue';
+import {t} from '../i18n';
 import {ArrowRightFilled, CloudFilled, ForbidCircleFilled, LayersFilled} from './icons';
+
+// The marker in front of a translatable line: what follows is one JSON object —
+// {"k":key,"t":tag,"p":[params]} — the back end writes when a line matches its
+// own table (see logi18n.go). The panel renders the entry through the
+// dictionary, so the log speaks the language the window is in, and a language
+// switch repaints the lines already on screen. A line nothing matches is plain
+// text and goes out as it is — the core's own words, and any wording an older
+// table entry has drifted away from.
+export const LOG_MARK = '@@';
+
+export type LogEntry = {k: string; t?: string; p?: string[]};
+
+// parseLogMsg reads one line's message part: a marked line yields its entry,
+// anything else (and a torn marker) reads as plain text. A stamp in front of
+// the marker — the section headings carry one — is stepped over first, so a
+// run's caption is translated the same way its lines are.
+export function parseLogMsg(msg: string): LogEntry | null {
+    const stripped = msg.replace(/^\[?\d{2}:\d{2}:\d{2}[.:]\d{1,3}\]?\s*/, '');
+    if (!stripped.startsWith(LOG_MARK)) return null;
+    try {
+        const e = JSON.parse(stripped.slice(LOG_MARK.length)) as LogEntry;
+        if (e && typeof e.k === 'string') return e;
+    } catch { /* a torn line reads as itself */ }
+    return null;
+}
+
+// renderLogMsg speaks one line's message: a marked entry is the dictionary's
+// words with the entry's values filled in, prefixed by its source label. An
+// entry the dictionary does not know falls back to the raw wording — a stale
+// line reads as itself rather than as a key nobody recognises.
+export function renderLogMsg(msg: string): string {
+    const e = parseLogMsg(msg);
+    if (!e) return msg;
+    const key = `log.${e.k}`;
+    const words = t(key, ...(e.p ?? []));
+    if (words === key) return msg;
+    return (e.t ? `[${e.t}] ` : '') + words;
+}
+
+// The whole line, stamp included: what the clipboard, the export file and the
+// route-from-line gesture all read.
+export function renderLogLine(line: string): string {
+    const [stamp, msg] = splitStamp(line);
+    const text = renderLogMsg(msg);
+    return stamp ? `${stamp} ${text}` : text;
+}
 
 // Log panel categories, in tab order. The ids match the file names the backend
 // writes under text-logs/ (see speedtestCategory). Every category streams its
@@ -82,9 +129,14 @@ export const LOG_FILTERS = [
 
 // Boundaries rather than a substring, so "direct" does not match "direction" and
 // "proxy" does not match "proxy-protocol" in some other tool's wording.
-export const logMatchesFilter = (line: string, filter: string) =>
-    filter === 'all' ||
-    new RegExp(`(^|[^a-z])${filter}([^a-z]|$)`, 'i').test(line);
+export const logMatchesFilter = (line: string, filter: string) => {
+    if (filter === 'all') return true;
+    // The words are matched against what the panel shows — the translated
+    // wording for a marked line — so the filter keeps meaning the same thing
+    // after a language switch.
+    const [, msg] = splitStamp(line);
+    return new RegExp(`(^|[^a-z])${filter}([^a-z]|$)`, 'i').test(renderLogMsg(msg));
+};
 
 // The level a line is shown as — one answer, for the colour it wears and for the level
 // the filter files it under. Three steps, because that is how a reader files them: normal
@@ -154,7 +206,9 @@ export const lineLevel = (line: string): string => {
 // through here, so a line's colour and its level cannot drift apart again.
 export const lineLevelOf = (line: string): string => {
     const [, msg] = splitStamp(line);
-    return sectionText(msg) === null ? lineLevel(msg) : 'normal';
+    // The level reads off what the panel shows — the translated wording for a
+    // marked line — so a failure is filed as one whatever the language is.
+    return sectionText(msg) === null ? lineLevel(renderLogMsg(msg)) : 'normal';
 };
 
 

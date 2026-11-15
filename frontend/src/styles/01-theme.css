@@ -20,14 +20,15 @@
        bundled font does not cover. */
     --font-mono: "JetBrains Mono NF", "Microsoft YaHei Mono", "Microsoft YaHei",
     ui-monospace, Consolas, monospace;
-    --bg: #161b22;
-    --bg-2: #1c232d;
-    --bg-3: #232c38;
-    /* The surface a hovered row, item or button paints. It defaults to the raised
-       surface the theme carries, and the settings' own colour field overrides it
-       inline for every hover in the app at once (see --hover-bg in theme.ts). */
-    --hover-bg: var(--bg-3);
-    --line: #2c3644;
+    --bg: #000000;
+    --bg-2: #000000;
+    --bg-3: #000000;
+    /* The surface a hovered row, item or button paints. It is declared on its own
+       now — every built-in surface is pure black, so a hover that pointed at them
+       would be invisible; the settings' own colour field overrides it inline for
+       every hover in the app at once (see --hover-bg in theme.ts). */
+    --hover-bg: #151518;
+    --line: #26262b;
     /* A brighter edge for the surfaces that float above content and would otherwise
            dissolve into it: the two hover bars, the navigation rail's right edge and the
            status bar's top edge. The last two are the window's own structural lines —
@@ -36,7 +37,7 @@
            --line's strength they read as a change of shade rather than as an edge. One
            value for both, because a rail that ends in a different line from the one the
            floor starts with is the seam this pair exists to avoid. */
-        --line-strong: #46566e;
+        --line-strong: #45454d;
     --text: #d7dee8;
     --text-dim: #8b97a8;
     --accent: #4f9cf9;
@@ -50,7 +51,7 @@
     --accent-edge: rgba(79, 156, 249, 0.45);
     /* What sits on a filled control — a primary button, a chosen segment, an armed
        delete. It is the window's own background rather than white because these
-       fills are light: white on #4f9cf9 is 2.9:1, while this theme's #161b22 on it
+       fills are light: white on #4f9cf9 is 2.9:1, while this theme's #000000 on it
        is 8.1:1. The light themes keep white because their accents are dark enough
        for it (5:1 on #2f6fdb and #0969da). Same fill, same rule, both ends. */
     --on-fill: var(--bg);

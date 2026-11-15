@@ -437,7 +437,7 @@
 /* The previews, painted from the palettes themselves so a swatch cannot claim a
    theme the app does not have. */
 .theme-swatch[data-swatch="dark"] {
-    --sw-bg: #161b22;
+    --sw-bg: #000000;
     --sw-accent: #4f9cf9;
 }
 

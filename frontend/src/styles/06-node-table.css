@@ -331,10 +331,9 @@ table.profiles td + td {
     border-left: 1px solid color-mix(in srgb, var(--line) 38%, transparent);
 }
 
-/* zebra keeps a wide list readable; hover / selected / running override it
-   below (same specificity, later in the file, or more classes) */
+/* zebra follows the active theme surface, so no fixed light tint leaks into other palettes */
 table.profiles tbody tr:nth-child(even) {
-    background: rgba(255, 255, 255, 0.012);
+    background: color-mix(in srgb, var(--bg-2) 20%, transparent);
 }
 
 table.profiles tbody tr {

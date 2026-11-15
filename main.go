@@ -181,7 +181,7 @@ func main() {
 		// is active at runtime, the frontend re-issuing it through
 		// SetWindowBackground on every theme switch, so the moment reads as the
 		// content extending rather than as a foreign band appearing beside it.
-		BackgroundColour:  &options.RGBA{R: 22, G: 27, B: 34, A: 255},
+		BackgroundColour:  &options.RGBA{R: 0, G: 0, B: 0, A: 255},
 		HideWindowOnClose: runtime.GOOS == "windows",
 		OnStartup: func(ctx context.Context) {
 			app.startup(ctx)
