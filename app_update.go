@@ -48,10 +48,34 @@ func (a *App) newerRelease() (*update.Release, error) {
 	// them, which is the whole of what that switch is for.
 	if appVersion != "" && !a.curSetting().CheckIncludePre {
 		if tag, err := update.LatestTag(updateRepo); err == nil {
-			if c, ok := update.Compare(appVersion, tag); ok && c >= 0 {
-				return nil, nil
+			if c, ok := update.Compare(appVersion, tag); ok {
+				if c >= 0 {
+					return nil, nil
+				}
+				// The redirect named a newer tag, and that is all the check
+				// needs: the release page and the download URL are both
+				// derivable from the tag alone, so the API — whose anonymous
+				// quota a shared proxy address spends with every other tenant
+				// of the address — is not spent on what arithmetic already
+				// knows. The asset size stays unknown: the download bar falls
+				// back to its indeterminate look, which the frontend already
+				// draws, and the real Content-Length takes over mid-download
+				// when the server names one.
+				return &update.Release{
+					TagName: tag,
+					HTMLURL: fmt.Sprintf("https://github.com/%s/releases/tag/%s", updateRepo, tag),
+					Assets: []update.Asset{{
+						Name: fmt.Sprintf("Eagle-%s-windows.exe", tag),
+						URL:  fmt.Sprintf("https://github.com/%s/releases/download/%s/Eagle-%s-windows.exe", updateRepo, tag, tag),
+					}},
+				}, nil
 			}
+			// A tag this build cannot read as a version falls through to the
+			// API, which knows the publish times and the build-time ordering.
 		}
+	}
+	if until := update.RateLimitedUntil(); until.After(time.Now()) {
+		return nil, fmt.Errorf("GitHub API 限流中，%s 后恢复，可稍后再试", until.Format("15:04"))
 	}
 	rel, err := update.Latest(updateRepo, a.curSetting().CheckIncludePre)
 	if err != nil || rel == nil {
