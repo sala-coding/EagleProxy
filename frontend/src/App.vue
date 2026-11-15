@@ -1591,6 +1591,26 @@ let logOff: (() => void)[] = [];
 onMounted(() => {
     // The prewarm may already have finished before this window mounted, so read the
     // flag once here; the event below covers the case where it lands afterwards.
+    //
+    // Neither alone is enough: the prewarm often finishes AFTER this read (a cold
+    // task start is seconds), and the event can land in the gap before the
+    // listener below is registered — a lost event with an early read left the
+    // tick off for the whole session. So the read is repeated for the first half
+    // minute, which is longer than any prewarm wait the backend runs, and stops
+    // as soon as the answer is yes (or the window has passed).
+    let prewarmTries = 0;
+    const prewarmPoll = window.setInterval(async () => {
+        if (tunPrewarmOK.value || ++prewarmTries > 15) {
+            window.clearInterval(prewarmPoll);
+            return;
+        }
+        try {
+            if (await API.TunPrewarmOK()) {
+                tunPrewarmOK.value = true;
+                window.clearInterval(prewarmPoll);
+            }
+        } catch { /* the next try says it again */ }
+    }, 2000);
     API.TunPrewarmOK().then(v => { tunPrewarmOK.value = !!v; }).catch(() => {});
     // One update for the lines that arrived since the last beat (see pendingLogs).
     // EventsOn returns a cancel func: without it every re-run (and React
