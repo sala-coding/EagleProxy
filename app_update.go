@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -296,10 +297,19 @@ func cleanupUpdateTemps(pid int) {
 	if err != nil {
 		return
 	}
-	prefix := fmt.Sprintf("eagle-update-%d", pid)
+	// Any run's leftovers, not this one's: the names carry the pid of the run that wrote
+	// them, and after an update that pid is gone — a prefix built from the pid of THIS
+	// process matched nothing that an earlier run left behind, which is the opposite of
+	// what this function is for (see the note above). The current run's own files are
+	// written after this call, and skipped by name in case a previous attempt in this
+	// same process left them.
+	own := fmt.Sprintf("eagle-update-%d.", pid)
 	for _, e := range entries {
 		name := e.Name()
-		if name == prefix+".bat" || name == prefix+".exe" {
+		if !strings.HasPrefix(name, "eagle-update-") || strings.HasPrefix(name, own) {
+			continue
+		}
+		if strings.HasSuffix(name, ".bat") || strings.HasSuffix(name, ".exe") {
 			_ = os.Remove(filepath.Join(dir, name))
 		}
 	}

@@ -1992,7 +1992,7 @@ onBeforeUnmount(() => {
                 off the first. -->
             <button type="button"
                     class="tb-btn lan-toggle"
-                    :class="[lanShare ? 'on' : '', lanDevices > 0 ? 'live' : '']"
+                    :class="[lanShare ? 'on' : '', lanDevices > 0 ? 'live counted' : '']"
                     :disabled="lanShareBusy"
                     role="switch"
                     :aria-checked="lanShare"
@@ -2000,9 +2000,11 @@ onBeforeUnmount(() => {
                     :aria-label="t('lan.title')"
                     @click="toggleLanShare">
                 <WifiFilled class="ic"/>
-                <!-- The devices riding the shared inbound, on the icon's corner:
-                     the poll's count of distinct non-loopback sources. Zero draws
-                     nothing; past 99 the digits stop, the way a counter that
+                <!-- The devices riding the shared inbound, beside the glyph: the
+                     poll's count of distinct non-loopback sources. In the corner it
+                     collided with the icon itself; here the button widens to hold the
+                     pair, and the number reads as a count rather than a smudge. Zero
+                     draws nothing; past 99 the digits stop, the way a counter that
                      mostly says "a lot" should. -->
                 <span v-if="lanDevices > 0" class="lan-count" aria-hidden="true">{{ lanDevices > 99 ? '99+' : lanDevices }}</span>
             </button>

@@ -223,6 +223,13 @@ func (a *App) GetRouting(name string) (*setting.Routing, error) {
 // names the forwarder's ports), and the chosen resolver is in force for the very next
 // query. Nothing is restarted.
 func (a *App) SaveRouting(name string, r setting.Routing) error {
+	// Under applyMu, because the save lands on the live setting object and that object
+	// can be replaced under it (see applySettingLocked): a save written onto the copy
+	// that is about to be swapped away leaves the file with the new rules and the memory
+	// with the old ones — the core then runs the rules the reader just replaced, and the
+	// "only the resolvers moved" short-circuit below still reports it as applied.
+	a.applyMu.Lock()
+	defer a.applyMu.Unlock()
 	if a.curSetting() == nil {
 		return fmt.Errorf("settings not loaded")
 	}
@@ -262,14 +269,28 @@ func (a *App) ApplyRouting(name string, r setting.Routing) error {
 	// character, and a toast saying the core had been restarted for a change
 	// that never needed it.
 	prev, prevErr := setting.LoadRouting(a.curDataDir(), name)
-	if err := a.curSetting().SaveRouting(name, &r); err != nil {
-		return err
-	}
+	// The save and the forwarder's re-pointing are one unit with the object they land on:
+	// applySettingLocked replaces the live setting, and a save written to the copy it is
+	// replacing keeps the file and the memory apart (see SaveRouting).
+	//
 	// The resolvers are the one part of this that does not need the rebuild below: the core
 	// asks the forwarder, and the forwarder's upstream changed here and now (see
 	// app_dns.go). The rest — rules, lists, the fallback outbound — is still the core's
 	// config and still needs the restart.
-	a.syncDNSStub()
+	a.applyMu.Lock()
+	live := a.curSetting()
+	if live == nil {
+		a.applyMu.Unlock()
+		return fmt.Errorf("settings not loaded")
+	}
+	err := live.SaveRouting(name, &r)
+	if err == nil {
+		a.syncDNSStub()
+	}
+	a.applyMu.Unlock()
+	if err != nil {
+		return err
+	}
 	if prevErr == nil && prev != nil && sameRoutingExceptDNS(*prev, r) {
 		// Only the resolvers moved, and the forwarder is already asking the new
 		// ones: the core has nothing to re-read. Said in the log rather than as

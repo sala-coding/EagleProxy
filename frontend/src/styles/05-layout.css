@@ -417,13 +417,20 @@
     }
 }
 
-/* The device count on the icon's corner: small enough to sit on a 34px button, and
-   read against whatever is behind it rather than owning a pill of its own. */
+/* Counted: the number sits beside the glyph, so the square makes room for the pair
+   instead of laying the digits over the icon — on a 34px button the corner figure
+   landed on the Wi-Fi arcs and read as a smudge rather than a count. */
+.tb-btn.lan-toggle.counted {
+    width: auto;
+    min-width: 34px;
+    padding: 0 8px 0 6px;
+    gap: 3px;
+}
+
+/* The device count itself: beside the icon, in the bar's green, tabular so 9 and 19
+   do not shuffle the glyph it stands next to. */
 .lan-count {
-    position: absolute;
-    top: 1px;
-    right: 1px;
-    font-size: 9px;
+    font-size: 0.6875rem;
     line-height: 1;
     font-variant-numeric: tabular-nums;
     color: var(--green);

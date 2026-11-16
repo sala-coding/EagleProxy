@@ -114,6 +114,13 @@ func (a *App) takeOverSpeedtest(ctx context.Context, cancel context.CancelFunc) 
 	a.speedtestMu.Lock()
 	prevCancel := a.speedtestCancel
 	prevDone := a.speedtestDone
+	done := make(chan struct{})
+	// Registered BEFORE the wait. The stop button reaches whatever is registered here,
+	// and the wait below can last fifteen seconds: registering afterwards meant a stop
+	// pressed in that window cancelled the previous run a second time (it was already
+	// cancelled) and left this one to start anyway — the button did nothing until the
+	// run it was meant to stop had begun.
+	a.speedtestCtx, a.speedtestCancel, a.speedtestDone = ctx, cancel, done
 	a.speedtestMu.Unlock()
 	if prevCancel != nil {
 		prevCancel()
@@ -125,12 +132,6 @@ func (a *App) takeOverSpeedtest(ctx context.Context, cancel context.CancelFunc) 
 			a.logf("[speedtest] 上一轮测速未在 15 秒内收尾，本轮照常开始")
 		}
 	}
-	done := make(chan struct{})
-	a.speedtestMu.Lock()
-	a.speedtestCtx = ctx
-	a.speedtestCancel = cancel
-	a.speedtestDone = done
-	a.speedtestMu.Unlock()
 	return done
 }
 

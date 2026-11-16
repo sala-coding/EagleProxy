@@ -207,6 +207,15 @@ func (a *App) trafficLoop() {
 		if !vpnMode && (ctrl == nil || ctrl.RunningID() == core.StoppedID) {
 			continue
 		}
+		// Up is not the same as answering: the record above turns true the moment the
+		// process is spawned, and its Clash API binds a beat after that. The poll that
+		// landed in between got "actively refused" on 2081 and wrote it down as a
+		// failure — a line that says nothing about the node and is gone on the next
+		// tick. Skipped here without the log, and `firstPoll` below stays pending until
+		// a poll actually runs, so the "started polling" line still means just that.
+		if !vpnMode && ctrl != nil && !ctrl.InboundReady() {
+			continue
+		}
 		c := clash.New(s.CoreBoxClashAPI, s.CoreBoxClashAPISecret)
 		if firstPoll {
 			// Said once, so a speed display that never moves has a first place to

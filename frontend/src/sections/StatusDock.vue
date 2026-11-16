@@ -200,8 +200,76 @@ async function copyAll() {
     await writeClipboard(lines.join('\n'));
 }
 
+// The endpoint the guide hands out, split into the two fields a device's proxy form
+// asks for. The address is the machine's own and can change under a new lease (see
+// loadLan), so this reads the same ref the bar does rather than a copy taken when
+// the dialog opened.
+const lanServer = computed(() => {
+    const i = lanIp.value.lastIndexOf(':');
+    return i < 0 ? lanIp.value : lanIp.value.slice(0, i);
+});
+const lanPort = computed(() => {
+    const i = lanIp.value.lastIndexOf(':');
+    return i < 0 ? '' : lanIp.value.slice(i + 1);
+});
+
+// The guide behind a press on the endpoint. The bar has room for the address and
+// nothing else, and an address alone is not the answer to "how do I use this on my
+// phone": the steps are the answer, and they are what this panel holds.
+//
+// It lives in the same card the exit details own (see .exit-panel): the two answer
+// the same question from the same corner of the window — what is at the other end of
+// this connection — and a dialog with a mask would be a second shape for it.
+const guideOpen = ref(false);
+const guideRef = ref<HTMLDivElement | null>(null);
+
+// The steps, as the rows the panel draws: a numeral, the platform it is for, and the
+// presses themselves. The two names that are words rather than products come from the
+// dictionary; "iPhone" and the rest do not need translating.
+const guideSteps = computed(() => {
+    void props.langTick;
+    return [
+        {n: '01', tag: t('lan.guide.tag.net'), text: t('lan.guide.s1')},
+        {n: '02', tag: 'iPhone', text: t('lan.guide.s2')},
+        {n: '03', tag: 'Android', text: t('lan.guide.s3')},
+        {n: '04', tag: 'Windows', text: t('lan.guide.s4')},
+        {n: '05', tag: t('lan.guide.tag.check'), text: t('lan.guide.s5')},
+    ];
+});
+
+// Outside press and Escape put it away — the two gestures the exit panel answers to as
+// well (App.vue owns that one's listener; this card owns itself, so it keeps its own).
+// The press that opens it is exempted by its class: without that, the same press that
+// closed the card would re-open it from the click that follows the mousedown.
+watch(guideOpen, (open, _was, onCleanup) => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+        const target = e.target as HTMLElement | null;
+        if (guideRef.value?.contains(target) || target?.closest('.lan-ip')) return;
+        guideOpen.value = false;
+    };
+    const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') guideOpen.value = false;
+    };
+    window.addEventListener('mousedown', onDown, true);
+    window.addEventListener('keydown', onKey, true);
+    onCleanup(() => {
+        window.removeEventListener('mousedown', onDown, true);
+        window.removeEventListener('keydown', onKey, true);
+    });
+});
+
+// Sharing switched off under the open guide: the endpoint it is about is gone, so the
+// guide goes with it. The panel is already hidden by its own v-if, but the flag stayed
+// true — and the next time sharing came on the guide opened itself, as if the reader
+// had asked for it again.
+watch(lanIp, v => {
+    if (!v) guideOpen.value = false;
+});
+
 // The LAN endpoint's copy: the same two-step as the exit address's (see copyIp),
-// with the endpoint as the text.
+// with the endpoint as the text. The guide's own button is the caller now — the bar's
+// press opens the steps instead, which is what that address is asked about.
 async function copyLan() {
     const text = lanIp.value;
     if (!text) return;
@@ -410,13 +478,15 @@ async function copyLan() {
                     Wi-Fi dials. Last on the bar, against the window edge — the exit
                     address follows the node, this one is the machine's own, and the
                     reading order runs from the tunnel's other end back home. A press
-                    copies it — the same two-step the exit panel's copy button pays
-                    (see copyIp) — so the address can be typed on the phone rather
-                    than retold by eye. The hairline between it and the exit address
-                    is the right group's own divider (see .status-right). -->
+                    opens the steps for using it (see the guide below): the address is
+                    only half of what a reader needs, and the bar has room for the half.
+                    The hairline between it and the exit address is the right group's
+                    own divider (see .status-right). -->
                 <button v-if="lanIp" class="lan-ip mono" type="button"
                         :title="t('status.lanHint')"
-                        @click="copyLan">
+                        :aria-expanded="guideOpen"
+                        aria-haspopup="dialog"
+                        @click="guideOpen = !guideOpen">
                     {{ lanIp }}
                 </button>
                 <!-- The start-up TUN prewarm's receipt, at the bar's far edge: a green
@@ -427,6 +497,37 @@ async function copyLan() {
                     <CheckCircleFilled class="ic"/>
                 </span>
             </div>
+        </div>
+
+        <!-- The LAN guide, in the same card the exit details use (see .exit-panel):
+            a spec sheet whose subject is the endpoint, then one row per press the
+            other device needs — numeral, platform, sentence. Not a dialog: nothing
+            here is modal, and the reader is holding a phone rather than tabbing
+            through a form. -->
+        <div v-if="guideOpen && lanIp" class="exit-panel lan-panel" ref="guideRef"
+             role="dialog" :aria-label="t('lan.guide.title')">
+            <div class="exit-hero">
+                <!-- Where the exit panel carries the country's flag: what kind of thing
+                     this is. The same slot, so the two cards open the same way. -->
+                <span class="lan-hero-chip">LAN</span>
+                <div class="exit-hero-main">
+                    <span class="exit-ip">{{ lanServer }}<i class="lan-hero-port">:{{ lanPort }}</i></span>
+                    <span class="exit-hero-sub">{{ t('lan.guide.sub') }}</span>
+                </div>
+                <button class="exit-copy" :title="t('lan.guide.copy')"
+                        :aria-label="t('lan.guide.copy')"
+                        @click="copyLan">
+                    <CopyFilled class="ic"/>
+                </button>
+            </div>
+            <div class="lan-steps">
+                <div v-for="s in guideSteps" :key="s.n" class="lan-step">
+                    <span class="lan-step-n">{{ s.n }}</span>
+                    <span class="lan-step-tag">{{ s.tag }}</span>
+                    <span class="lan-step-text">{{ s.text }}</span>
+                </div>
+            </div>
+            <p class="lan-note">{{ t('lan.guide.note') }}</p>
         </div>
     </div>
 </template>

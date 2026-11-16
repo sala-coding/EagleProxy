@@ -428,6 +428,98 @@ button.node-ip[aria-expanded="true"] {
     margin-right: 5px;
 }
 
+/* The LAN guide, in the same card (see .exit-panel) and opened by the endpoint it is
+   about. Its rows are not label/value pairs: a step is a numeral, the platform it is
+   for, and the sentence — read across once, which is how a recipe gets retold to a
+   phone. The numeral column is narrow and dim on purpose: it is an index, not a value,
+   and the eye should land on the platform and the words. */
+.lan-panel {
+    width: 344px;
+    /* 一步大于出口面板的 11px：那 9.6px 的中文在 100% 缩放下落在非整数像素上，
+       笔画会被拆成两道灰边，看起来就是"重影"。字号抬到 11.4px（0.8125rem）后
+       同一段文字是清楚的，也正好和头部那条地址一样大。 */
+    font-size: 0.8125rem;
+}
+
+/* The slot the exit panel gives the country's flag: what kind of thing this is. */
+.lan-hero-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 5px;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    letter-spacing: .4px;
+}
+
+/* The port after the address: dim, so the header reads as one line whose second half
+   is the part a reader mostly copies. */
+.lan-hero-port {
+    color: var(--text-dim);
+    font-style: normal;
+    font-weight: 500;
+}
+
+.lan-steps {
+    display: flex;
+    flex-direction: column;
+    padding: 3px 0 2px;
+}
+
+.lan-step {
+    display: grid;
+    grid-template-columns: 16px 56px minmax(0, 1fr);
+    align-items: baseline;
+    gap: 8px;
+    padding: 7px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, .035);
+}
+
+.lan-step:last-child {
+    border-bottom: 0;
+}
+
+.lan-step:hover {
+    background: rgba(255, 255, 255, .03);
+}
+
+.lan-step-n {
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    /* 序号用颜色退后，不用 opacity：半透明会把这一列单独做一层，落在分数像素上
+       时文字又糊一层。 */
+    font-variant-numeric: tabular-nums;
+}
+
+.lan-step-tag {
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lan-step-text {
+    min-width: 0;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+/* The footnote: what stops working when, said once at the bottom rather than repeated
+   per row. */
+.lan-note {
+    margin: 0;
+    padding: 8px 12px 10px;
+    border-top: 1px solid var(--line);
+    color: var(--text-dim);
+    font-size: 0.625rem;
+    line-height: 1.45;
+}
+
 /* The purity reading, full width: the score at the size of a headline on the right, the
    band under it. Colour is the band's own meaning, so the number, the tag and the bar
    agree whatever the theme is. */
@@ -1835,26 +1927,30 @@ table.groups-table .btn.tiny .ic {
     margin-bottom: 12px;
 }
 
-/* The language row's pills: seven flags sharing one line between them, each column as
-   wide as the row's own — the space is divided rather than left over. A flex row would
-   gather them at their own widths and leave the remainder at one end, which reads as the
-   row having been cut short; a grid of seven equal columns puts the remainder nowhere
-   for it to show, and the spacing between two flags is then the same everywhere along
-   the line. It is one line rather than a wrapped one because a flag pill is small: seven
-   of them fit the control column at the narrowest this card is given, and a flag that
-   has wrapped onto a line of its own is a flag no longer level with its neighbours.
-   minmax(0, 1fr) rather than 1fr so a column can shrink below its content instead of
-   pushing the seventh out of the card. */
+/* The language row's pills: the flags share the row's width between them evenly — the
+   space is divided rather than left over, so the gap between two flags is the same
+   everywhere along the line and nothing is left over at the end.
+   The count is not written down: it used to be seven equal columns, from when the
+   dictionary had seven languages, and with four flags that fixed grid kept spacing them
+   a seventh of the row apart and left three columns' worth of emptiness at the right —
+   flags bunched at the left, looking unevenly placed. Each pill now takes an equal share
+   of whatever flags are present (see flex below), so adding or dropping a language
+   re-divides the row by itself. */
 .lang-pills {
-    display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    display: flex;
     gap: 4px;
 }
 
-/* A pill wearing a flag rather than a word: the flag centered in the column it was
-   given, and slimmer padding than a word's — the width is the grid's to hand out here,
-   so what is left to choose is how much of it stands either side of the artwork. */
+/* A pill wearing a flag rather than a word: the flag centered in the share it was given,
+   and slimmer padding than a word's — the width is the row's to hand out here, so what is
+   left to choose is how much of it stands either side of the artwork. */
 .lang-pills .seg-tab {
+    /* Equal shares of the row, whatever the count: flex: 1 1 0 divides the width by the
+       number of flags present rather than by a number written here, so the gap between
+       two flags is the same everywhere and nothing is left over at the end. min-width: 0
+       lets a column shrink below the flag instead of pushing the last one out. */
+    flex: 1 1 0;
+    min-width: 0;
     padding: 4px 6px;
     display: flex;
     align-items: center;

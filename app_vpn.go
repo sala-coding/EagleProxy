@@ -110,10 +110,17 @@ func (a *App) SetVPNMode(on bool) error {
 		// comes back for, which is an offline machine the moment the core behind it
 		// is gone (crashed, restarted, never started). The write is idempotent:
 		// clearing a registry that was already clean is nothing to do.
+		// The flag follows the registry, not the attempt: with the write refused (a
+		// policy, another program holding the key) the machine still points here, and
+		// every later path that would clear it — StopProfile, runShutdown, the
+		// crash-recovery sweep — reads this flag first. Turning it off on a failed clear
+		// is how a session leaves Windows on a port nothing serves while the switch
+		// reads "system proxy: off".
 		if err := a.applySystemProxy(false); err != nil {
-			a.logf("[system proxy] 切向 TUN 前的代理清理失败: " + err.Error())
+			a.logf("[system proxy] 切向 TUN 前的代理清理失败，仍按开启记账以免残留: " + err.Error())
+		} else {
+			a.curSetting().SetSPModeSystemProxy(false)
 		}
-		a.curSetting().SetSPModeSystemProxy(false)
 	}
 	running := a.RunningProfile()
 	// Flip the flag before touching the core. Switching TUN off used to stop

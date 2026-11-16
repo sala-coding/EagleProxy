@@ -2,10 +2,13 @@
    the type, the variables, and the palettes: the dark room, the light room, and the sixteen accent schemes everything else reads its colours from.
    (Split out of App.css; the order of these files is the cascade.) */
 
-/* JetBrains Mono (Nerd Font build) shipped in public/fa/font — one bundled
-   monospace face for the whole app: log panel, addresses, JSON, code blocks.
-   Bundling it also removes the "Latin monospace for ASCII, proportional CJK for
-   Chinese" split that made mixed log lines lose their column alignment. */
+/* JetBrains Mono (Nerd Font build) shipped in public/fa/font — one bundled face
+   for the whole app: the window's own type (see body in style.css), the log panel,
+   addresses, JSON and code blocks. It is the NL/Mono fork of the family: no
+   programming ligatures, so "->" and "=>" stay the two characters they are in a
+   path or a URL, and one glyph width for the icon range. Bundling it also removes
+   the "Latin monospace for ASCII, proportional CJK for Chinese" split that made
+   mixed log lines lose their column alignment. */
 @font-face {
     font-family: "JetBrains Mono NF";
     src: url("/fa/font/JetBrainsMonoNerdFont-Medium.ttf") format("truetype");

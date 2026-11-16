@@ -406,6 +406,19 @@ func (a *App) warmExitProbe() {
 	}
 	ip := util.AskIP(client)
 	if ip == "" {
+		// One retry, a beat later. The asks above go out in the same second the DNS
+		// takeover points the interfaces at this process, and Windows answers that with
+		// a network-change notification; hysteria2 reads one as "the network under me
+		// moved" and aborts everything in flight with "network changed" — all five asks
+		// died together that way (548ms in, seen live). The change is a one-off, so the
+		// second attempt a moment later answers where the first could not.
+		time.Sleep(500 * time.Millisecond)
+		if a.quitting.Load() || a.exitProbeGen() != gen {
+			return
+		}
+		ip = util.AskIP(client)
+	}
+	if ip == "" {
 		return
 	}
 	// Address only: the country is a flag the corner can draw a beat later, and asking

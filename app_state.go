@@ -53,7 +53,21 @@ func (a *App) emitRunningState() {
 	// interface-table read, and this runs inside some of those paths' locks; the reconcile
 	// reads live state and is idempotent, so a stray one costs nothing (see
 	// app_dns_takeover.go).
-	go crashlog.Guard("reconcileSystemDNS", func() { a.reconcileSystemDNS(false) })
+	// One at a time, and not once the window has gone — the same guard the traffic
+	// loop's tick keeps (see app_traffic.go). This path is reached by every start and
+	// every stop, it can walk into ensureTunServer (a UAC prompt) and it writes the
+	// takeover state: a stray one landing after the exit path's release would write
+	// "resolvers taken over" over the cleanup that had just put them back, leaving the
+	// interfaces pointed at 127.0.0.1:53 with nothing listening.
+	if a.dnsReconcileBusy.CompareAndSwap(false, true) {
+		go crashlog.Guard("reconcileSystemDNS", func() {
+			defer a.dnsReconcileBusy.Store(false)
+			if a.quitting.Load() || a.curCtx() == nil {
+				return
+			}
+			a.reconcileSystemDNS(false)
+		})
+	}
 }
 
 // refreshTrayStatus keeps the tray menu's two switches in step with the modes they stand
