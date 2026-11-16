@@ -568,21 +568,32 @@ export const ROUTE_LIST_PRESETS: Record<string, string[]> = {
     direct_domain: [],
     direct_ip: [],
     proxy_domain: ['geosite:geolocation-!cn', 'geosite:google', 'geosite:openai',
-        'geosite:telegram', 'geosite:netflix', 'geosite:youtube', 'geosite:github'],
+        'geosite:telegram', 'geosite:netflix', 'geosite:youtube', 'geosite:github',
+        // Copilot's telemetry hosts and every raw/gist download live on
+        // githubusercontent.com, which the geosite:github table does not carry.
+        'domain:githubusercontent.com'],
     block_domain: ['geosite:category-ads-all', 'geosite:category-porn'],
 };
+
+// Every country's bundle carries the same tail: the three general tables (private,
+// Apple, Microsoft) and the two local suffixes, which no country's own table covers and
+// which must never be asked of a node — `domain:lan` is NOT among them on purpose: the
+// core rejects `*.lan` in its DNS rules before routing sees it (see builder.go), so a
+// direct entry for it would match nothing.
+const LOCAL_DOMAINS = ['geosite:private', 'geosite:apple', 'geosite:microsoft',
+    'domain:local', 'domain:home.arpa'];
 
 // 直连规则的国家预设：一面国旗一套完整直连套组——该国域名表（若上游有）、内网、
 // Apple 与 Microsoft 一并以默认值加入，网络范围同理（geoip:private 总是随行，内网
 // 永远直连）。私有/苹果/微软三个旧文本 chips 因而撤销：它们不再单独提供，而是每面
 // 国旗的默认随件。美国在上游没有国家级域名表，这面旗只带网络范围与三张通用表。
 export const COUNTRY_PRESETS = [
-    {code: 'cn', domain: ['geosite:cn', 'geosite:private', 'geosite:apple', 'geosite:microsoft'], ip: ['geoip:cn', 'geoip:private']},
-    {code: 'ru', domain: ['geosite:category-ru', 'geosite:private', 'geosite:apple', 'geosite:microsoft'], ip: ['geoip:ru', 'geoip:private']},
-    {code: 'us', domain: ['geosite:private', 'geosite:apple', 'geosite:microsoft'], ip: ['geoip:us', 'geoip:private']},
+    {code: 'cn', domain: ['geosite:cn', ...LOCAL_DOMAINS], ip: ['geoip:cn', 'geoip:private']},
+    {code: 'ru', domain: ['geosite:category-ru', ...LOCAL_DOMAINS], ip: ['geoip:ru', 'geoip:private']},
+    {code: 'us', domain: [...LOCAL_DOMAINS], ip: ['geoip:us', 'geoip:private']},
     // Iran ships no country-wide domain list upstream either — category-ir is the one the
     // repository carries (geosite-ir is a 404), so the flag brings that plus the ranges.
-    {code: 'ir', domain: ['geosite:category-ir', 'geosite:private', 'geosite:apple', 'geosite:microsoft'], ip: ['geoip:ir', 'geoip:private']},
+    {code: 'ir', domain: ['geosite:category-ir', ...LOCAL_DOMAINS], ip: ['geoip:ir', 'geoip:private']},
 ];
 
 // The cards the routing section draws, in the order it draws them: the three directions
