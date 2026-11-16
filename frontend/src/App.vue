@@ -128,6 +128,12 @@ const notify = (text: string, kind: 'ok' | 'err' = 'ok') => {
 };
 
 const groupsChangedSeq = {current: 0};
+// Bumped by every event that writes the group list, the node list or the running id.
+// The start-up bootstrap reads those four wires one after another and writes them at
+// the end; without this an event that settled in between was overwritten by readings
+// taken before it (see the bootstrap below). Handlers do not check it — they are the
+// newer truth by definition.
+let stateSeq = 0;
 const groups = ref<main.GroupInfo[]>([]);
 const gid = ref<number>(-1);
 const profiles = ref<main.ProfileInfo[]>([]);
@@ -1543,21 +1549,31 @@ const appStyle = computed<CSSProperties>(() => {
 
 onMounted(() => {
     (async () => {
+        const seq0 = stateSeq;
         try {
             const gs = await API.ListGroups();
-            groups.value = gs;
             // reopen whichever subscription was last being looked at
             const s0: any = await API.GetSettings();
             const remembered = Number(s0?.current_group ?? -1);
             const first = gs.length > 0
                 ? (gs.some(x => x.id === remembered) ? remembered : gs[0].id)
                 : -1;
-            gid.value = first;
             // -1 is the backend's "every group"; with no group at all the table
             // stays empty rather than listing profiles nothing owns.
-            profiles.value = first < 0 ? [] : await API.ListProfiles(first);
+            const list = first < 0 ? [] : await API.ListProfiles(first);
             const rp = await API.RunningProfile();
-            applyRunning(rp);
+            // These wires take a few hundred milliseconds, and a groups:changed (a
+            // subscription update landing at launch) or a running:changed (autostart,
+            // the tray) can settle inside them. From that point the handler owns the
+            // state; writing these pre-event readings over it left one group's nodes
+            // under another's highlight, or the bar back on "stopped" over a node that
+            // had just started. The readings below this line are not raced the same way.
+            if (seq0 === stateSeq) {
+                groups.value = gs;
+                gid.value = first;
+                profiles.value = list;
+                applyRunning(rp);
+            }
             logs.value = ((await API.GetLogs()) ?? []).map(l => ({line: l, cat: 'core'}));
             const logDir = await API.GetLogDir();
             if (logDir) logs.value = [...logs.value, {line: `${nowStamp()} >>> ${t('log.dirLine')}: ${logDir}`, cat: 'core'}];
@@ -1647,11 +1663,13 @@ onMounted(() => {
         // all, while the node it named was running perfectly well.
         EventsOn("core:exit", (id: number) => {
             if (id !== runningIdRef.value) return;
+            stateSeq++;
             applyRunning(STOPPED);
             traffic.value = {up: 0, down: 0, upRate: 0, downRate: 0, count: 0};
         }),
         // starts/stops that bypass the frontend (tray menu, autostart)
         EventsOn("running:changed", async (id: number) => {
+            stateSeq++;
             // The ref is written here as well, not just on commit: a core:exit
             // for the replaced core can arrive in the same tick, and the ref's
             // render-time sync would still hold the old id — reading the exit
@@ -1738,6 +1756,7 @@ onMounted(() => {
         }),
         EventsOn("groups:changed", async (newGid: number) => {
             const seq = ++groupsChangedSeq.current;
+            stateSeq++;
             // The search list is re-built off the same tick: it holds profiles from
             // every other group, and an update rewrote those as well (see
             // profilesEpoch).

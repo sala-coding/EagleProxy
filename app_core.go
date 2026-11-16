@@ -51,8 +51,13 @@ func (a *App) reload(keepCore bool) error {
 		}
 		return err
 	}
-	a.setMgr(db.NewManager(a.curDataDir()))
-	if err := a.curMgr().Load(); err != nil {
+	// Loaded into a manager that is not live yet: the swap below is what publishes
+	// it. Setting it first meant a reload read by the window mid-Load answered "no
+	// nodes at all" — the table, the tray and the status bar all briefly empty — and
+	// a load that failed left a half-filled store behind that the next save would
+	// write back over the reader's files.
+	m := db.NewManager(a.curDataDir())
+	if err := m.Load(); err != nil {
 		// A failed load on first launch leaves the setting nil, and every
 		// binding is about to be asked — the webview has booted either way.
 		// The nil-deref GetSPMode already defends against was the state this
@@ -63,8 +68,14 @@ func (a *App) reload(keepCore bool) error {
 		if a.curSetting() == nil {
 			a.setSetting(setting.Load(a.curDataDir()))
 		}
+		// The bindings still need a store: an empty one answers "nothing here"
+		// rather than panicking on a nil manager. A later reload replaces it.
+		if a.curMgr() == nil {
+			a.setMgr(m)
+		}
 		return err
 	}
+	a.setMgr(m)
 	prevSetting := a.curSetting()
 	a.setSetting(setting.Load(a.curDataDir()))
 	a.curSetting().InheritRuntime(prevSetting)

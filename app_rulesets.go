@@ -417,7 +417,7 @@ func (a *App) PickRuleSetFiles() ([]string, error) {
 // starting on a rule set it cannot parse, and this is the one door through which a reader
 // can hand it anything. An existing tag is replaced, which is what re-importing an
 // updated file of one's own has to mean.
-func (a *App) ImportRuleSets(paths []string, country string) (int, error) {
+func (a *App) ImportRuleSets(paths []string, country string) (written int, retErr error) {
 	if a.curSetting() == nil {
 		return 0, fmt.Errorf("backend not initialised")
 	}
@@ -430,7 +430,19 @@ func (a *App) ImportRuleSets(paths []string, country string) (int, error) {
 	ruleSetMu.Lock()
 	defer ruleSetMu.Unlock()
 	countries := a.loadRuleSetCountries()
-	written := 0
+	// Whatever the loop has already filed is on disk and the next start reads it, so
+	// the notes and the rebuild are owed even when a later file is refused. Returning
+	// straight out left the landed sets filed under no country, and the core reading
+	// the rule set from before — the "partial arrival still takes effect" rule
+	// DownloadMissingRuleSets keeps with a defer of its own.
+	defer func() {
+		if err := a.saveRuleSetCountries(countries); err != nil && retErr == nil {
+			retErr = err
+		}
+		if written > 0 {
+			a.ruleSetsChanged()
+		}
+	}()
 	for _, p := range paths {
 		if !configbuilder.LooksLikeRuleSet(p) {
 			return written, fmt.Errorf("不是有效的规则集文件：%s", filepath.Base(p))
@@ -476,12 +488,6 @@ func (a *App) ImportRuleSets(paths []string, country string) (int, error) {
 			_ = a.saveRuleSetVersions(v)
 		}
 		written++
-	}
-	if err := a.saveRuleSetCountries(countries); err != nil {
-		return written, err
-	}
-	if written > 0 {
-		a.ruleSetsChanged()
 	}
 	return written, nil
 }

@@ -46,24 +46,36 @@ const vpnMtu = computed(() => Math.max(Number(props.obj.vpn_mtu ?? 9000) || 9000
 // conditions hold that do not at the moment", and both of them come to the same thing.
 const cacheIdle = computed(() => props.tunOn && !!props.obj.fakedns ? '' : ' tun-idle');
 
+// The box keeps what is being typed and the clamp is applied when the field settles
+// (blur, or Enter). Clamping on every keystroke made the box unusable: the first
+// digit of "9000" is below the floor, so it was rewritten to "1000" and the next key
+// appended to that — the reader could not type a number that never existed.
+//
+// NekoRay clamps to 1000..10000 when the VPN dialog is accepted; doing it here keeps
+// an unusable value from ever reaching the core, which rejects it at startup. 1280 is
+// the second floor, and it belongs to IPv6: an interface carrying an IPv6 address
+// cannot be given a smaller link MTU, and the core refuses to build the adapter when
+// the two disagree — which reads as "TUN 网卡启动失败" rather than as a number to
+// change. So the floor follows the checkbox below (see vpnMtu).
+const mtuDraft = ref<string | null>(null);
+
+const clampMtu = (raw: string) => {
+    const n = Number(raw);
+    if (raw.trim() === '' || !Number.isFinite(n)) return vpnMtu.value;
+    return Math.min(10000, Math.max(props.obj.vpn_ipv6 ? 1280 : 1000, Math.round(n)));
+};
+
 const onMtuInput = (e: Event) => {
+    mtuDraft.value = (e.target as HTMLInputElement).value;
+};
+
+const commitMtu = (e: Event) => {
     const el = e.target as HTMLInputElement;
-    // NekoRay clamps to 1000..10000 when the VPN dialog is
-    // accepted; doing it here keeps an unusable value from
-    // ever reaching the core, which rejects it at startup.
-    // 1280 is the second floor, and it belongs to IPv6: an
-    // interface carrying an IPv6 address cannot be given a
-    // smaller link MTU, and the core refuses to build the
-    // adapter when the two disagree — which reads as "TUN
-    // 网卡启动失败" rather than as a number to change. So the
-    // floor follows the checkbox below (see vpnMtu).
-    const n = Number(el.value);
-    const mtu = Number.isFinite(n)
-        ? Math.min(10000, Math.max(props.obj.vpn_ipv6 ? 1280 : 1000, Math.round(n)))
-        : 9000;
-    emit('patch', {vpn_mtu: mtu});
+    const mtu = clampMtu(el.value);
+    mtuDraft.value = null;
     // 受控输入的回写：状态被钳到别处时，框里也跟着回到那个值。
     if (el.value !== String(mtu)) el.value = String(mtu);
+    emit('patch', {vpn_mtu: mtu});
 };
 
 const onIpv6Change = (e: Event) => {
@@ -73,6 +85,8 @@ const onIpv6Change = (e: Event) => {
     // two to change (see vpnMtu). Raised as it is switched
     // on, so the field keeps showing what will be used.
     const ipv6 = (e.target as HTMLInputElement).checked;
+    // 尚未落定的草稿丢掉：下拉框的这次改动以状态里的 MTU 为准。
+    mtuDraft.value = null;
     const mtu = Number(props.obj.vpn_mtu ?? 9000) || 9000;
     emit('patch', {vpn_ipv6: ipv6, vpn_mtu: ipv6 ? Math.max(mtu, 1280) : mtu});
 };
@@ -154,7 +168,8 @@ const toggleUwp = async (e: Event) => {
         <div :class="`jf-field${tunIdle}`">
             <label>{{ t('cfg.vpn_mtu') }}</label>
             <input type="number" :min="obj.vpn_ipv6 ? 1280 : 1000" max="10000"
-                   :value="vpnMtu" @input="onMtuInput"/>
+                   :value="mtuDraft ?? vpnMtu" @input="onMtuInput" @blur="commitMtu"
+                   @keydown.enter="($event.target as HTMLInputElement).blur()"/>
         </div>
         <!-- The stack, as a choice rather than a number: the file holds an index
             and the builder turns it into one of the three, so the field shows the

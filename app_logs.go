@@ -26,9 +26,26 @@ func (a *App) GetLogs() []string {
 // served from memory by GetLogs, so this exists for the speed-test categories:
 // they stream live as they run, but the file is the panel's source once a run
 // ends, and it is read fresh every time (logstore's Read flushes first).
+// validLogCategory says whether a category is one of this app's own. The two
+// bindings below are reachable from the window's JS, and logstore builds the file
+// name out of the category ("<category>-<day>.log"), so a value carrying a path
+// separator or ".." would read — or truncate — a file outside the log directory.
+func validLogCategory(category string) bool {
+	if category == "" || len(category) > 64 {
+		return false
+	}
+	for _, c := range category {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func (a *App) GetCategoryLogs(category string) []string {
 	logs := a.logStore()
-	if logs == nil {
+	if logs == nil || !validLogCategory(category) {
 		return []string{}
 	}
 	return logs.Read(category, 2000)
@@ -47,7 +64,7 @@ func (a *App) ClearLogs() {
 // ClearCategoryLogs discards a file-backed category's log file of the day.
 func (a *App) ClearCategoryLogs(category string) {
 	logs := a.logStore()
-	if logs == nil {
+	if logs == nil || !validLogCategory(category) {
 		return
 	}
 	logs.Truncate(category)

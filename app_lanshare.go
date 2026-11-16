@@ -86,6 +86,17 @@ func (a *App) SetLANShare(on bool) (*LANState, error) {
 	// mode switches until it is answered.
 	if on {
 		go a.ensureLANFirewallRule(port)
+	} else {
+		// 关闭时把这条放行撤掉：留着它等于把一个本程序已不再监听的端口长期对局域网敞开，
+		// 日后该端口被别的程序占用时，外部可以直接连进来而不再经过防火墙的确认。
+		// 端口改过的话，旧端口那条也一并撤（规则按端口命名，见 lanFirewallRuleName）。
+		ports := []int{port}
+		if cur.InboundSocksPort != port {
+			ports = append(ports, cur.InboundSocksPort)
+		}
+		for _, p := range ports {
+			go a.removeLANFirewallRule(p)
+		}
 	}
 	// No core up: the flag is the whole of the work — the next start builds its
 	// config from it. The state says the node is not running, and the window says
@@ -147,6 +158,25 @@ func lanRuleExists(name string) bool {
 	cmd := exec.Command("netsh", "advfirewall", "firewall", "show", "rule", "name="+name)
 	util.HideConsole(cmd)
 	return cmd.Run() == nil
+}
+
+// removeLANFirewallRule takes the allow-rule back when sharing goes off. The next
+// enable adds it again, which costs one more prompt — the trade a standing inbound
+// allow for a port this app no longer serves is not worth making silently.
+func (a *App) removeLANFirewallRule(port int) {
+	if port <= 0 {
+		return
+	}
+	name := lanFirewallRuleName(port)
+	if !lanRuleExists(name) {
+		return
+	}
+	script := fmt.Sprintf(`netsh advfirewall firewall delete rule name="%s"`, name)
+	if code, err := vpn.RunElevatedWait("cmd.exe", []string{"/c", script}, ""); err != nil || code != 0 {
+		a.logf(fmt.Sprintf("[app] 局域网共享端口 %d 的防火墙放行未能撤除，可手动删除规则「%s」", port, name))
+		return
+	}
+	a.logf(fmt.Sprintf("[app] 局域网共享已撤除端口 %d 的防火墙放行", port))
 }
 
 // lanState reads the switch back: whether sharing is on, whether a core is up,

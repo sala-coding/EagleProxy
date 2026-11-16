@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -381,17 +382,31 @@ func (a *App) DownloadUpdate() error {
 	// 64KB chunk is a bridge carrying nothing else. Four a second reads as live;
 	// the last chunk is always told regardless, so the bar is allowed to reach
 	// its end before the quit takes the window away.
+	// The callback is not called from one goroutine: a ranged download reports from
+	// its eight connections at once, so this throttle is shared state and both its
+	// reads and its writes are taken under one lock. Without it a -race build reports
+	// a data race, and the bar steps backwards whenever a slower segment's count lands
+	// after a faster one's — hence the "never behind what was already shown" check too.
+	var dlMu sync.Mutex
 	lastEmit := time.Time{}
 	var lastDone int64
 	dl := func(url string) error {
+		// A retry counts from zero again: the baseline belongs to the attempt.
+		dlMu.Lock()
+		lastEmit, lastDone = time.Time{}, 0
+		dlMu.Unlock()
 		return update.Download(url, tmp, asset.Size, func(done, total int64) {
-			if done == lastDone && done != total {
+			dlMu.Lock()
+			if done < lastDone || (done == lastDone && done != total) {
+				dlMu.Unlock()
 				return
 			}
 			if done != total && time.Since(lastEmit) < 250*time.Millisecond {
+				dlMu.Unlock()
 				return
 			}
 			lastEmit, lastDone = time.Now(), done
+			dlMu.Unlock()
 			runtime.EventsEmit(a.curCtx(), "update:progress", done, total)
 		})
 	}

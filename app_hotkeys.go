@@ -271,6 +271,12 @@ func (a *App) nextRouting() {
 	if a.curSetting() == nil {
 		return
 	}
+	// The same double-press guard the node keys keep (see hotkeyMu): the name to step
+	// to is decided from the live profile before anything is written, so two presses
+	// arriving together both read the old answer — one step for the reader, and two
+	// core rebuilds for the machine.
+	a.hotkeyMu.Lock()
+	defer a.hotkeyMu.Unlock()
 	names := a.curSetting().ListRoutings()
 	if len(names) == 0 {
 		return

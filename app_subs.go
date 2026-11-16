@@ -148,14 +148,20 @@ func (a *App) ExportGroupConfig(gid int, kind string) (string, error) {
 	if g == nil {
 		return "", fmt.Errorf("subscription %d not found", gid)
 	}
-	if len(g.Order) == 0 {
+	// The node list comes from the manager, not from the group's own order: a group
+	// filled by hand, by a pasted link or by a file import never gets an order written
+	// (only a subscription's walk and AddProfile's "tail of a non-empty order" do), so
+	// g.Order is empty for exactly the groups a reader is most likely to export — and
+	// the export answered "holds no nodes" about a table full of them.
+	ents := mgr.ProfilesWithOrder(gid)
+	if len(ents) == 0 {
 		return "", fmt.Errorf("subscription %q holds no nodes", g.Name)
 	}
 	if a.curCtx() == nil {
 		return "", fmt.Errorf("backend not initialised")
 	}
 
-	content, ext, filter, err := a.exportGroupContent(g, kind)
+	content, ext, filter, err := a.exportGroupContent(g, ents, kind)
 	if err != nil {
 		return "", err
 	}
@@ -179,22 +185,16 @@ func (a *App) ExportGroupConfig(gid int, kind string) (string, error) {
 // exportGroupContent builds one subscription's bytes in the asked format. The
 // extension and the dialog filter travel with it: the file offered is the one
 // the format spells.
-func (a *App) exportGroupContent(g *db.Group, kind string) ([]byte, string, runtime.FileFilter, error) {
+func (a *App) exportGroupContent(g *db.Group, ents []*db.ProxyEntity, kind string) ([]byte, string, runtime.FileFilter, error) {
 	switch kind {
 	case "singbox":
-		cfg, err := a.PreviewConfig(g.Order[0])
+		cfg, err := a.PreviewConfig(ents[0].ID)
 		if err != nil {
 			return nil, "", runtime.FileFilter{}, err
 		}
 		return []byte(cfg), ".json", runtime.FileFilter{DisplayName: "JSON", Pattern: "*.json"}, nil
 
 	case "clash", "links", "base64":
-		ents := make([]*db.ProxyEntity, 0, len(g.Order))
-		for _, id := range g.Order {
-			if e := a.curMgr().SnapshotProfile(id); e != nil {
-				ents = append(ents, e)
-			}
-		}
 		if kind == "clash" {
 			doc, skipped := clashGroupDoc(g.Name, ents)
 			if len(doc["proxies"].([]interface{})) == 0 {

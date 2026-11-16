@@ -509,10 +509,11 @@ func (a *App) CheckInboundPort(address string, port int) InboundPortStatus {
 		st.Free = true
 		return st
 	}
-	// Held by something. With a node up it is almost certainly this app's own core, and
-	// reporting that as "in use" would send the reader looking for a program that is
-	// their own.
-	if a.RunningProfile() != core.StoppedID {
+	// Held by something. A node being up is not enough to call it ours: the core binds
+	// one port, and any other number is somebody else's — answering "this app is using
+	// it" for it hid the reason the core would fail to bind, which is the answer the
+	// reader was actually asking for.
+	if a.RunningProfile() != core.StoppedID && st.Port == a.curSetting().InboundSocksPort {
 		st.Ours = true
 		return st
 	}

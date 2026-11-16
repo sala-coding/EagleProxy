@@ -383,6 +383,7 @@ const pickFreePort = async () => {
     portBusy.value = true;
     try {
         const p = await API.FreeInboundPort();
+        portDraft.value = null;
         if (obj.value) obj.value = {...obj.value, inbound_socks_port: p};
         portOk.value = true;
         portNote.value = `${t('port.picked')} ${p}`;
@@ -1370,21 +1371,24 @@ const onAddrInput = (e: Event) => {
     // the last answer was about the old pair
     portNote.value = '';
 };
+// 端口框留草稿，落定在失焦（或回车；点"检查端口""换个端口"这类按钮也会先失焦）。
+// 逐字符落状态等于把 "2080" 的每一步都当成一次改动：650ms 的自动保存只要在中间
+// 停一次，落盘的就是 2 / 20 / 208，而运行中的节点每改一次端口就要重启一次核心。
+// 落不下的值不落状态：空框或越界端口写进文件就是一个监听不上的核心，只会在启动
+// 时报一句"节点起不来"，没有一处指向这个数字。
+const portDraft = ref<string | null>(null);
+
+const commitPort = () => {
+    if (portDraft.value === null) return;
+    const raw = portDraft.value;
+    portDraft.value = null;
+    const n = Number(raw);
+    const ok = raw.trim() !== '' && Number.isInteger(n) && n >= 1 && n <= 65535;
+    if (ok && obj.value) obj.value = {...obj.value, inbound_socks_port: n};
+};
+
 const onPortInput = (e: Event) => {
-    const el = e.target as HTMLInputElement;
-    const n = Number(el.value);
-    // An empty field, or a number no port can be, is not
-    // a port: writing 0 (or 99999) into the file is a core
-    // that cannot listen, met later as "the node will not
-    // start" with nothing pointing at the number. The last
-    // good one stands until a real one is typed.
-    if (!Number.isInteger(n) || n < 1 || n > 65535) {
-        // 受控输入的回写：非法值不落状态，框里回到上一个好值。
-        el.value = String(obj.value?.inbound_socks_port ?? 2080);
-        return;
-    }
-    if (obj.value) obj.value = {...obj.value, inbound_socks_port: n};
-    if (el.value !== String(n)) el.value = String(n);
+    portDraft.value = (e.target as HTMLInputElement).value;
     portNote.value = '';
 };
 </script>
@@ -1594,10 +1598,11 @@ const onPortInput = (e: Event) => {
                                        :title="t('cfg.inbound_address')"
                                        @input="onAddrInput"/>
                                 <input class="mono port-num" type="number" min="1" max="65535"
-                                       :value="String(obj?.inbound_socks_port ?? 2080)"
+                                       :value="portDraft ?? String(obj?.inbound_socks_port ?? 2080)"
                                        :aria-label="t('cfg.inbound_socks_port')"
                                        :title="t('cfg.inbound_socks_port')"
-                                       @input="onPortInput"/>
+                                       @input="onPortInput" @blur="commitPort"
+                                       @keydown.enter="($event.target as HTMLInputElement).blur()"/>
                                 <button class="btn" :disabled="portBusy" @click="checkInboundPort()">
                                     {{ t('port.check') }}
                                 </button>
