@@ -34,6 +34,14 @@ const (
 	appIconID    = 3 // wails' winc.AppIconID — the group winres baked into the exe
 	wailsClass   = "wailsWindow"
 	findDeadline = 20 * time.Second
+
+	// GCLP_HICON is -14; written as its two's-complement so it fits uintptr.
+	gclpHIcon       = ^uintptr(13)
+	swpNoSize       = 0x0001
+	swpNoMove       = 0x0002
+	swpNoZOrder     = 0x0004
+	swpNoActivate   = 0x0010
+	swpFrameChanged = 0x0020
 )
 
 var (
@@ -43,20 +51,41 @@ var (
 	procSendMessageW    = windows.NewLazySystemDLL("user32.dll").NewProc("SendMessageW")
 	procLoadImageW      = windows.NewLazySystemDLL("user32.dll").NewProc("LoadImageW")
 	procGetSystemMetric = windows.NewLazySystemDLL("user32.dll").NewProc("GetSystemMetrics")
+	procSetClassLongPtr = windows.NewLazySystemDLL("user32.dll").NewProc("SetClassLongPtrW")
+	procSetWindowPos    = windows.NewLazySystemDLL("user32.dll").NewProc("SetWindowPos")
 )
 
 // applyBigWindowIcon stamps ICON_BIG onto this process's wails window, retrying
 // while the window is still being created.
+//
+// The stamp is repeated a few times on purpose. The taskbar button is built
+// when the window is first shown, and Windows asks for the icon at that moment
+// — a single WM_SETICON that lands before the button exists can be captured
+// while the class icon is still null, and the button then stays blank for the
+// rest of the session (seen here on 2026-11-17: the window carried a valid
+// ICON_BIG while its button drew nothing). Re-stamping after the button is up
+// makes Explorer redraw it, and the class icon is set too, since the button
+// falls back to it when the window has no ICON_BIG yet.
 func applyBigWindowIcon() {
 	deadline := time.Now().Add(findDeadline)
-	for time.Now().Before(deadline) {
-		if hwnd := findWailsWindow(); hwnd != 0 {
-			if hIcon := loadAppIcon(); hIcon != 0 {
-				procSendMessageW.Call(hwnd, wmSetIcon, iconBig, hIcon)
-			}
-			return
+	var hwnd uintptr
+	for time.Now().Before(deadline) && hwnd == 0 {
+		hwnd = findWailsWindow()
+		if hwnd == 0 {
+			time.Sleep(100 * time.Millisecond)
 		}
-		time.Sleep(300 * time.Millisecond)
+	}
+	if hwnd == 0 {
+		return
+	}
+	for _, wait := range []time.Duration{0, 500 * time.Millisecond, 1500 * time.Millisecond} {
+		time.Sleep(wait)
+		if hIcon := loadAppIcon(); hIcon != 0 {
+			procSetClassLongPtr.Call(hwnd, uintptr(gclpHIcon), hIcon)
+			procSendMessageW.Call(hwnd, wmSetIcon, iconBig, hIcon)
+			procSetWindowPos.Call(hwnd, 0, 0, 0, 0, 0,
+				swpNoSize|swpNoMove|swpNoZOrder|swpNoActivate|swpFrameChanged)
+		}
 	}
 }
 

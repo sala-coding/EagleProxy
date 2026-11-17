@@ -577,6 +577,35 @@ export function useLogs(notify: Notify) {
         loadAllLogs();
     };
 
+    // A press anywhere else puts the panel away — the same gesture the settings
+    // dock, the exit card and the LAN guide answer to. The three doors that are
+    // exempt are the ones that would undo the press: the rail's button and the
+    // status bar both toggle the panel (closing on the mousedown and letting
+    // their own click open it again would read as the button doing nothing),
+    // and the log's own right-click menu is a layer of this panel that happens
+    // to be painted outside it.
+    watch(showLogs, (open, _, onCleanup) => {
+        if (!open) return;
+        const onDown = (e: PointerEvent) => {
+            const el = e.target as HTMLElement | null;
+            if (el?.closest('.console, .appnav-logs, .statusbar, .ctxmenu')) return;
+            showLogs.value = false;
+        };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return;
+            // A layer standing over the table answers Escape first; this panel is
+            // under all of them, and one press must put away one layer.
+            if (document.querySelector('.modal-mask, .settings-dock, .conn-modal, .subdrop, .exit-panel, .lan-panel')) return;
+            showLogs.value = false;
+        };
+        document.addEventListener('pointerdown', onDown, true);
+        window.addEventListener('keydown', onKey);
+        onCleanup(() => {
+            document.removeEventListener('pointerdown', onDown, true);
+            window.removeEventListener('keydown', onKey);
+        });
+    });
+
     // The one automatic opening the panel ever gets: the first node this window
     // starts in a session (see useActions.start). The core's first seconds are
     // where a start shows whether it worked, and a reader who has never opened

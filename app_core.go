@@ -121,6 +121,10 @@ func (a *App) reload(keepCore bool) error {
 		_ = old.Stop()
 	}
 	a.curController().OnLog = a.logf
+	// The panel's shape is applied inside the controller, before a line is
+	// buffered or stamped: the buffer is what the panel reloads, and it has to
+	// hold the same text the file and the live stream do.
+	a.curController().Format = func(line string) string { return formatLogLineFor("core", line) }
 	a.curController().OnExit = func(id, pid int) {
 		if a.curCtx() != nil {
 			runtime.EventsEmit(a.curCtx(), "core:exit", id)

@@ -47,6 +47,16 @@ export function useSubsPanel(subsDrop: Ref<boolean>) {
         window.removeEventListener('resize', onWinResize);
     });
 
+    // The same pairing as the console's (see useConsoleDrag): a drawer closed
+    // mid-drag never sees the release, so the resizing state and the drag's
+    // origin are dropped here — otherwise the whole window kept the column
+    // cursor, and the next open moved its edge on a bare hover.
+    watch(subsDrop, open => {
+        if (open) return;
+        panelDrag = null;
+        panelResizing.value = false;
+    });
+
     const onPanelGripDown = (e: PointerEvent) => {
         const el = panelRef.value;
         if (!el) return;

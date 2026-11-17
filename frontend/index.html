@@ -7,12 +7,8 @@
          icon directory rather than inlined so the tree holds one copy of it. The 32px
          file is the size a tab actually draws it at. -->
     <link rel="icon" type="image/png" href="/fa/icon/eagle_32.png"/>
-    <!-- The bundled face is the window's own type (see body in style.css). Asking for
-         it before the bundle parses keeps the first frames from painting in the
-         fallback and then reflowing when 2.4MB of font arrives. crossorigin is what a
-         font fetch requires; the URL is same-origin, so nothing is sent. -->
-    <link rel="preload" as="font" type="font/ttf" crossorigin
-          href="/fa/font/JetBrainsMonoNerdFont-Medium.ttf"/>
+    <!-- The type is the system's own (see body in style.css): there is no face to
+         preload, so the window paints in the reader's UI font from the first frame. -->
     <title>Eagle</title>
 </head>
 <body style="width:100%;height:100%;margin:0">

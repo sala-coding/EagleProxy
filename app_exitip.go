@@ -514,6 +514,15 @@ func (a *App) exitClient() (*http.Client, bool) {
 	a.exitMu.Lock()
 	defer a.exitMu.Unlock()
 	if a.exitHTTP == nil || a.exitKey != key {
+		// The old client's pool belongs to the old inbound address; left alone,
+		// its keep-alive sockets (and their read/write loops) sit on the old
+		// target for the transport's whole idle timeout. Closing the idle ones
+		// is safe for a request already in flight.
+		if a.exitHTTP != nil {
+			if tr, ok := a.exitHTTP.Transport.(*http.Transport); ok {
+				tr.CloseIdleConnections()
+			}
+		}
 		a.exitKey = key
 		a.exitHTTP = client
 	}

@@ -5,21 +5,20 @@ import (
 	"strings"
 )
 
-// The log panel's own internationalisation. The words the app writes used to be
-// the payload; now a line that matches one of the templates below is re-sent as
-// "@@" + a JSON entry {"k":key,"t":tag,"p":[params]}, and the front end renders
-// it through its own dictionary — so the panel speaks the language the window
-// is in, and a language switch repaints the lines already on screen.
+// The log panel's wording table. Every line the app writes is matched here —
+// the FINAL line, values already substituted, {0} {1}… standing for the dynamic
+// parts — and the entry says two things: the dictionary key the front end
+// speaks for another language, and the type word the line is filed under (see
+// logformat.go). The front end reads the same table through LogTemplates() and
+// matches the plain text itself, so a language switch repaints the lines
+// already on screen.
 //
-// The table matches the FINAL line (values already substituted), one template
-// per wording the back end writes, with {0} {1}… standing for the dynamic
-// parts. A line nothing matches is passed through unchanged: stale wording
-// reads as itself rather than breaking the stream. Templates are matched
-// anchored and in order — the generic catch-alls sit at the end.
+// A line nothing matches is passed through unchanged: stale wording reads as
+// itself rather than breaking the stream. Templates are matched anchored and in
+// order — the generic catch-alls sit at the end.
 //
-// The tag is the "[vpn]"/"[dns]"-style source label the raw line carried; an
-// empty tag renders bare, the way the ">>>"/"<<<" lifecycle lines did (those
-// arrows stay in the words themselves — they are language-neutral marks).
+// The tag is the "[vpn]"/"[dns]"-style source label the raw lines used to
+// carry; logTypeOf turns it (and the key) into the type word the panel shows.
 
 type logTpl struct {
 	tpl string // the exact wording, {0} {1}… for the dynamic parts

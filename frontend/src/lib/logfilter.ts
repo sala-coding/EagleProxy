@@ -1,14 +1,12 @@
 import type {Component} from 'vue';
-import {t} from '../i18n';
+import {getLang, t} from '../i18n';
+import * as API from '../../wailsjs/go/main/App';
 import {ArrowRightFilled, CloudFilled, ForbidCircleFilled, LayersFilled} from './icons';
 
-// The marker in front of a translatable line: what follows is one JSON object —
-// {"k":key,"t":tag,"p":[params]} — the back end writes when a line matches its
-// own table (see logi18n.go). The panel renders the entry through the
-// dictionary, so the log speaks the language the window is in, and a language
-// switch repaints the lines already on screen. A line nothing matches is plain
-// text and goes out as it is — the core's own words, and any wording an older
-// table entry has drifted away from.
+// The marker older builds wrote in front of a translatable line: what follows is
+// one JSON object — {"k":key,"t":tag,"p":[params]}. The current backend writes
+// plain text instead ("[类型] 文本") and the table below matches it, but files and
+// buffers from older sessions still carry the marked form, so it is still read.
 export const LOG_MARK = '@@';
 
 export type LogEntry = {k: string; t?: string; p?: string[]};
@@ -27,17 +25,79 @@ export function parseLogMsg(msg: string): LogEntry | null {
     return null;
 }
 
-// renderLogMsg speaks one line's message: a marked entry is the dictionary's
-// words with the entry's values filled in, prefixed by its source label. An
-// entry the dictionary does not know falls back to the raw wording — a stale
-// line reads as itself rather than as a key nobody recognises.
+// The translation table, fetched from the backend once: the plain wording with
+// {0} {1}… for the dynamic parts, and the dictionary key each stands for. The
+// backend's own copy decides the line's type word; this one is only about
+// speaking another language.
+type LogTpl = {re: RegExp; key: string};
+let logTpls: LogTpl[] = [];
+let logTplsLoading: Promise<void> | null = null;
+
+// compileLogTpl mirrors the backend's compiler: every {n} becomes a capture
+// group, lazy but the last, so the final value (usually an error's whole text)
+// is taken whole.
+function compileLogTpl(tpl: string): RegExp {
+    const parts = tpl.split(/(\{\d+\})/);
+    const groups = parts.filter(p => /^\{\d+\}$/.test(p)).length;
+    let seen = 0;
+    let src = '^';
+    for (const part of parts) {
+        if (/^\{\d+\}$/.test(part)) {
+            seen++;
+            src += seen === groups ? '(.*)' : '(.*?)';
+        } else {
+            src += part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+    }
+    return new RegExp(src + '$', 's');
+}
+
+// loadLogTemplates fetches the table once. Until it lands (or if it fails) a
+// line is shown as it was written, which is the Chinese text — readable, if
+// untranslated.
+export function loadLogTemplates(): Promise<void> {
+    if (logTplsLoading) return logTplsLoading;
+    logTplsLoading = API.LogTemplates()
+        .then(list => {
+            logTpls = (list ?? []).map(x => ({re: compileLogTpl(x.tpl), key: x.key}));
+        })
+        .catch(() => { logTpls = []; });
+    return logTplsLoading;
+}
+
+// The decorative marks older lines carried (">>>", "<<<", "##") — and the
+// "提示:" lead-in — are removed from translated text too, so a dictionary value
+// written before the cleanup does not put them back.
+const LOG_MARKS = /^(?:<<<<<<<< |>>> |<<< |## |提示: )+/;
+function stripMarks(s: string): string {
+    return s.replace(LOG_MARKS, '');
+}
+
+// renderLogMsg speaks one line's message. Chinese is the text's own language:
+// what the backend wrote is what the reader reads. Another language matches the
+// text (after its "[类型] " prefix) against the table and speaks the
+// dictionary's words; a line nothing matches stays as it was written.
 export function renderLogMsg(msg: string): string {
     const e = parseLogMsg(msg);
-    if (!e) return msg;
-    const key = `log.${e.k}`;
-    const words = t(key, ...(e.p ?? []));
-    if (words === key) return msg;
-    return (e.t ? `[${e.t}] ` : '') + words;
+    if (e) {
+        const key = `log.${e.k}`;
+        const words = t(key, ...(e.p ?? []));
+        if (words === key) return msg;
+        return (e.t ? `[${e.t}] ` : '') + stripMarks(words);
+    }
+    if (getLang() === 'zh' || logTpls.length === 0) return msg;
+    const m = /^\[([^\]]+)\]\s+(.*)$/s.exec(msg);
+    if (!m) return msg;
+    const [, tag, text] = m;
+    for (const p of logTpls) {
+        const mm = p.re.exec(text);
+        if (!mm) continue;
+        const key = `log.${p.key}`;
+        const words = t(key, ...mm.slice(1));
+        if (words === key) return msg;
+        return `[${tag}] ${stripMarks(words)}`;
+    }
+    return msg;
 }
 
 // The whole line, stamp included: what the clipboard, the export file and the

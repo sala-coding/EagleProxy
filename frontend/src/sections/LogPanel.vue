@@ -129,7 +129,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onLevelOutside
                 is, and the one way out of it. Everything about the lines —
                 which of them are showing, and what their colours mean — is
                 down in the log itself, where the lines are. -->
-            <span class="console-title" :title="t('log.collapse')">{{ t('log.title') }}</span>
+            <span class="console-title" :title="t('log.title')">{{ t('log.title') }}</span>
             <!-- Holding the stream still, at the head of the right-hand
                 group. The glyph is the state rather than the action: a
                 pause bar while the panel is following, a play triangle

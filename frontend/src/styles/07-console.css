@@ -98,8 +98,12 @@
    a line — the clear and the collapse. It is a strip raised a step above the panel's
    floor — a lit top edge (the light arriving over the reader's shoulder again) and a
    shadow under its bottom border, so the head reads as sitting in front of the log
-   rather than painted on the same sheet. */
+   rather than painted on the same sheet. Its outline is the panel's: the top edge is
+   the console's own border, the bottom is the line under this strip. It used to carry
+   two rails drawn 4px inside itself, and on a black floor two lines 4px apart read as
+   a frame set askew against the panel's edge rather than as the height of the bar. */
 .console-head {
+    position: relative;
     flex: 0 0 auto;
     display: flex;
     align-items: center;
@@ -107,7 +111,7 @@
     padding: 6px 10px 5px 14px;
     background: linear-gradient(rgba(255, 255, 255, .05), rgba(255, 255, 255, 0)), var(--bg);
     box-shadow: 0 1px 0 rgba(255, 255, 255, .04), 0 3px 8px rgba(0, 0, 0, .38);
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--line-strong);
 }
 
 .console-title {
@@ -443,10 +447,9 @@
     --log-hair: rgba(255, 255, 255, .05);
     --log-col: rgba(255, 255, 255, .10);
     /* The time column's width, declared once for the header and the rows.
-       12ch at the rows' 0.78125rem mono (JetBrains Mono's ch is .6em) =
-       5.625rem. It cannot stay `12ch` on both: the header's smaller type
-       measures a narrower ch, and its column rule then lands ~11px left of
-       the rows' — two vertical lines an eye can tell apart. */
+       A fixed rem rather than `12ch`: the header's smaller type measures a
+       narrower ch, and its column rule then lands ~11px left of the rows' —
+       two vertical lines an eye can tell apart. */
     --log-stamp-w: 5.625rem;
 }
 
@@ -469,7 +472,7 @@
     padding: 2px 22px 2px 14px;
     border-bottom: 1px solid var(--log-hair);
     color: var(--text);
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.78125rem;
     line-height: 1.7;
     white-space: pre-wrap;
@@ -484,7 +487,7 @@
 }
 
 .console-body .logline:hover {
-    background: rgba(255, 255, 255, .045);
+    background: var(--hover-bg);
     /* The line comes forward a little under the pointer — out of the well it sits
        in, by two pixels and a shade of extra light. */
     transform: translateX(2px);
@@ -522,7 +525,7 @@
     padding: 4px 22px 3px 14px;
     background: rgba(13, 17, 23, .95);
     border-bottom: 1px solid var(--log-col);
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.6875rem;
     letter-spacing: .08em;
     color: var(--text-dim);

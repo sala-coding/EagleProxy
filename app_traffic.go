@@ -259,11 +259,13 @@ func (a *App) trafficLoop() {
 			}
 		}
 		lastPoll = now
-		var upRate, downRate int64
-		if span > 0 && (dUp > 0 || dDown > 0) {
-			upRate = dUp * 1000 / span
-			downRate = dDown * 1000 / span
-		}
+		// Each direction is judged on its own: a core restart makes one counter
+		// start from zero, and that direction is no traffic — while the other
+		// is still a real measurement. Dividing them together let a restart
+		// emit a negative rate for whichever half had not overtaken its old
+		// total yet.
+		upRate := rateOf(dUp, span)
+		downRate := rateOf(dDown, span)
 
 		runtime.EventsEmit(a.curCtx(), "traffic", map[string]interface{}{
 			"up":         resp.UploadTotal,
@@ -311,6 +313,16 @@ func (a *App) trafficLoop() {
 			"id": id, "up": up, "down": down,
 		})
 	}
+}
+
+// rateOf turns one poll's byte delta into a per-second rate. A negative delta
+// is a core that restarted and counts from zero: that direction reads as no
+// traffic rather than as a negative rate.
+func rateOf(delta, span int64) int64 {
+	if delta <= 0 || span <= 0 {
+		return 0
+	}
+	return delta * 1000 / span
 }
 
 // flushTraffic persists the counters of the profile that is about to stop, so

@@ -12,7 +12,7 @@
 // else to be said.
 import {computed, ref, watch, onMounted, onBeforeUnmount, type Ref} from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import {t} from '../i18n';
+import {t, tList} from '../i18n';
 import {countryName, purityLevel, SPEED_RUNNING_KEYS} from '../lib/metrics';
 import {fmtRate} from '../lib/format';
 import {STOPPED} from '../composables/shared-consts';
@@ -223,18 +223,22 @@ const lanPort = computed(() => {
 const guideOpen = ref(false);
 const guideRef = ref<HTMLDivElement | null>(null);
 
-// The steps, as the rows the panel draws: a numeral, the platform it is for, and the
-// presses themselves. The two names that are words rather than products come from the
-// dictionary; "iPhone" and the rest do not need translating.
-const guideSteps = computed(() => {
+// The device the reader is holding. The three are alternatives, not steps: one
+// reader, one phone, and the presses below differ only in which phone it is. So they
+// sit side by side and the path under them answers for the one that was picked.
+const platform = ref<'iphone' | 'android' | 'windows'>('iphone');
+const platforms = ['iphone', 'android', 'windows'] as const;
+const platformLabel: Record<'iphone' | 'android' | 'windows', string> = {
+    iphone: 'iPhone',
+    android: 'Android',
+    windows: 'Windows',
+};
+// The path to the proxy setting: the taps, one by one. It is a list rather than a
+// sentence because the address has a field of its own below the path — so the path
+// only has to say where to go.
+const platformPath = computed(() => {
     void props.langTick;
-    return [
-        {n: '01', tag: t('lan.guide.tag.net'), text: t('lan.guide.s1')},
-        {n: '02', tag: 'iPhone', text: t('lan.guide.s2')},
-        {n: '03', tag: 'Android', text: t('lan.guide.s3')},
-        {n: '04', tag: 'Windows', text: t('lan.guide.s4')},
-        {n: '05', tag: t('lan.guide.tag.check'), text: t('lan.guide.s5')},
-    ];
+    return tList(`lan.guide.path.${platform.value}`);
 });
 
 // Outside press and Escape put it away — the two gestures the exit panel answers to as
@@ -267,23 +271,11 @@ watch(lanIp, v => {
     if (!v) guideOpen.value = false;
 });
 
-// The LAN endpoint's copy: the same two-step as the exit address's (see copyIp),
-// with the endpoint as the text. The guide's own button is the caller now — the bar's
-// press opens the steps instead, which is what that address is asked about.
-async function copyLan() {
-    const text = lanIp.value;
+// One field of the form on its own: a reader who has the address already and wants
+// only the port should not have to take the pair apart by hand.
+async function copyLanPart(text: string) {
     if (!text) return;
-    try {
-        await navigator.clipboard.writeText(text);
-        emit('copied', true);
-        return;
-    } catch { /* fall through to the backend */ }
-    try {
-        await API.WriteClipboard(text);
-        emit('copied', true);
-    } catch {
-        emit('copied', false);
-    }
+    await writeClipboard(text);
 }
 
 </script>
@@ -500,33 +492,81 @@ async function copyLan() {
         </div>
 
         <!-- The LAN guide, in the same card the exit details use (see .exit-panel):
-            a spec sheet whose subject is the endpoint, then one row per press the
-            other device needs — numeral, platform, sentence. Not a dialog: nothing
-            here is modal, and the reader is holding a phone rather than tabbing
-            through a form. -->
+            not a list of steps to read but a thing to fill in on the other device.
+            The body is a ruled sheet: a narrow column of labels down one side, the
+            answer to each in the cell beside it — network first, then the device
+            being held, the taps its settings ask for, and the two numbers all of
+            that ends in. Not a dialog: nothing here is modal, and the reader is
+            holding a phone rather than tabbing through a form. -->
         <div v-if="guideOpen && lanIp" class="exit-panel lan-panel" ref="guideRef"
              role="dialog" :aria-label="t('lan.guide.title')">
-            <div class="exit-hero">
-                <!-- Where the exit panel carries the country's flag: what kind of thing
-                     this is. The same slot, so the two cards open the same way. -->
-                <span class="lan-hero-chip">LAN</span>
-                <div class="exit-hero-main">
-                    <span class="exit-ip">{{ lanServer }}<i class="lan-hero-port">:{{ lanPort }}</i></span>
-                    <span class="exit-hero-sub">{{ t('lan.guide.sub') }}</span>
-                </div>
-                <button class="exit-copy" :title="t('lan.guide.copy')"
-                        :aria-label="t('lan.guide.copy')"
-                        @click="copyLan">
-                    <CopyFilled class="ic"/>
-                </button>
+            <!-- 表头：这是什么、走的什么协议。 -->
+            <div class="lan-stub">
+                <span class="lan-chip">LAN</span>
+                <span class="lan-stub-sub">{{ t('lan.guide.sub') }}</span>
             </div>
-            <div class="lan-steps">
-                <div v-for="s in guideSteps" :key="s.n" class="lan-step">
-                    <span class="lan-step-n">{{ s.n }}</span>
-                    <span class="lan-step-tag">{{ s.tag }}</span>
-                    <span class="lan-step-text">{{ s.text }}</span>
-                </div>
+
+            <!-- 表体：一格标签、一格内容，横竖细线连成一张表。
+                 先决条件在前，要抄的两个数放最大。 -->
+            <div class="lan-sheet">
+                <span class="lan-th">{{ t('lan.guide.tag.net') }}</span>
+                <span class="lan-td lan-td-text">{{ t('lan.guide.s1') }}</span>
+
+                <span class="lan-th">{{ t('lan.guide.tag.device') }}</span>
+                <span class="lan-td">
+                    <!-- 设备：三选一，而不是三步。选中的那一枚自己填满，其余两枚空着。 -->
+                    <div class="lan-dock" role="group" :aria-label="t('lan.guide.title')">
+                        <button v-for="p in platforms" :key="p"
+                                type="button" :aria-pressed="platform === p"
+                                :class="{on: platform === p}"
+                                @click="platform = p">
+                            <span class="lan-dock-name">{{ platformLabel[p] }}</span>
+                        </button>
+                    </div>
+                </span>
+
+                <span class="lan-th">{{ t('lan.guide.tag.path') }}</span>
+                <span class="lan-td">
+                    <!-- 路径：一串点击的地方。最后一个是要选的那一项，戴着主题色。
+                         箭头和它后面那一格捆在一起：路径太长时会折行，箭头若自己留在
+                         上一行，就会指着错误的那一格。 -->
+                    <div class="lan-path">
+                        <template v-for="(hop, i) in platformPath" :key="hop + i">
+                            <span class="lan-step">
+                                <span v-if="i" class="lan-arrow" aria-hidden="true">›</span>
+                                <span class="lan-hop" :class="{last: i === platformPath.length - 1}">{{ hop }}</span>
+                            </span>
+                        </template>
+                    </div>
+                </span>
+
+                <div class="lan-cap">{{ t('lan.guide.fill') }}</div>
+
+                <span class="lan-th">{{ t('lan.guide.field.server') }}</span>
+                <span class="lan-td lan-td-num">
+                    <span class="lan-field-v mono">{{ lanServer }}</span>
+                    <button class="lan-field-copy" type="button"
+                            :title="t('btn.copy')" :aria-label="t('btn.copy')"
+                            @click="copyLanPart(lanServer)">
+                        <CopyFilled class="ic"/>
+                    </button>
+                </span>
+
+                <span class="lan-th">{{ t('lan.guide.field.port') }}</span>
+                <span class="lan-td lan-td-num">
+                    <span class="lan-field-v mono lan-port">{{ lanPort }}</span>
+                    <button class="lan-field-copy" type="button"
+                            :title="t('btn.copy')" :aria-label="t('btn.copy')"
+                            @click="copyLanPart(lanPort)">
+                        <CopyFilled class="ic"/>
+                    </button>
+                </span>
+
+                <span class="lan-th lan-th-end">{{ t('lan.guide.tag.check') }}</span>
+                <span class="lan-td lan-td-text lan-td-end">{{ t('lan.guide.s5') }}</span>
             </div>
+
+            <!-- 表脚：从这里撕下去的说法，说一次就够。 -->
             <p class="lan-note">{{ t('lan.guide.note') }}</p>
         </div>
     </div>

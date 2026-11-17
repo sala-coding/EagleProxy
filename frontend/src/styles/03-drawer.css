@@ -327,9 +327,11 @@
 }
 
 /* Quiet like the row actions: the caption states what the columns are, and a control
-   that shouts there would compete with the labels it sits between. */
+   that shouts there would compete with the labels it sits between. The wash is the
+   app's own hover surface, like every other control — the one-off white and its
+   light-theme counterpart are gone with the rest of the written-down greys. */
 .cap-btn:hover:not(:disabled) {
-    background: rgba(255, 255, 255, .07);
+    background: var(--hover-bg);
     color: var(--text);
 }
 
@@ -341,10 +343,6 @@
 .cap-btn:disabled {
     opacity: .4;
     cursor: default;
-}
-
-[data-variant="light"] .cap-btn:hover:not(:disabled) {
-    background: rgba(0, 0, 0, .06);
 }
 
 .subdrop-table td {
@@ -508,16 +506,18 @@
     min-width: 0;
 }
 
-/* The account figures, and the only line on the detail row. Now that the row spans
-   the card, the whole line fits at every width the drawer can be dragged to, down to
-   its 300px floor. flex-wrap stays as the last resort rather than nowrap: a row that
-   cannot fit should fall to a second line, not have the expiry clipped off the end
-   where nobody would notice it was missing. */
+/* The account figures, and the only line on the detail row. One line, always: the
+   update time, the expiry and the node count are read together as the account's
+   state, and a count that fell to a second line read as a badge about the first
+   half of the sentence. The drawer's 300px floor was measured against this line,
+   so the three of them fit down to it without a wrap — the figures give way to
+   each other rather than to a second row. */
 .subdrop-table .sub-meta {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 0 6px;
+    min-width: 0;
     font-size: 0.65625rem;
     color: var(--text-dim);
     font-variant-numeric: tabular-nums;
@@ -529,6 +529,12 @@
 .subdrop-table .sub-meta-item {
     display: inline-flex;
     align-items: center;
+    /* Shrinkable, not fixed: the line must hold one row (see .sub-meta), and a
+       reader's larger type scale would otherwise push the expiry past the cell's
+       overflow and cut it off with nothing to show it was cut. */
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
     white-space: nowrap;
 }
 

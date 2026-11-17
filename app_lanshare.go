@@ -89,14 +89,9 @@ func (a *App) SetLANShare(on bool) (*LANState, error) {
 	} else {
 		// 关闭时把这条放行撤掉：留着它等于把一个本程序已不再监听的端口长期对局域网敞开，
 		// 日后该端口被别的程序占用时，外部可以直接连进来而不再经过防火墙的确认。
-		// 端口改过的话，旧端口那条也一并撤（规则按端口命名，见 lanFirewallRuleName）。
-		ports := []int{port}
-		if cur.InboundSocksPort != port {
-			ports = append(ports, cur.InboundSocksPort)
-		}
-		for _, p := range ports {
-			go a.removeLANFirewallRule(p)
-		}
+		// 端口在共享期间被改过的话，设置保存的那条路径已经把旧端口的规则撤掉、
+		// 给新端口补上（见 UpdateSettings），所以这里只需要当前端口。
+		go a.removeLANFirewallRule(port)
 	}
 	// No core up: the flag is the whole of the work — the next start builds its
 	// config from it. The state says the node is not running, and the window says

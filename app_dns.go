@@ -3,6 +3,7 @@ package main
 import (
 	"net"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -62,6 +63,14 @@ func (a *App) syncDNSStub() {
 	if r == nil {
 		return
 	}
+	// The cache lives under the data directory — config/dns-cache beside the
+	// executable by default. A data directory that is not known yet (the first
+	// moments of a launch) leaves the cache off rather than writing to the
+	// process's working directory.
+	cacheDir := ""
+	if dir := a.curDataDir(); dir != "" {
+		cacheDir = filepath.Join(dir, "dns-cache")
+	}
 	s.Configure(dnsstub.Wires{
 		Remote: r.RemoteDNS,
 		Direct: r.DirectDNS,
@@ -78,6 +87,11 @@ func (a *App) syncDNSStub() {
 		// machine's resolver (see Wires.Bootstrap). Empty before any takeover, which is
 		// when the system resolver is still the right one to ask.
 		Bootstrap: a.bootstrapResolvers(),
+		// The DNS card's cache switch (see internal/dnsstub/cache.go). It is the
+		// forwarder's own setting: the core never reads it, and a change reaches the
+		// forwarder here without a restart.
+		Cache:    r.DNSCache && cacheDir != "",
+		CacheDir: cacheDir,
 	})
 }
 

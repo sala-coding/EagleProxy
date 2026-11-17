@@ -35,7 +35,7 @@ func (a *App) logSpeedtest(category, line string) {
 	// Stamped before it goes anywhere: this line reaches the panel as an event and
 	// the file as a write, and the two have to agree — a test's output used to show
 	// up untimed while it ran and timed once the panel was reopened.
-	line = logstore.Stamp(util.StripANSI(line))
+	line = logstore.Stamp(formatLogLineFor(category, util.StripANSI(line)))
 	if logs := a.logStore(); logs != nil {
 		logs.Write(category, line)
 	}
@@ -221,13 +221,12 @@ func (a *App) speedtest(ids []int, mode int, title string) ([]SpeedTestResult, e
 			title = "单个节点"
 		}
 		// Each run replaces the file instead of appending to it, so the log
-		// always describes the latest test of that mode. The heading goes out
-		// structured: the panel translates it, so the run's caption follows
-		// the window's language like every other line of the app's own making.
+		// always describes the latest test of that mode. The heading carries its
+		// type like every other line: the panel translates the words around it,
+		// so the run's caption follows the window's language.
 		logs.Truncate(category)
-		logs.Section(category, logstore.Stamp(markedLine("speedtest.sectionTitle", "",
-			title, speedtestModeName(mode), strconv.Itoa(len(ids)))))
-		a.emitLog("core", logstore.Stamp(markedLine("speedtest.logFileNote", "", logs.Path(category, time.Now()))))
+		logs.Section(category, logstore.Stamp("[测速] "+title+" · "+speedtestModeName(mode)+" · "+strconv.Itoa(len(ids))+" 个节点"))
+		a.emitLog("core", logstore.Stamp("[测速] 测速日志: "+logs.Path(category, time.Now())))
 	}
 
 	n := a.curSetting().TestConcurrent
@@ -237,7 +236,7 @@ func (a *App) speedtest(ids []int, mode int, title string) ([]SpeedTestResult, e
 	// One line the reader can hold the run against: "并发 N" is what the scheduler
 	// is doing, so a run that reads slow can be told apart from one that is wide
 	// but waiting on slow nodes.
-	a.logSpeedtest(category, markedLine("speedtest.concurrency", "", strconv.Itoa(n), strconv.Itoa(len(ids))))
+	a.logSpeedtest(category, "并发 "+strconv.Itoa(n)+" · "+strconv.Itoa(len(ids))+" 个节点")
 
 	sem := make(chan struct{}, n)
 	var wg sync.WaitGroup
@@ -340,7 +339,7 @@ loop:
 			for _, r := range results {
 				logs.Write(category, a.speedtestResultLine(r))
 			}
-			logs.Section(category, logstore.Stamp(markedLine("speedtest.sectionEnd", "", speedtestModeName(mode))))
+			logs.Section(category, logstore.Stamp("[测速] "+speedtestModeName(mode)+" 结束"))
 		}
 	}
 	return results, nil

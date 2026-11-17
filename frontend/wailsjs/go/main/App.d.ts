@@ -102,6 +102,8 @@ export function ListGroups():Promise<Array<main.GroupInfo>>;
 
 export function ListProfiles(arg1:number):Promise<Array<main.ProfileInfo>>;
 
+export function LogTemplates():Promise<Array<main.LogTemplate>>;
+
 export function MoveProfile(arg1:number,arg2:number):Promise<void>;
 
 export function OpenDataDir():Promise<void>;

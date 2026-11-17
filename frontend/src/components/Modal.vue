@@ -29,11 +29,19 @@ export function paneAnchor(from?: HTMLElement | null): {left: number; top: numbe
     const top = Math.round(row ? row.getBoundingClientRect().top : panel.offsetTop);
     return {left, top};
 }
+
+// The dialogs on screen, in the order they arrived. Escape and the Tab loop are
+// read on the window rather than on the mask, because a focus that sits outside
+// the mask (a press on the card's own padding, a second dialog stacked over this
+// one) would otherwise leave the keyboard with no owner — so the keys are
+// handled once, at the top, and only the topmost dialog answers them.
+export const modalStack: symbol[] = [];
 </script>
 
 <script setup lang="ts">
 import {computed, onBeforeUnmount, onMounted, ref, watch, watchEffect, type CSSProperties} from 'vue';
 import {CloseFilled} from '../lib/icons';
+import {t} from '../i18n';
 import {type PanelExit} from '../lib/subdraw';
 
 const props = withDefaults(defineProps<{
@@ -185,9 +193,15 @@ watch(() => props.sheet, (sheet, _, onCleanup) => {
 // the focus onto the body, so the next Tab started again from the top of the
 // window.
 const maskRef = ref<HTMLDivElement | null>(null);
+// This instance's place in the stack (see modalStack): only the top one answers
+// the two keys, and the report below is unconditional — the removal is cheap and
+// a dialog that was never pushed still leaves the stack as it was.
+const token = Symbol('modal');
 let opener: HTMLElement | null = null;
 onMounted(() => {
     opener = document.activeElement as HTMLElement | null;
+    modalStack.push(token);
+    window.addEventListener('keydown', onKeyDown, true);
     const el = maskRef.value;
     // An EDITABLE control before the rest — a form the card opens for is opened
     // to be typed into, and an autofocus the card asks for is where the reader's
@@ -203,6 +217,9 @@ onMounted(() => {
     (first ?? el)?.focus();
 });
 onBeforeUnmount(() => {
+    window.removeEventListener('keydown', onKeyDown, true);
+    const at = modalStack.lastIndexOf(token);
+    if (at >= 0) modalStack.splice(at, 1);
     // Only when it is still in the document. The opener can be gone with the
     // panel that held it — a row menu that opened this card — and focusing a
     // detached node throws the focus at the body instead.
@@ -223,6 +240,9 @@ const EDITABLE = 'input:not([type="checkbox"]):not([type="radio"]):not([type="hi
 // stopPropagation stops the native one before it leaves the app's root, so this
 // is the whole of that fix.
 const onKeyDown = (e: KeyboardEvent) => {
+    // Only the topmost dialog answers: a card opened over this one owns both keys,
+    // and a press that reached two dialogs would close them both.
+    if (modalStack[modalStack.length - 1] !== token) return;
     if (e.key === 'Escape') {
         e.stopPropagation();
         requestClose();
@@ -300,7 +320,7 @@ const modalClass = computed(() =>
 
 <template>
     <div :class="`modal-mask${anchor ? ' anchored' : ''}`" ref="maskRef"
-         tabindex="-1" @keydown="onKeyDown" @click="requestClose">
+         tabindex="-1" @click="requestClose">
         <div ref="paneRef"
              :style="seatStyle"
              role="dialog"
@@ -312,7 +332,8 @@ const modalClass = computed(() =>
                 <h2>{{ title }}</h2>
                 <div class="modal-head-actions">
                     <slot name="head"/>
-                    <button v-if="closable" class="btn tiny ghost" @click="requestClose">
+                    <button v-if="closable" class="btn tiny ghost" @click="requestClose"
+                            :aria-label="t('btn.close')" :title="t('btn.close')">
                         <CloseFilled class="ic"/>
                     </button>
                 </div>

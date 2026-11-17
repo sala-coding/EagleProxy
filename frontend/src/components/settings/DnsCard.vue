@@ -508,6 +508,18 @@ const onSmartToggle = (key: 'select' | 'switch', on: boolean) => {
                            @change="emit('editFlag', 'use_dns_object', ($event.target as HTMLInputElement).checked)"/>
                 </label>
             </div>
+            <!-- DNS 缓存, at the foot: repeat names are answered by the
+                forwarder itself for as long as their TTL allows, and the
+                entries live under config/dns-cache beside the executable. The
+                switch is the forwarder's — the core never reads it, and the
+                card's own save applies it without a restart. -->
+            <div class="jf-field">
+                <label :title="t('dns.cacheHint')">{{ t('dns.cache') }}</label>
+                <label class="jf-check">
+                    <input type="checkbox" :checked="!!form.dns_cache"
+                           @change="emit('editFlag', 'dns_cache', ($event.target as HTMLInputElement).checked)"/>
+                </label>
+            </div>
         </div>
         <!-- No button: this card writes itself (see the debounced effect in
             this component). Nothing stands here to say so any more — the

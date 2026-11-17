@@ -134,14 +134,14 @@ const emit = defineEmits<{
             entry is absent. The connections entry is the one that also says
             something on its own: it wears the app's green-for-live while a proxy
             mode is engaged, the same reading the run-state lamp gives the chip. -->
-        <button :class="`appnav-btn${showLogs ? ' active' : ''}`"
+        <button :class="`appnav-btn appnav-logs${showLogs ? ' active' : ''}`"
                 :title="t('log.title')"
                 :aria-label="t('log.title')"
                 :aria-pressed="showLogs"
                 @click="$emit('toggleLogs')">
             <TerminalBoxFilled class="ic"/>
         </button>
-        <button :class="`appnav-btn${connOpen ? ' active' : ''}${proxyEngaged ? ' engaged' : ''}`"
+        <button :class="`appnav-btn appnav-conns${connOpen ? ' active' : ''}${proxyEngaged ? ' engaged' : ''}`"
                 :title="t('btn.connections')"
                 :aria-label="t('btn.connections')"
                 :aria-pressed="connOpen"

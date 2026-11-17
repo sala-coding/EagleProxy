@@ -69,12 +69,13 @@ const load = async () => {
 };
 
 let interval = 0;
-// Escape puts it away. It cannot be dismissed by being clicked away from any more:
-// its mask is transparent and passes clicks through to the table, which is the
-// point — a panel you consult while you work should not eat the click you meant
-// for the node list. So the key and the × are what close it. Bound once: the body
-// touches nothing from the props, and re-binding the listener on every render
-// (this panel re-renders each second with fresh data) is churn.
+// Escape puts it away, and so does a press anywhere else. The panel's mask is
+// transparent and passes clicks through to the table on purpose — a panel you
+// consult while you work should not eat the click you meant for the node list —
+// so the press is read here rather than left to the mask: it does its work in
+// the table and takes the panel with it. The two doors that toggle this seat are
+// exempt (the rail's button, and the log's own panel is not this one), because a
+// press on them closes on the mousedown and their click would open it again.
 const onKey = (e: KeyboardEvent) => {
     if (e.key !== 'Escape') return;
     // The topmost panel answers first, and only it. The settings dock is also
@@ -86,14 +87,23 @@ const onKey = (e: KeyboardEvent) => {
     escExit.value = 'flip';
 };
 
+const onDocDown = (e: PointerEvent) => {
+    const el = e.target as HTMLElement | null;
+    if (!el) return;
+    if (el.closest('.conn-modal, .appnav-conns')) return;
+    escExit.value = 'flip';
+};
+
 onMounted(() => {
     load();
     interval = window.setInterval(load, 1500);
     window.addEventListener('keydown', onKey, true);
+    document.addEventListener('pointerdown', onDocDown, true);
 });
 onBeforeUnmount(() => {
     window.clearInterval(interval);
     window.removeEventListener('keydown', onKey, true);
+    document.removeEventListener('pointerdown', onDocDown, true);
 });
 
 const closeConn = async (id: string) => {

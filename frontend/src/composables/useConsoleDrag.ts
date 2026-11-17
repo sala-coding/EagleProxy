@@ -29,6 +29,17 @@ export function useConsoleDrag(showLogs: Ref<boolean>) {
     // Dragging the panel's top edge. The pointer is captured by the handle, so
     // every move and the release arrive there even once the pointer has left it —
     // that is what makes the panel feel held rather than chased.
+    // A panel that is closed mid-drag takes the drag with it. The release never
+    // arrives once the handle is gone (the element that captured the pointer has
+    // left the document), so the flag stayed set: the next open came up in the
+    // resizing state, and a pointer merely passing over the grip started moving
+    // the edge without a button held down.
+    watch(showLogs, open => {
+        if (open) return;
+        consoleDrag = null;
+        consoleDragging.value = false;
+    });
+
     const onConsoleGripDown = (e: PointerEvent) => {
         const el = consoleRef.value;
         if (!el) return;

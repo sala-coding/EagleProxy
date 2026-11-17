@@ -190,6 +190,10 @@ export function ListProfiles(arg1) {
   return window['go']['main']['App']['ListProfiles'](arg1);
 }
 
+export function LogTemplates() {
+  return window['go']['main']['App']['LogTemplates']();
+}
+
 export function MoveProfile(arg1, arg2) {
   return window['go']['main']['App']['MoveProfile'](arg1, arg2);
 }

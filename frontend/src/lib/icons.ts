@@ -8,7 +8,10 @@ const mk = (name: string, body: string) => defineComponent({
     name,
     inheritAttrs: false,
     setup(_, {attrs}) {
-        return () => h('svg', {viewBox: '0 0 24 24', width: '1em', height: '1em', fill: 'currentColor', ...attrs, innerHTML: body});
+        // Decoration unless a caller says otherwise: the glyph sits inside a button
+        // that carries its own name, and a screen reader reading the path-less svg
+        // as an unlabelled graphic is one more stop on the way to the real label.
+        return () => h('svg', {viewBox: '0 0 24 24', width: '1em', height: '1em', fill: 'currentColor', 'aria-hidden': 'true', ...attrs, innerHTML: body});
     },
 }) as DefineComponent<{className?: string}>;
 

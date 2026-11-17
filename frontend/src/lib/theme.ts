@@ -151,7 +151,7 @@ export const CUSTOM_COLOR = '--custom-color';
 // instead of worn: the ink a palette carries is the derivation's, not the reader's,
 // and a set saved before the ink was whitened would keep showing the old grey.
 export const CUSTOM_VERSION = '--custom-version';
-export const CUSTOM_VERSION_NOW = '5';
+export const CUSTOM_VERSION_NOW = '6';
 
 // The three numbers the derivation works in. All of them are used: the hue tints the
 // surfaces, and the picked colour's own saturation and lightness drive the accent — so
@@ -215,7 +215,11 @@ export function buildCustomPalette(tone: string | {h: number; s: number; l: numb
     // A surface `step` away from the ground: down when the ground is pale, up when it
     // is dark, so both "raised" surfaces read as raised.
     const surf = (step: number, sat = 1) => `hsl(${h}, ${pc(s * sat)}%, ${pc(l + (pale ? -step : step))}%)`;
-    const acc = {h, s: pc(Math.max(45, s)), l: pc(pale ? Math.max(18, l - 32) : Math.min(88, l + 30))};
+    // The accent's lightness rides at least 60% on a deep ground: the push of +30
+    // alone left a very dark ground (7% and under) with an accent at 37% and less —
+    // a dim navy that fell under 2:1 against it, and every text that wore the accent
+    // (chips, buttons, the port number) stopped being readable on it.
+    const acc = {h, s: pc(Math.max(45, s)), l: pc(pale ? Math.max(18, l - 32) : Math.min(88, Math.max(60, l + 30)))};
     const accent = `hsl(${acc.h}, ${acc.s}%, ${acc.l}%)`;
     const core: CustomPalette = {
         '--bg': `hsl(${h}, ${pc(s)}%, ${pc(l)}%)`,

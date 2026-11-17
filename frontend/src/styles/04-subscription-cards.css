@@ -223,9 +223,13 @@
     transition: background .15s, border-color .15s, opacity .15s;
 }
 
+/* The pointer paints the one hover surface the whole app paints (see --hover-bg):
+   the button's own two-colour hover was the last place a grey was written down
+   outside the variable, so a reader who picked a hover colour got it everywhere
+   but here. */
 .btn:hover:not(:disabled) {
-    background: #2b3644;
-    border-color: #3a4757;
+    background: var(--hover-bg);
+    border-color: var(--line-strong);
 }
 
 .btn:disabled {

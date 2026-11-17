@@ -68,7 +68,7 @@
     grid-template-columns: 88px 1fr;
     gap: 0;
     margin: 0;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.6875rem;
 }
 
@@ -307,7 +307,7 @@
     border: 1px solid var(--line);
     border-radius: 6px;
     background: var(--bg);
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.6875rem;
     color: var(--text-dim);
     overflow-wrap: anywhere;
@@ -362,7 +362,7 @@
 /* One line, ellipsised: a tag long enough to wrap took the row's height with it and
    the list's lines stopped lining up. The whole tag is in the row's tooltip. */
 .rs-tag {
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;

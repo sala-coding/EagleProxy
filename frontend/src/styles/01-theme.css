@@ -2,27 +2,14 @@
    the type, the variables, and the palettes: the dark room, the light room, and the sixteen accent schemes everything else reads its colours from.
    (Split out of App.css; the order of these files is the cascade.) */
 
-/* JetBrains Mono (Nerd Font build) shipped in public/fa/font — one bundled face
-   for the whole app: the window's own type (see body in style.css), the log panel,
-   addresses, JSON and code blocks. It is the NL/Mono fork of the family: no
-   programming ligatures, so "->" and "=>" stay the two characters they are in a
-   path or a URL, and one glyph width for the icon range. Bundling it also removes
-   the "Latin monospace for ASCII, proportional CJK for Chinese" split that made
-   mixed log lines lose their column alignment. */
-@font-face {
-    font-family: "JetBrains Mono NF";
-    src: url("/fa/font/JetBrainsMonoNerdFont-Medium.ttf") format("truetype");
-    font-weight: 500;
-    font-style: normal;
-    font-display: swap;
-}
-
+/* The window's type is the system's own: no face travels with the bundle any more
+   (the JetBrains Mono in public/fa/font is gone), so every string in the window —
+   body text, headings, addresses, the log — is set in the reader's UI font: Segoe
+   UI / YaHei on Windows, SF on macOS, and whatever the desktop names elsewhere.
+   system-ui is the one entry that asks the platform rather than a family name. */
 :root {
-    /* CJK glyphs are not in JetBrains Mono, so a Chinese face still has to
-       follow it in the stack; it only takes over for the characters the
-       bundled font does not cover. */
-    --font-mono: "JetBrains Mono NF", "Microsoft YaHei Mono", "Microsoft YaHei",
-    ui-monospace, Consolas, monospace;
+    --font-ui: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei UI",
+    "Microsoft YaHei", "PingFang SC", sans-serif;
     --bg: #000000;
     --bg-2: #000000;
     --bg-3: #000000;
@@ -77,6 +64,11 @@
     --bg-3: #eceef2;
     --line: #d8dde5;
     --line-strong: #b3bdcb;
+    /* The same one hover surface, taken to the shade this room's floors need: a
+       row, a menu item and a button all paint this, so the light theme answers the
+       pointer the way the dark one does rather than with a written-down tint of
+       its own. */
+    --hover-bg: #e3e7ed;
     --text: #1c232d;
     --text-dim: #5c6675;
     --accent: #2f6fdb;
@@ -123,10 +115,6 @@
    rather than in light. */
 [data-variant="light"] .logline:nth-child(even) {
     background: rgba(0, 0, 0, .022);
-}
-
-[data-variant="light"] .logline:hover {
-    background: rgba(0, 0, 0, .045);
 }
 
 [data-variant="light"] .logline.err {

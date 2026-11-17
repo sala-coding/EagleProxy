@@ -105,7 +105,7 @@ const TUN_STACKS = [
     {value: 0, label: 'gvisor（用户态栈）'},
     {value: 1, label: 'system（系统栈）'},
     {value: 2, label: 'mixed（混合栈）'},
-    {value: 3, label: 'Sing 15（1.15+ 自有栈）'},
+    {value: 3, label: 'Sing 15（内置栈）'},
 ];
 // A version at or above 1.15 is where sing-tun ships its own TCP/IP stack; anything
 // unanswerable reads as older, the side the option stands down on. Handed down rather

@@ -170,38 +170,56 @@ func swapScriptArgs(script string) []string {
 // environment block is Unicode end to end and does not change the command line,
 // which stays in the shape that has always worked.
 func updateSwapScript() string {
+	stamp := time.Now().Format("2006-01-02 15:04:05")
 	return fmt.Sprintf("@echo off\r\n"+
 		"setlocal\r\n"+
 		"set \"NEW=%%EAGLE_NEW%%\"\r\n"+
 		"set \"SELF=%%EAGLE_SELF%%\"\r\n"+
 		"set \"OLDPID=%%EAGLE_OLDPID%%\"\r\n"+
 		"set /a TRIES=0\r\n"+
-		// The old build is copied aside before anything is moved over it. The
-		// move is the one step no code on this side can undo, and `move /y` on
-		// Windows replaces the destination by renaming: a move that fails
-		// half-way can leave neither build in place. The copy is what the
+		// The old build is copied aside before anything is staged. The swap is
+		// the one step no code on this side can undo, and the copy is what the
 		// failure branch below restores from, and what a reader can put back by
 		// hand if the new build turns out not to start.
 		"copy /y \"%%SELF%%\" \"%%SELF%%.old\" > nul 2>&1\r\n"+
+		"if errorlevel 1 echo %s backup failed: could not copy \"%%SELF%%\" to \"%%SELF%%.old\" >> \"%%SELF%%.update.log\"\r\n"+
+		// The new build is STAGED BESIDE the target first. %NEW% lives in the
+		// temp folder, which is often on another volume; a move from there is
+		// a copy followed by a delete, and a copy that fails half-way (a full
+		// disk, an IO error) leaves a truncated executable at %SELF% — one the
+		// rollback below could not tell from the old build. Copied to a
+		// neighbour on the target's own volume, the swap is a rename and either
+		// happens whole or not at all.
+		":stage\r\n"+
+		"if not exist \"%%NEW%%\" goto :fail\r\n"+
+		"copy /y \"%%NEW%%\" \"%%SELF%%.new\" > nul 2>&1\r\n"+
+		"if errorlevel 1 goto :fail\r\n"+
+		":swap\r\n"+
+		"set /a TRIES=0\r\n"+
 		":retry\r\n"+
 		"ping -n 2 127.0.0.1 > nul\r\n"+
-		"move /y \"%%NEW%%\" \"%%SELF%%\" > nul 2>&1\r\n"+
+		"move /y \"%%SELF%%.new\" \"%%SELF%%\" > nul 2>&1\r\n"+
 		"if not errorlevel 1 goto :done\r\n"+
 		"set /a TRIES+=1\r\n"+
-		// Sixty tries, not thirty. The file this move replaces is opened by every
-		// process running it, and one of them is the resident server: it reads its
-		// command slot between pieces of synchronous work that can hold it for
-		// fifteen seconds and more (a PnP adapter build, the PowerShell enumeration
-		// behind a front-end sweep). Measured here: the exit order landed at
-		// 19:07:38 and the move had given up at 19:07:38 — thirty tries were one
-		// second short of the wait the server itself asked for.
+		// Sixty tries, not thirty. The file this rename replaces is opened by
+		// every process running it, and one of them is the resident server: it
+		// reads its command slot between pieces of synchronous work that can
+		// hold it for fifteen seconds and more (a PnP adapter build, the
+		// PowerShell enumeration behind a front-end sweep). Measured here: the
+		// exit order landed at 19:07:38 and the move had given up at 19:07:38 —
+		// thirty tries were one second short of the wait the server itself asked
+		// for.
 		"if %%TRIES%% LSS 60 goto :retry\r\n"+
-		// Nothing was replaced: put the old build back where it belongs if the
-		// failed move left the path empty, and leave the line that says so.
-		"if not exist \"%%SELF%%\" copy /y \"%%SELF%%.old\" \"%%SELF%%\" > nul 2>&1\r\n"+
+		":fail\r\n"+
+		// Nothing was replaced. A target that still exists is the old build —
+		// the rename is atomic, so a failure here cannot have left half of the
+		// new one at %SELF% — and only a missing target needs the backup.
+		"if not exist \"%%SELF%%\" if exist \"%%SELF%%.old\" copy /y \"%%SELF%%.old\" \"%%SELF%%\" > nul 2>&1\r\n"+
+		"if exist \"%%SELF%%.new\" del /f /q \"%%SELF%%.new\" > nul 2>&1\r\n"+
 		"echo %s update failed: could not replace the running build (tried %%TRIES%% times) >> \"%%SELF%%.update.log\"\r\n"+
 		"goto :launch\r\n"+
 		":done\r\n"+
+		"if exist \"%%NEW%%\" del /f /q \"%%NEW%%\" > nul 2>&1\r\n"+
 		// The old build's exit is waited for before the new one is started.
 		// Windows happily renames a running executable's image, so the move
 		// above can succeed while the old build is still in its shutdown
@@ -233,7 +251,7 @@ func updateSwapScript() string {
 		":startit\r\n"+
 		"start \"\" \"%%SELF%%\"\r\n"+
 		"exit /b\r\n",
-		time.Now().Format("2006-01-02 15:04:05"))
+		stamp, stamp)
 }
 
 // stopHelpersForUpdate asks the other two processes that run this same binary

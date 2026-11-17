@@ -132,6 +132,18 @@ func (a *App) UpdateSettings(in setting.Setting) error {
 		return err
 	}
 	a.applyHotkeys()
+	// A shared inbound that moved to another port takes its firewall allowance
+	// with it: the rule is named by port, so the old one would leave a port the
+	// app no longer serves open to the LAN while the new one stayed blocked
+	// (see SetLANShare). Only while sharing is on — with it off there is no
+	// rule to move, and the disable path owns the removal.
+	if next.LANShare && before.InboundSocksPort != next.InboundSocksPort {
+		oldPort, newPort := before.InboundSocksPort, next.InboundSocksPort
+		go func() {
+			a.removeLANFirewallRule(oldPort)
+			a.ensureLANFirewallRule(newPort)
+		}()
+	}
 	if id := a.RunningProfile(); id != core.StoppedID &&
 		(settingsNeedCoreRestart(before, next) || !a.coreServesCurrentMode(id)) {
 		if err := a.RestartProfile(); err != nil {
@@ -296,7 +308,7 @@ func (a *App) ApplyRouting(name string, r setting.Routing) error {
 		// ones: the core has nothing to re-read. Said in the log rather than as
 		// a toast — the card writes on a 600ms debounce, and a message per
 		// pause is noise over a change that has already taken effect.
-		a.logf("[route] " + name + ": 仅解析器变化，转发器已即时切换（不重启核心）")
+		a.logf("[route] " + name + ": 仅解析器/缓存设置变化，已即时生效（不重启核心）")
 		return nil
 	}
 	running := a.RunningProfile()
@@ -345,6 +357,9 @@ func sameRoutingExceptDNS(a, b setting.Routing) bool {
 	a.DNSSmartSelect, b.DNSSmartSelect = false, false
 	a.DNSSmartSwitch, b.DNSSmartSwitch = false, false
 	a.DNSSmartMinutes, b.DNSSmartMinutes = 0, 0
+	// The cache switch is the forwarder's own too (see dnsstub/cache.go): the
+	// core never reads it, and syncDNSStub has already applied it.
+	a.DNSCache, b.DNSCache = false, false
 	return reflect.DeepEqual(a, b)
 }
 

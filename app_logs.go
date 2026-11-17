@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"eagle/internal/logstore"
 	"eagle/internal/util"
 	"eagle/internal/winframe"
@@ -115,21 +114,14 @@ func (b *logBatcher) push(category, line string, flush func([]logEmitLine)) {
 
 // emitLog pushes a line to the UI log panel, tagged with its category so the
 // panel can colour each category differently. The line joins the outbound
-// batch (see logBatcher) rather than waking the WebView on its own. Lines the
-// i18n table recognises go out structured, the same as they would have through
-// logf — the direct emitters (the speed-test categories) write Chinese too.
+// batch (see logBatcher) rather than waking the WebView on its own. The text is
+// the panel's shape — "[类型] 文本" — and the panel matches it against the
+// translation table for languages other than Chinese.
 func (a *App) emitLog(category, line string) {
 	if a.curCtx() == nil {
 		return
 	}
-	if !strings.HasPrefix(line, logMark) {
-		if key, tag, params, ok := matchLogT(line); ok {
-			if l, err := encodeLogT(key, tag, params); err == nil {
-				line = l
-			}
-		}
-	}
-	a.logBatch.push(category, line, a.sendLogBatch)
+	a.logBatch.push(category, formatLogLineFor(category, line), a.sendLogBatch)
 }
 
 // sendLogBatch hands one drained batch to the front end. The context is read
@@ -193,18 +185,14 @@ func isConnNoise(line string) bool {
 // the UI panel and the log file both stay empty when the call never happens.
 // Connection request/response noise is panel-only; see connNoiseFragments.
 //
-// Lines that match the i18n table (logi18n.go) go out structured instead: the
-// front end translates them, so the panel follows the window's language.
+// The line is rewritten into the panel's shape first ("[类型] 文本"), so the
+// file, the buffer and the live stream all carry the same text.
 func (a *App) logf(line string) {
-	if key, tag, params, ok := matchLogT(line); ok {
-		a.emitLogT(key, tag, params)
-		return
-	}
-	a.logRaw(line)
+	a.logRaw(formatLogLineFor("core", line))
 }
 
-// logRaw is logf's body, shared with logT: ANSI stripped, stamped once,
-// written to the day's file and streamed to the panel.
+// logRaw is logf's body, shared with notifyMessage: ANSI stripped, stamped
+// once, written to the day's file and streamed to the panel.
 func (a *App) logRaw(line string) {
 	line = util.StripANSI(line)
 	_, _ = fmt.Fprintln(os.Stderr, line)
@@ -222,56 +210,6 @@ func (a *App) logRaw(line string) {
 	a.emitLog("core", line)
 }
 
-// logMark marks a translatable line: everything after it is one JSON object —
-// {"k":key,"t":tag,"p":[params]} — that the front end renders through its own
-// dictionary. The panel therefore speaks the language the window is in, and a
-// language switch repaints the lines already on screen. The words this side
-// writes stop being the payload and become a key plus the values that fill it;
-// the tag keeps the "[vpn]"/"[dns]"-style source label the raw lines carried.
-//
-// A line the front end cannot translate (an older build's dictionary, a key
-// renamed on one side only) falls back to its raw form — readable, if stale.
-const logMark = "@@"
-
-type logTEntry struct {
-	K string   `json:"k"`
-	T string   `json:"t,omitempty"`
-	P []string `json:"p,omitempty"`
-}
-
-// encodeLogT builds the marked line for one entry.
-func encodeLogT(key, tag string, params []string) (string, error) {
-	b, err := json.Marshal(logTEntry{K: key, T: tag, P: params})
-	if err != nil {
-		return "", err
-	}
-	return logMark + string(b), nil
-}
-
-// emitLogT sends one structured entry down the same road logRaw uses — the
-// console, the day's file and the panel's live stream. The caller decides the
-// tag: logf keeps the raw line's own label, notifyMessage marks "app".
-func (a *App) emitLogT(key, tag string, params []string) {
-	line, err := encodeLogT(key, tag, params)
-	if err != nil {
-		a.logRaw("[log] entry encode failed: " + err.Error())
-		return
-	}
-	a.logRaw(line)
-}
-
-// markedLine is encodeLogT for callers that only want the text (the file
-// writers): a marshal failure can only come from the params themselves, and
-// those are always plain strings here, so the error path returns the key —
-// readable, if untranslated.
-func markedLine(key, tag string, params ...string) string {
-	line, err := encodeLogT(key, tag, params)
-	if err != nil {
-		return key
-	}
-	return line
-}
-
 // notifyMessage tells the user something in the app's own words — which step of
 // the "mode first, node second" flow is missing, for instance.
 //
@@ -281,24 +219,15 @@ func markedLine(key, tag string, params ...string) string {
 // panel's live stream (see logf), plus the buffer the panel re-reads when it
 // opens (see Controller.Note), so a notice raised while nothing was listening
 // — the TUN handover, a second launch — is not the one line the reader cannot
-// find again. The "[app]" tag marks these apart from the core's own output.
-//
-// Text that matches the i18n table goes out structured (tagged "app", the
-// label the raw copy carried), so the panel can translate it like every other
-// line of the app's own making; the buffered copy is the same marked line.
+// find again. The type word in front marks these apart from the core's output.
 func (a *App) notifyMessage(text string, isErr ...bool) {
-	if key, _, params, ok := matchLogT(text); ok {
-		if line, err := encodeLogT(key, "app", params); err == nil {
-			a.logRaw(line)
-			if a.curController() != nil {
-				a.curController().Note(logstore.Stamp(line))
-			}
-			return
-		}
-	}
-	line := "[app] " + text
-	a.logf(line)
+	// "app" is the fallback type for a notice nothing in the table knows: it is
+	// the app talking, not the core's own output.
+	line := formatLogLineFor("app", text)
+	a.logRaw(line)
 	if a.curController() != nil {
-		a.curController().Note(logstore.Stamp(line))
+		// Un-stamped: the controller stamps what it buffers, and a line that
+		// arrived stamped got a second timestamp on top of the first.
+		a.curController().Note(line)
 	}
 }

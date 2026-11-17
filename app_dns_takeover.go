@@ -171,12 +171,23 @@ func (a *App) reconcileSystemDNS(force bool) {
 	if a == nil || a.curDataDir() == "" {
 		return
 	}
+	// The exit path owns the machine from the moment it starts: a reconcile
+	// that began before it must not write "taken over" back over the cleanup.
+	if a.quitting.Load() {
+		return
+	}
 	st := a.tunServiceState()
 	// Written only when it says something new. This runs on a one-second tick, and a file
 	// rewritten every second is a file whose writes the server would sit and read for
 	// nothing — the reconcile on the other side exists to detect a change, not to be fed
 	// the same bytes.
 	a.sysDNSMu.Lock()
+	// The exit can begin while this call waits for the hold: the state it would
+	// write then is the one the exit path has just emptied.
+	if a.quitting.Load() {
+		a.sysDNSMu.Unlock()
+		return
+	}
 	unchanged := a.sysDNSStateSet && a.sysDNSState == st
 	if unchanged {
 		// The file can move without this process. The resident server clears it when it
@@ -189,7 +200,6 @@ func (a *App) reconcileSystemDNS(force bool) {
 	first := !a.sysDNSStateSet
 	wasResolvers := a.sysDNSStateSet && a.sysDNSState.Resolvers
 	a.sysDNSState, a.sysDNSStateSet = st, true
-	a.sysDNSMu.Unlock()
 	// The forwarder's half of the same decision, before ANY exit below: the
 	// nothing-is-up case is exactly when Configure(System: false) has to reach
 	// dnsstub — it is the only call that closes port 53 (setSystem) — and a
@@ -201,11 +211,18 @@ func (a *App) reconcileSystemDNS(force bool) {
 	// (dnsstub.go: "only while asked for"). Both halves stay in one call, as
 	// the note on the old placement below asked for; only the position moved.
 	a.syncDNSStub()
+	// The write stays under the same hold as the state it comes from: two
+	// reconciles arriving together used to compute their states in one order
+	// and write them in the other, leaving the file describing a machine the
+	// newer decision had already left.
+	var writeErr error
 	if !unchanged {
-		if err := tunserv.WriteState(a.curDataDir(), st); err != nil {
-			a.logf("[dns] 无法记录常驻服务状态: " + err.Error())
-			return
-		}
+		writeErr = tunserv.WriteState(a.curDataDir(), st)
+	}
+	a.sysDNSMu.Unlock()
+	if writeErr != nil {
+		a.logf("[dns] 无法记录常驻服务状态: " + writeErr.Error())
+		return
 	}
 	if st.Resolvers && !wasResolvers {
 		// The takeover just armed. The undo record the bootstraps read appears when
@@ -258,7 +275,13 @@ func (a *App) releaseSystemDNS() {
 	if a == nil || a.curDataDir() == "" {
 		return
 	}
-	if err := tunserv.WriteState(a.curDataDir(), tunserv.State{}); err != nil {
+	// The same hold the reconcile writes under: whichever of the two lands
+	// second is the file's truth, and the exit's empty state must not be
+	// overtaken by a reconcile that computed its answer a moment earlier.
+	a.sysDNSMu.Lock()
+	err := tunserv.WriteState(a.curDataDir(), tunserv.State{})
+	a.sysDNSMu.Unlock()
+	if err != nil {
 		a.logf("[dns] 退出时无法记录常驻服务状态: " + err.Error())
 	}
 	a.restoreLeftoverResolvers()

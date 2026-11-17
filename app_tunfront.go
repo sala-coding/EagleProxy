@@ -464,20 +464,34 @@ func (a *App) finishTunCapturePending(frontCh chan error, settled func(error), r
 	}
 	// The front-end did not come up — a declined prompt above all. Along a
 	// capture whose routes are already up, the routes come back down: they are
-	// up over an adapter nobody serves.
-	if routesTaken {
+	// up over an adapter nobody serves. A start that is in flight owns them,
+	// though — its own front-end path takes or releases them.
+	if routesTaken && !a.tunWake.Load() {
 		a.releaseTunRoutes()
 		a.armTunIdleReclaim()
 	}
 	if settled != nil {
 		// The switch's own undo, taken under the seats its contract assumes (see
 		// rollbackTunSwitchOn): this goroutine holds none, and a press landing
-		// while the restart ran would interleave with it.
+		// while the restart ran would interleave with it. The undo runs only
+		// while the machine still says what the switch left: a stop or an
+		// off-switch pressed while the prompt sat open has already settled it,
+		// and re-running the rollback on top would point Windows at a port the
+		// stopped core no longer serves — the rule finishTunFrontPending keeps
+		// for the node-start path (see its `still`).
 		a.startStopMu.Lock()
 		a.modeMu.Lock()
-		settled(ferr)
+		still := a.curSetting() != nil && a.curSetting().VPNMode() && a.runningID() != core.StoppedID
+		if still {
+			settled(ferr)
+		}
 		a.modeMu.Unlock()
 		a.startStopMu.Unlock()
+		if !still {
+			a.notifyMessage("TUN 开启失败："+ferr.Error(), true)
+		}
+		a.rememberSpmode()
+		a.refreshTrayStatus()
 		return
 	}
 	a.notifyMessage("TUN 开启失败："+ferr.Error(), true)
@@ -1429,6 +1443,17 @@ func (a *App) reclaimIdleTunFront() {
 	if a.quitting.Load() {
 		return
 	}
+	// The seat every start and stop takes, because the check below and the
+	// teardown that follows are not one step: a start that begins in between
+	// would have its front-end taken apart under it (the start already under
+	// way is covered by tunWake, see tunCaptureServing). Taken after the timer
+	// bookkeeping, so a timer that fires while a start holds the seat still
+	// clears itself and stands down.
+	a.startStopMu.Lock()
+	defer a.startStopMu.Unlock()
+	if a.quitting.Load() {
+		return
+	}
 	if a.tunCaptureServing() {
 		return
 	}
@@ -2056,6 +2081,13 @@ func (a *App) takeTunRoutes() error {
 	// auto-recovery smear that cleaned up after it. The soft window extends the
 	// wait for exactly that class of answer; everything else keeps the short one.
 	softDeadline := time.Now().Add(tunRouteSoftWait)
+	// The wait for a front-end that has not started yet is bounded by the
+	// switch's own ceiling, not by the soft one: this loop runs inside the
+	// seats the switch holds, and a prompt nobody has answered must not park
+	// every hotkey, tray press and mode switch behind it for longer than
+	// tunFrontSwitchWait. Past it the start answers "under way" and the
+	// background completion takes the capture (see finishTunCapturePending).
+	frontWaitDeadline := time.Now().Add(tunFrontSwitchWait)
 	var lastErr error
 	for {
 		// The core has to be able to answer before the machine's packets are pointed
@@ -2082,8 +2114,9 @@ func (a *App) takeTunRoutes() error {
 			}
 			// A front-end that has not started yet owns a device that does not exist
 			// yet, and no amount of asking makes it appear: the wait belongs to the
-			// prompt, so this keeps the soft window rather than burning the hard one.
-			if a.tunFrontNotUp() && time.Now().Before(softDeadline) {
+			// prompt, and it is capped at the switch's own ceiling rather than the
+			// soft one — the seats this loop runs under must not be held longer.
+			if a.tunFrontNotUp() && time.Now().Before(frontWaitDeadline) {
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}

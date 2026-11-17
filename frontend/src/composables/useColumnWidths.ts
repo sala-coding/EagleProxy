@@ -245,37 +245,10 @@ export function useColumnWidths(deps: {
         measureColumns();
     }, {flush: 'post', immediate: true});
 
-    // The measurement races the bundled face. The address column is set in JetBrains Mono
-    // NF (see --font-mono), and that face arrives with font-display: swap: a fallback is
-    // painted first and the real font swapped in once the file has loaded. A column
-    // measured in between is measured in the wrong metrics — the same hostname measured
-    // 395px in the fallback and 430px in the real font — and the frozen widths are then
-    // shares of a table that was never on screen. Nothing about the list changes when the
-    // swap lands, so nothing measured again: the address column stayed 45px narrow and
-    // ellipsised hostnames until a window resize happened to re-measure it.
-    //
-    // load() rather than ready(): ready settles when nothing is pending, and before the
-    // list arrives nothing on screen is asking for the face — so it had already resolved
-    // by the time the first measurement ran, and there was no second chance to take.
-    // load() asks for the face itself and settles when the file is in, which is the
-    // moment the swap lands; measuring once more then is one layout, once per run. If the
-    // face is already in, this is the same one layout measuring what is already correct.
-    let fontLoadAlive = true;
-    onMounted(() => {
-        const fonts = document.fonts;
-        if (!fonts) return;
-        fonts.load('500 1em "JetBrains Mono NF"')
-            .then(() => {
-                if (fontLoadAlive) measureColumns();
-            })
-            .catch(() => {
-                // A face that cannot load is a face the fallback is already standing in
-                // for; measuring again would measure the same fallback.
-            });
-    });
-    onBeforeUnmount(() => {
-        fontLoadAlive = false;
-    });
+    // The addresses are set in the system font (see --font-ui), so there is no face to
+    // arrive after the first paint: the metrics measured here are the ones the list is
+    // really drawn in, and the wait for a swap that this block used to do — one extra
+    // measure when the bundled font landed — has nothing left to wait for.
 
     // The resize redraws; it does not measure. Measuring here means flipping the table to
     // `max-content` and reading nine header cells back, which lays the whole list out

@@ -930,11 +930,44 @@ const onEscapeKey = (e: KeyboardEvent) => {
 // own; sub-layers the panel itself opens (its context menus sit inside it) read as
 // inside; a Modal raised beside the dock — the hotkey-clash box — counts as part of
 // the same conversation, so a reader closing that box does not lose the settings
-// they were in the middle of editing.
+// they were in the middle of editing. The rail's head is the other exception: that
+// button toggles this panel, and a press that closed it on the mousedown would be
+// answered by that same button's click opening it again — the one control that
+// could not put the panel away.
 const onDocDown = (e: PointerEvent) => {
     const el = e.target as HTMLElement | null;
-    if (el && el.closest('.settings-dock, .modal-mask')) return;
+    if (el && el.closest('.settings-dock, .modal-mask, .rail-expand')) return;
     requestClose();
+};
+
+// The dock keeps the keyboard while it is up, the way the dialogs do. It is a
+// card opened to be typed into, and a Tab that walked out of it landed on the
+// table behind a panel the reader could not see — Enter there operated a row.
+// The keys are read on the window and the dock's own subtree is the only place
+// a Tab may go; the opener has the focus back when the panel leaves.
+const dockRef = ref<HTMLElement | null>(null);
+const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
+let opener: HTMLElement | null = null;
+const onTabKey = (e: KeyboardEvent) => {
+    if (e.key !== 'Tab') return;
+    // A dialog standing over this panel runs its own loop (see Modal).
+    if (document.querySelector('.modal-mask')) return;
+    const el = dockRef.value;
+    if (!el) return;
+    const items = Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE))
+        .filter(n => !(n as HTMLButtonElement).disabled && n.offsetParent !== null);
+    if (items.length === 0) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    const inside = active instanceof Node && el.contains(active);
+    if (e.shiftKey && (active === first || !inside)) {
+        e.preventDefault();
+        last.focus();
+    } else if (!e.shiftKey && (active === last || !inside)) {
+        e.preventDefault();
+        first.focus();
+    }
 };
 
 const refreshRoutes = async () => {
@@ -953,6 +986,9 @@ const refreshRoutes = async () => {
 };
 
 onMounted(() => {
+    opener = document.activeElement as HTMLElement | null;
+    dockRef.value?.querySelector<HTMLElement>(FOCUSABLE)?.focus({preventScroll: true});
+    window.addEventListener('keydown', onTabKey);
     window.addEventListener('keydown', onEscapeKey);
     document.addEventListener('pointerdown', onDocDown, true);
     // Arrow keys step the carousel, but only when the reader is not inside a control: in
@@ -963,8 +999,10 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
     window.removeEventListener('keydown', onEscapeKey);
+    window.removeEventListener('keydown', onTabKey);
     document.removeEventListener('pointerdown', onDocDown, true);
     window.removeEventListener('keydown', onArrowKey);
+    if (opener?.isConnected) opener.focus({preventScroll: true});
 });
 
 // The profile on disk has been rewritten under this card — by the smart pick's timer
@@ -1399,7 +1437,9 @@ const onPortInput = (e: Event) => {
         names what is on the right and the cards slide between them — the same
         carousel the sheet used to carry, now standing up. -->
     <section :class="`settings-dock${closing ? ' closing' : ''}`"
+             ref="dockRef"
              role="dialog"
+             aria-modal="true"
              :aria-label="t('dlg.settings.title')">
         <!-- The header is a nameplate, not an action bar: the dock's ways out are the
             pointer (any press outside the panel) and Escape, and its changes save
@@ -1413,7 +1453,7 @@ const onPortInput = (e: Event) => {
             <span class="set-dock-here">{{ t(navTitles[slide] ?? '') }}</span>
         </header>
         <div class="set-dock-body">
-            <nav class="set-nav" :aria-label="t('dlg.settings.title')">
+            <nav class="set-nav" :aria-label="t('nav.title')">
                 <div class="set-nav-list">
                     <template v-for="(title, i) in navTitles" :key="title">
                         <!-- A hairline where the hand-written cards end and the

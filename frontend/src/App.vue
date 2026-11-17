@@ -12,7 +12,7 @@ import {EventsOn, WindowHide, WindowIsMaximised, WindowMinimise, WindowToggleMax
 import {t, langFromCode, setLang} from "./i18n";
 import {loadTips, tip} from "./tips";
 import {errText} from "./lib/shared";
-import {FILTER_ICONS, nowStamp} from "./lib/logfilter";
+import {FILTER_ICONS, loadLogTemplates, nowStamp} from "./lib/logfilter";
 import {hueFor, metricGroup, MODE_HAS_LATENCY, MODE_HAS_SPEED, SPEED_MODES, PROTOCOLS, setRegionLocale} from "./lib/metrics";
 import {clampScale, cssHex, CUSTOM_VARS, LIGHT_THEMES, readHover, THEMES, THEME_REMAP, UI_SCALE_MAX, UI_SCALE_MIN, wearCustom, wearHover} from "./lib/theme";
 import {startLanguage} from "./lib/settings-meta";
@@ -407,6 +407,12 @@ const configMenuEl = ref<HTMLDivElement | null>(null);
 watch(configPick, (v, _, onCleanup) => {
     if (!v) return;
     const onDown = (e: MouseEvent) => {
+        // The field's own folder button is exempt: it is the switch for this
+        // list, and a press that put the list away on the mousedown was followed
+        // by that same button's click opening it again — the one control that
+        // could not close what it opened.
+        const target = e.target as HTMLElement | null;
+        if (target?.closest('.search-file')) return;
         if (!configMenuEl.value?.contains(e.target as Node)) configPick.value = null;
     };
     const onKey = (e: KeyboardEvent) => {
@@ -1275,17 +1281,12 @@ onMounted(() => {
 const reportBug = () => {
     const a = about.value ?? {};
     const repo = a.repo || 'sala-coding/EagleProxy';
-    const body = [
-        '### 环境',
-        `- 版本：${a.version || '未知'}`,
-        `- Go 版本：${a.goVersion || '未知'}`,
-        `- 构建时间：${a.built || '未知'}`,
-        '',
-        '### 问题描述',
-        '',
-        '### 复现步骤',
-        '',
-    ].join('\n');
+    // The template is a translated string rather than three literals: a report
+    // written in the window's language is one the reporter can finish, and the
+    // placeholders are the same three facts whatever language it is in.
+    const unknown = t('about.unknown');
+    const body = t('about.bugBody',
+        a.version || unknown, a.goVersion || unknown, a.built || unknown);
     API.OpenURL(`https://github.com/${repo}/issues/new?body=${encodeURIComponent(body)}`);
 };
 
@@ -1605,6 +1606,10 @@ onMounted(() => {
 // there is nothing to re-register).
 let logOff: (() => void)[] = [];
 onMounted(() => {
+    // The log translation table, once: the panel matches the plain text the
+    // backend writes against it, so a language switch repaints the lines
+    // already on screen. Chinese needs no table — the text is Chinese already.
+    void loadLogTemplates();
     // The prewarm may already have finished before this window mounted, so read the
     // flag once here; the event below covers the case where it lands afterwards.
     //
@@ -1875,7 +1880,7 @@ onBeforeUnmount(() => {
                                 :title="t('btn.importFile')"
                                 :aria-label="t('btn.importFile')"
                                 @mousedown.prevent
-                                @click="configPick = {mode: 'import'}">
+                                @click="configPick = configPick?.mode === 'import' ? null : {mode: 'import'}">
                             <FolderOpenFilled class="ic"/>
                         </button>
                     </span>
@@ -2009,14 +2014,18 @@ onBeforeUnmount(() => {
                 <span v-if="lanDevices > 0" class="lan-count" aria-hidden="true">{{ lanDevices > 99 ? '99+' : lanDevices }}</span>
             </button>
             <div class="titlebar-controls">
-                <button class="tb-btn" type="button" @click="winMinimise" aria-label="minimize">
+                <button class="tb-btn" type="button" @click="winMinimise"
+                        :aria-label="t('btn.minimize')" :title="t('btn.minimize')">
                     <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg>
                 </button>
-                <button class="tb-btn" type="button" @click="winToggleMax" aria-label="maximize">
+                <button class="tb-btn" type="button" @click="winToggleMax"
+                        :aria-label="t(winMax ? 'btn.restore' : 'btn.maximize')"
+                        :title="t(winMax ? 'btn.restore' : 'btn.maximize')">
                     <svg v-if="!winMax" width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor"/></svg>
                     <svg v-else width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor"/><path d="M2.5 2.5v-2h7v7h-2" fill="none" stroke="currentColor"/></svg>
                 </button>
-                <button class="tb-btn close" type="button" @click="winClose" aria-label="close">
+                <button class="tb-btn close" type="button" @click="winClose"
+                        :aria-label="t('btn.close')" :title="t('btn.close')">
                     <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
                 </button>
             </div>
@@ -2104,7 +2113,7 @@ onBeforeUnmount(() => {
                                     :running="p.id === running"
                                     @select="selectRow" @start="startRow" @ctx="ctxRow"/>
                         <tr v-if="searchPool.length === 0">
-                            <td colspan="10" class="empty">{{ t('table.empty') }}</td>
+                            <td colspan="11" class="empty">{{ t('table.empty') }}</td>
                         </tr>
                         <!-- Two different emptinesses: a group with no nodes is the
                             group's own state, while nothing matching a search means
@@ -2112,7 +2121,7 @@ onBeforeUnmount(() => {
                             the two it is keeps the reader from hunting the group
                             selector for a problem that sits in the search box. -->
                         <tr v-if="searchPool.length > 0 && shownProfiles.length === 0">
-                            <td colspan="10" class="empty">{{ t('search.none') }}</td>
+                            <td colspan="11" class="empty">{{ t('search.none') }}</td>
                         </tr>
                         </tbody>
                     </table>
@@ -2488,7 +2497,7 @@ onBeforeUnmount(() => {
 
         <Modal v-if="qrOpen" :title="t('dlg.qr.title')" extra-class="qr" @close="qrOpen = false">
             <div class="qr-wrap">
-                <img :src="qrDataUrl" alt="QR"/>
+                <img :src="qrDataUrl" :alt="t('dlg.qr.title')"/>
             </div>
         </Modal>
     </div>

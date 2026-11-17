@@ -2,6 +2,10 @@
 // falls back to Chinese, so a key a translation has not caught up with is never a blank
 // label but the Chinese one.
 //
+// A value is a word or a list of words: most keys are one label, but a path made of
+// taps is a list, and a list cannot be squeezed into a sentence without losing the
+// shape the panel draws it in (see tList).
+//
 // One dictionary per file (see ./i18n/), the way the tips are one file per language: a
 // dictionary is a page of words, and seven of them in one file is a page nobody can read.
 export type Lang = 'zh' | 'en' | 'ru' | 'fa';
@@ -10,7 +14,7 @@ import {shallowRef} from 'vue';
 import {ru} from './i18n/ru';
 import {fa} from './i18n/fa';
 
-const zh: Record<string, string> = {
+const zh: Record<string, string | string[]> = {
 'sp.systemProxy': '系统代理',
     'sp.tun': 'TUN',
     'sp.needNode': '请先选择并启动一个节点，再开启 TUN 或系统代理',
@@ -84,16 +88,27 @@ const zh: Record<string, string> = {
     'lan.msg.noListen': '局域网共享已开启，但 {0} 没有响应：端口可能被占用，或被防火墙拦截',
     'lan.msg.off': '局域网共享已关闭',
     // The rows behind a press on the endpoint. Written to be read while holding a
-    // phone: one platform per row, no vocabulary that assumes the reader knows what a
-    // proxy is beyond the two numbers in the header.
+    // phone: no vocabulary that assumes the reader knows what a proxy is beyond the
+    // two numbers in the header.
+    //
+    // The route to the proxy setting is a list, not a sentence: the reader holds a
+    // phone and taps a path, and each tap is one place on that path. So the path is
+    // an array of the places, and the panel draws them as a chain of chips (see
+    // tList) — one sentence would have to carry both the path and the instruction
+    // to type the address, and the address now has a field of its own below.
     'lan.guide.title': '用其他设备接入',
     'lan.guide.sub': 'HTTP / HTTPS · 局域网共享',
     'lan.guide.tag.net': '网络',
+    'lan.guide.tag.device': '设备',
+    'lan.guide.tag.path': '路径',
     'lan.guide.tag.check': '验证',
     'lan.guide.s1': '与本机连同一个局域网：同一 Wi-Fi，或同一台路由器的有线口。',
-    'lan.guide.s2': '设置 → 无线局域网 → 当前网络右侧的 ⓘ → 配置代理 → 手动，填上面的服务器与端口。',
-    'lan.guide.s3': '长按当前 Wi-Fi → 修改网络 → 高级 → 代理 → 手动，填上面的服务器与端口。',
-    'lan.guide.s4': '设置 → 网络和 Internet → 代理 → 手动设置代理，填上面的地址与端口。',
+    'lan.guide.path.iphone': ['设置', '无线局域网', '网络 ⓘ', '配置代理', '手动'],
+    'lan.guide.path.android': ['长按 Wi-Fi', '修改网络', '高级', '代理', '手动'],
+    'lan.guide.path.windows': ['设置', '网络和 Internet', '代理', '手动设置代理'],
+    'lan.guide.field.server': '服务器',
+    'lan.guide.field.port': '端口',
+    'lan.guide.fill': '填到手机的代理里',
     'lan.guide.s5': '保存后打开任意网页验证；不通时先确认本机已启动节点。',
     'lan.guide.note': '不用时把这台设备的代理关掉；本机关闭局域网共享或退出后它会失效。',
     'lan.guide.copy': '复制端点',
@@ -147,6 +162,9 @@ const zh: Record<string, string> = {
     'btn.cancel': '取消',
     'btn.save': '保存',
     'btn.close': '关闭',
+    'btn.minimize': '最小化',
+    'btn.maximize': '最大化',
+    'btn.restore': '还原',
     'btn.ok': '确定',
     'dlg.settings.title': '设置',
     'dlg.settings.resize': '拖动调整设置面板高度（双击恢复默认）',
@@ -189,6 +207,11 @@ const zh: Record<string, string> = {
     'about.checkUpdate': '检查更新',
     'about.bug': 'Bug 反馈',
     'about.unknown': '未知',
+    /* The issue body the reporter starts from, as one string with its blank line:
+       the three facts a report is useless without, then the two headings the
+       reader fills in. One key rather than seven, because the layout of the
+       template is not something a language should be able to disagree about. */
+    'about.bugBody': '### 环境\n- 版本：{0}\n- Go 版本：{1}\n- 构建时间：{2}\n\n### 问题描述\n\n### 复现步骤\n',
     'batch.title': '批量',
     'batch.dedupe': '去重',
     'batch.removeFailed': '清理失败节点',
@@ -217,13 +240,15 @@ const zh: Record<string, string> = {
     // The smart pick: a switch that measures the resolvers and keeps the fastest of each
     // list, and the button for measuring again.
     'dns.smart': '智能优选',
-    'dns.smartHint': '定时测两个列表，各取最快填入对应输入框；过滤类（家庭/安全）只参与排序，不会被选中。',
+    'dns.smartHint': '按设定间隔测量国内外解析器列表，各取最低延迟填入对应字段；过滤类（家庭 / 安全）仅参与排序，不会被选中。',
+    'dns.cache': 'DNS 缓存',
+    'dns.cacheHint': '按 TTL 缓存解析结果，存于 config/dns-cache；重复查询不经过节点，更改即时生效。',
     'dns.smartEvery': '测速间隔',
     'dns.smartUnit': '分钟',
     // The other policy for the same rounds. Both switches are on screen together, so each
     // says what it does and what the other does, in one line each.
     'dns.switch': '智能切换',
-    'dns.switchHint': '解析器慢于 200ms 且有快 30ms 以上的可用时自动换；只救慢，不追快。',
+    'dns.switchHint': '当前解析器延迟高于 200ms 且存在快 30ms 以上的可用解析器时自动切换；仅纠正过慢，不追求最低延迟。',
     'dns.switched': '延迟偏高，已自动切换：',
     'dns.smartKept': '延迟正常，保持当前解析器',
     // The starting point for the 自定义 DNS 配置 box. What it explains is what the box cannot
@@ -232,19 +257,19 @@ const zh: Record<string, string> = {
     // tooltip, since a row six fields wide has no room for six labels.
     'dns.objServers': '服务器',
     'dns.objAdd': '添加',
-    'dns.objTag': '别处引用的名字；dns-direct 必须有，兜底解析指向它。',
-    'dns.objType': '决定后面哪些字段有意义：local / fakeip 不需要地址。',
-    'dns.objAddr': '8.8.8.8:53、dns.google；IPv6 要带方括号。',
-    'dns.objPath': 'DoH 的路径，默认 /dns-query。',
-    'dns.objDetour': 'proxy 走代理，留空 = 直连。',
-    'dns.objResolver': '解析自己域名的标签，通常 dns-local。',
-    'dns.objNoDirect': '缺少 dns-direct 服务器，兜底解析指不上，核心起不来。',
+    'dns.objTag': '供其他配置引用的标签；必须包含 dns-direct（兜底解析指向它）。',
+    'dns.objType': '决定后续字段：local / fakeip 无需地址。',
+    'dns.objAddr': '地址:端口（8.8.8.8:53）或域名（dns.google）；IPv6 需加方括号。',
+    'dns.objPath': 'DoH 路径，默认 /dns-query。',
+    'dns.objDetour': 'proxy：经代理查询；留空：直连。',
+    'dns.objResolver': '解析服务器自身域名的标签，通常 dns-local。',
+    'dns.objNoDirect': '缺少 dns-direct 服务器，兜底解析失效，核心无法启动。',
     'dns.template': '填入模板',
-    'dns.templateHint': '填入最小可用配置（三台服务器+一条规则，须含 dns-direct 标签）；已有内容时不可用。',
-    'dns.smartTest': '测选',
+    'dns.templateHint': '填入最小可用配置（三台服务器 + 一条规则，须含 dns-direct）；已有内容时不可用。',
+    'dns.smartTest': '测速',
     'dns.smartTesting': '测速中…',
     'dns.smartPicked': '已优选：',
-    'dns.smartNone': '测速没有测到可用的解析器，两个字段保持原样',
+    'dns.smartNone': '未测到可用解析器，字段保持不变',
     'dns.smartAuto': '已自动优选：',
     // Why the foreign half of the table has no numbers in it. The other half is measured
     // straight out; this one is measured through the tunnel, so it needs something to be
@@ -257,14 +282,14 @@ const zh: Record<string, string> = {
     // when it goes straight out.
     'dns.setRemote': '设为国外 DNS（兜底代理）',
     'dns.setDirect': '设为国内 DNS（兜底直连）',
-    'dns.remoteNeedsNode': '要先启动节点才能测这一侧。',
-    'dns.remoteNotYet': '还没测过；开智能优选或点测选时一起测。',
+    'dns.remoteNeedsNode': '需先启动节点才能测量。',
+    'dns.remoteNotYet': '尚未测量；开启智能优选或点击「测速」时会一并测量。',
     // The rules for setting one are the same for all twelve rows, so they are stated once
     // above them rather than under each.
-    'hotkeys.note': '点击后按下组合键；需一个修饰键（F1-F24 可单键），Backspace 清除。',
-    'settings.group.misc': '其它',
-    'settings.dataDir': '数据目录（兼容 nekoray 目录；相对路径按程序所在目录解析）',
-    'settings.corePath': '核心路径（留空自动查找；相对路径按程序所在目录解析）',
+    'hotkeys.note': '点击后按下组合键；需含修饰键（F1–F24 可单键），Backspace 清除。',
+    'settings.group.misc': '其他',
+    'settings.dataDir': '数据目录（兼容 nekoray；相对路径按程序目录解析）',
+    'settings.corePath': '核心路径（留空自动查找；相对路径按程序目录解析）',
     // short forms for the label column, which is too narrow for the full
     // sentence above; the long text stays available as the field's tooltip
     'settings.dataDirShort': '数据目录',
@@ -297,7 +322,7 @@ const zh: Record<string, string> = {
     'kind.test.text': '测速与流量统计',
     'kind.hotkeys.text': '按键组合',
     'settings.theme': '主题',
-    'settings.hoverHint': '光标经过的行、按钮与菜单所用的底色。',
+    'settings.hoverHint': '指针经过的行、按钮与菜单的底色。',
     'settings.theme.dark': '深色',
     'settings.theme.light': '浅色',
     'settings.tone.cool': '冷色',
@@ -306,13 +331,13 @@ const zh: Record<string, string> = {
     'settings.tone.custom': '自定义',
     'settings.customTone': '自定义色调',
     'settings.customHue': '主题颜色',
-    'settings.hoverBg': '副题颜色',
+    'settings.hoverBg': '悬停颜色',
     'settings.customSave': '保存并应用',
-    'settings.customHint': '选一个颜色，整个界面由它推导。',
-    'settings.uiFontHint': '点击或拖动格子调字号，双击恢复跟随系统；文字仍随窗口宽窄浮动。',
+    'settings.customHint': '选择颜色，整套配色由此推导。',
+    'settings.uiFontHint': '点击或拖动格子调整字号，双击跟随系统；字号仍随窗口宽度自适应。',
     'settings.extraCores': '外部核心路径',
     'settings.uwp': 'UWP 回环解锁',
-    'settings.uwpHint': '让应用商店里的 UWP 应用也能连接本机代理端口（需要一次管理员授权）。',
+    'settings.uwpHint': '允许 UWP 应用连接本机代理端口（需一次管理员授权）。',
     'settings.all': '全部设置',
     // Settings field names, shown as the labels of the raw JSON editor. The key
     // itself is still exposed as the field's tooltip, so a name from the docs
@@ -343,8 +368,8 @@ const zh: Record<string, string> = {
     'cfg.user_agent2': 'User-Agent',
     'cfg.test_url': 'ping',
     'cfg.test_engine': '测速引擎',
-    'cfg.test_window': '测速时长（秒，每方向）',
-    'cfg.test_upload': '测试上传',
+    'cfg.test_window': '测速时长（秒/方向）',
+    'cfg.test_upload': '上传测速',
     'cfg.current_group': '当前订阅',
     'cfg.inbound_address': '本地监听地址',
     'cfg.inbound_socks_port': '本地监听端口',
@@ -361,21 +386,21 @@ const zh: Record<string, string> = {
     'port.check': '检测',
     'port.free': '用空闲端口',
     'port.available': '端口可用',
-    'port.ours': '由本程序的核心占用（节点正在运行，属正常）',
-    'port.used': '被其它程序占用：',
+    'port.ours': '由本程序核心占用（节点运行中，正常）',
+    'port.used': '被其他程序占用：',
     'port.picked': '已选空闲端口，保存后生效：',
-        'ruleset.empty': '当前方案没有引用任何规则集',
+        'ruleset.empty': '当前配置未引用规则集',
     'ruleset.local': '本地',
-    'ruleset.remote': '需要下载',
+    'ruleset.remote': '未下载',
     'ruleset.orphan': '未被使用',
     'ruleset.download': '下载',
     'ruleset.update': '更新',
-    'ruleset.updateHint': '源上有新版本，点击更新本地的副本',
+    'ruleset.updateHint': '上游有新版本，点击更新',
     'ruleset.remove': '删除',
-    'ruleset.downloadAll': '下载全部缺失的',
+    'ruleset.downloadAll': '下载全部缺失',
     'ruleset.openDir': '打开规则集目录',
     'ruleset.add': '添加规则',
-    'ruleset.addCat': '添加新的规则集类目',
+    'ruleset.addCat': '添加规则集类目',
     'ruleset.general': '其他规则 · 规则集',
     'dlg.rsAdd.title': '添加规则',
     'dlg.rsAdd.country': '适用于哪个国家/地区',
@@ -424,25 +449,25 @@ const zh: Record<string, string> = {
     // The conflict box. The combination is appended to the first line by the dialog, so
     // these two end where the keys begin.
     'hk.clashTitle': '快捷键冲突',
-    'hk.clashRow': '这个组合已经被另一行占用了：',
-    'hk.clashTaken': '这个组合已经被系统或其它程序占用：',
-    'hk.clashHint': '换一个组合再按一次。',
+    'hk.clashRow': '该组合已被其他条目占用：',
+    'hk.clashTaken': '该组合已被系统或其他程序占用：',
+    'hk.clashHint': '请更换组合键。',
     'cfg.fakedns': 'FakeDNS',
     'cfg.active_routing': '当前路由',
     'cfg.mw_size': '窗口尺寸',
     'cfg.conn_stat': '连接统计',
     'cfg.vpn_impl': 'TUN 协议栈',
-    'hint.vpn_impl': 'gvisor：用户态实现，兼容性最好；system：系统协议栈，性能更好；mixed：TCP 走 system、UDP 走 gvisor；Sing 15：sing-box 1.15+ 的自有协议栈（性能最好，需内核 1.15+）。改动在下一次启动 TUN 时生效。',
-    'hint.vpn_impl_old': '当前内核不支持该栈（需要 sing-box 1.15+）。',
-    'hint.vpn_impl_gone': '1.15 起内核自带 TCP/IP 栈，该选项已废弃、不再生效。',
+    'hint.vpn_impl': 'gvisor：用户态协议栈，兼容优先；system：系统协议栈，性能优先；mixed：TCP 走系统栈、UDP 走 gvisor；Sing 15：sing-box 1.15+ 内置协议栈（性能最优，需核心 1.15+）。改动在下次启动 TUN 时生效。',
+    'hint.vpn_impl_old': '当前核心不支持该协议栈（需 sing-box 1.15+）。',
+    'hint.vpn_impl_gone': 'sing-box 1.15 起核心已内置 TCP/IP 协议栈，该选项已弃用。',
     'cfg.vpn_mtu': 'TUN MTU',
     'cfg.vpn_ipv6': 'TUN IPv6',
     'cfg.ipv6_auto': 'IPv4/IPv6 自动探测',
     'cfg.keep_tun_front': '退出时保留 TUN 网卡',
     'cfg.vpn_hide_console': '隐藏核心控制台',
     'cfg.vpn_strict_route': '严格路由',
-    'cfg.vpn_bypass_process': '绕过进程',
-    'cfg.vpn_bypass_cidr': '绕过网段',
+    'cfg.vpn_bypass_process': '进程绕过',
+    'cfg.vpn_bypass_cidr': '网段绕过',
     'cfg.vpn_bypass_white': '绕过名单模式',
     // the TUN card's note: its dimmed rows are the ones the builder writes only for a
     // tun front-end, so until TUN is on they are settings for something not running
@@ -450,16 +475,16 @@ const zh: Record<string, string> = {
     'cfg.sp_format': '代理格式',
     'cfg.sub_clear': '更新前清空',
     'cfg.sub_insecure': '订阅跳过证书',
-    'cfg.sub_auto_update': '自动更新（小时）',
-    'cfg.log_ignore': '忽略的日志',
+    'cfg.sub_auto_update': '更新间隔（小时）',
+    'cfg.log_ignore': '忽略日志',
     'cfg.start_minimal': '启动时最小化',
-    'cfg.max_log_line': '内存日志行数',
+    'cfg.max_log_line': '日志行数上限',
     'cfg.splitter_state': '分栏位置',
     'cfg.utlsFingerprint': 'uTLS 指纹',
     'cfg.core_box_clash_api': 'API 端口',
     'cfg.core_box_clash_api_secret': 'API 密钥',
     'cfg.core_box_underlying_dns': '底层 DNS',
-    'cfg.core_box_cache_file': 'FakeIP 落盘',
+    'cfg.core_box_cache_file': 'FakeIP 持久化',
     // The log panel's two numbers, in the 核心与日志 card. The first is a duration and
     // the second a distance, which is why neither is named "speed" alone: one line's
     // entrance, and how far behind the line before it the next one starts. Neither
@@ -479,7 +504,7 @@ const zh: Record<string, string> = {
     'routing.tab.dns': 'DNS',
     'routing.tab.simple': '简易路由',
     'routing.defOutbound': '兜底出站',
-    'routing.presetHint': '点击追加到上面的列表',
+    'routing.presetHint': '点击追加至上方列表',
     'routing.domainStrategy': '域名解析策略',
     'routing.outboundDomainStrategy': '出口域名策略',
     'egress.title': '出站模式',
@@ -530,15 +555,15 @@ const zh: Record<string, string> = {
     // short enough to sit three to a line — so nekoray's "探测结果用于…" is cut to its
     // operative half, the full sentence being the tooltip.
     'routing.sniffing': '流量嗅探',
-    'routing.sniffHint': '从流量里取出域名（TLS SNI / HTTP Host）供规则匹配。「用于目标地址」不在本机解析，把域名交给出站端。',
+    'routing.sniffHint': '从流量提取域名（TLS SNI / HTTP Host）供规则匹配；「用于目标地址」不在本机解析，交由出站端处理。',
     'routing.sniffOff': '禁用',
     'routing.sniffRouting': '用于路由判断',
     'routing.sniffDestination': '用于目标地址',
     // The two strategy rows beside it. The labels are the config's own keywords and are not
     // translated; only the empty one, which means "let the core decide", is a word.
     'routing.strategyDefault': '默认',
-    'routing.domainStrategyHint': '把域名解析成 IP 时的地址族偏好，作用于探测出来的域名。仅在本机解析时生效 —— 「流量嗅探」选「用于目标地址」时不在本机解析，这一项不参与。',
-    'routing.outboundStrategyHint': '本机需要自己解析的地址（节点的域名、DNS 服务器域名等）用哪种地址族。',
+    'routing.domainStrategyHint': '域名解析为 IP 时的地址族偏好，作用于嗅探得到的域名；仅本机解析时生效（「用于目标地址」时无效）。',
+    'routing.outboundStrategyHint': '本机自行解析的域名（节点、DNS 服务器等）所用地址族。',
     'routing.custom': '自定义路由规则（sing-box rules JSON）',
     'routing.remoteDNS': '国外 DNS',
     'routing.directDNS': '国内 DNS',
@@ -549,13 +574,13 @@ const zh: Record<string, string> = {
     'routing.dnsRouting': '启用 DNS 分流',
     // On the switch, where the consequence is: the three fields beside it stop doing
     // anything, and nothing on the card says so until the switch is off.
-    'routing.dnsRoutingHint': '关闭后所有域名按「兜底解析」解析；六个列表只决定连接走向。',
+    'routing.dnsRoutingHint': '关闭后所有域名按「兜底解析」处理，六个列表仅决定连接走向。',
     'routing.dnsFinalOut': '兜底解析',
     'routing.useDNSObject': '自定义 DNS',
     // What the switch above it does, said where it is thrown: this one replaces the
     // whole dns section rather than adding to it, and the section it replaces is the one
     // the route's own fallback resolver points into.
-    'routing.dnsObjectHint': '勾上后改用下方 JSON，须自定义 dns-direct 服务器。',
+    'routing.dnsObjectHint': '启用后使用下方 JSON，需自定义 dns-direct 服务器。',
     'routing.directDomain': '直连域名',
     'routing.proxyDomain': '代理域名',
     'routing.blockDomain': '屏蔽域名',
@@ -567,14 +592,14 @@ const zh: Record<string, string> = {
     'routing.presetCN': '绕过大陆与局域网',
     'routing.status': '状态',
     'routing.card.rule': '按列表分流',
-    'routing.card.global': '全部走代理',
+    'routing.card.global': '全部经代理',
     'routing.card.direct': '全部直连',
     'routing.card.blockName': '屏蔽',
     'routing.card.block': '所有模式下生效',
-    'routing.blockHint': '下列域名与 IP 在所有模式下都会被拒绝。',
-    'routing.modeHint.rule': '按下面的列表分流：命中的走代理或直连，其余走"兜底出站"。',
-    'routing.modeHint.global': '所有流量都走代理节点，下面的列表不再参与分流。',
-    'routing.modeHint.direct': '所有流量都直连，不经过任何节点。',
+    'routing.blockHint': '以下域名与 IP 在所有模式下均被拒绝。',
+    'routing.modeHint.rule': '按列表分流：命中项经代理或直连，其余按「兜底出站」。',
+    'routing.modeHint.global': '全部流量经代理节点转发，列表不再参与分流。',
+    'routing.modeHint.direct': '全部流量直连，不经过任何节点。',
     'routing.advanced': '高级（自定义规则）',
     // The resolver menu's headings. They file the entries by what the resolver does to
     // the answer, which is the choice being made; IPv4 and IPv6 are told apart inside
@@ -583,24 +608,24 @@ const zh: Record<string, string> = {
     'routing.dnsGroup.default': '默认（不过滤）',
     'routing.dnsGroup.family': '家庭（拦截恶意与成人内容）',
     'routing.dnsGroup.secure': '安全（拦截恶意内容）',
-    'routing.priorityHint': '命中顺序：自定义规则 > 屏蔽 > 代理列表 > 直连列表 > 兜底出站；同一条目同时在代理与直连列表时，代理优先。',
-    'routing.directFallback': '兜底出站已是直连：直连列表不再影响连接走向，仅决定哪些域名用国内 DNS 解析。',
-    'routing.dnsRoutingOff': 'DNS 分流已关闭：路由设置里的六个列表只决定连接走向，所有域名都按上面的「兜底解析」解析。',
-    'routing.customHint': '这里的规则在六个列表之前最先匹配，且仅规则模式生效；全局自定义规则排在其后。',
+    'routing.priorityHint': '匹配顺序：自定义规则 > 屏蔽 > 代理列表 > 直连列表 > 兜底出站；同一目标同时命中代理与直连时，代理优先。',
+    'routing.directFallback': '兜底出站已为直连：直连列表仅决定哪些域名用国内 DNS 解析。',
+    'routing.dnsRoutingOff': 'DNS 分流已关闭：六个列表仅决定连接走向，所有域名按「兜底解析」处理。',
+    'routing.customHint': '此处规则先于六个列表匹配，仅规则模式生效；全局自定义规则在其后。',
     'routing.dnsObjBad': '无效 JSON',
     'routing.presets': '预设列表',
     'routing.dnsObjNotObject': '不是 JSON 对象（应为 {"servers": …, "rules": …}）',
     'warn.fullwidth': '该行含全角字符',
-    'warn.comma': '含逗号，应一行一条',
+    'warn.comma': '含逗号，应每行一条',
     'warn.space': '含空格',
     'warn.both': '同时在代理与直连列表，代理优先',
-    'hint.custom_route': '全局自定义规则（sing-box rules JSON），排在路由档自身的自定义规则之后、六个列表之前；仅规则模式生效。',
+    'hint.custom_route': '全局自定义规则（sing-box rules JSON），在路由配置自身规则之后、六个列表之前匹配；仅规则模式生效。',
     // Rules that used to be parenthesised onto a label. The label column is 150px and
     // ellipsises whatever does not fit, so a rule stated there was a rule half-shown;
     // these read under the field instead, where there is a line to spare.
-    'hint.core_box_cache_file': '把域名与假 IP 的对应关系写进数据目录的 cache.db。关掉则核心每次重启后映射重新生成，系统或应用已经缓存的假 IP 会指向不存在的映射，那些连接会退化成按地址分流或直接失败，直到它们的缓存过期。',
-    'hint.ipv6_auto': '开启（默认）：按本机实际网络决定协议——不支持 IPv6 的网络自动只用 IPv4（TUN 网卡地址、DNS 是否返回 AAAA、出口解析策略一并跟随），支持的网络两个协议都可用，换网不必改设置。关闭：不做任何测量、也不替换任何配置，完全按下面的开关、路由卡里的解析策略和直连 DNS 手动决定。',
-    'hint.vpn_ipv6': '自动探测开启时，只在本机网络确实支持 IPv6 时才给网卡分配地址——开关说"要不要"，探测说"能不能"；自动探测关闭时，完全按这个开关。MTU 下限 1280 始终跟随本开关。',
+    'hint.core_box_cache_file': '将域名与 FakeIP 映射写入数据目录的 cache.db；关闭后核心每次重启都会重建映射，已缓存的 FakeIP 将失效，相关连接按地址分流或失败，直至缓存过期。',
+    'hint.ipv6_auto': '开启（默认）：按网络能力自动选择协议，无 IPv6 时仅用 IPv4（TUN 地址、AAAA 返回、出口解析策略一并跟随）；关闭：不探测、不替换配置，完全由下方开关与路由卡策略决定。',
+    'hint.vpn_ipv6': '自动探测开启时，仅在网络支持 IPv6 时为网卡分配地址；关闭时由本开关决定。MTU 下限 1280 始终遵循本开关。',
     'btn.enable': '启用',
     'btn.prev': '上一项',
     'btn.next': '下一项',
@@ -810,7 +835,7 @@ const zh: Record<string, string> = {
     'log.speedtest.concurrency': '>>> 并发 {0} · {1} 个节点',
 };
 
-const en: Record<string, string> = {
+const en: Record<string, string | string[]> = {
     'app.sub': 'Go + Wails rewrite',
     'sp.systemProxy': 'System Proxy',
     'sp.tun': 'TUN',
@@ -882,11 +907,16 @@ const en: Record<string, string> = {
     'lan.guide.title': 'Connect another device',
     'lan.guide.sub': 'HTTP / HTTPS · LAN share',
     'lan.guide.tag.net': 'Network',
+    'lan.guide.tag.device': 'Device',
+    'lan.guide.tag.path': 'Path',
     'lan.guide.tag.check': 'Check',
     'lan.guide.s1': 'Put it on the same network as this machine: the same Wi-Fi, or a cable from the same router.',
-    'lan.guide.s2': 'Settings → Wi-Fi → the ⓘ beside the network → Configure Proxy → Manual, with the server and port above.',
-    'lan.guide.s3': 'Long-press the Wi-Fi network → Modify network → Advanced → Proxy → Manual, with the server and port above.',
-    'lan.guide.s4': 'Settings → Network & internet → Proxy → Manual proxy setup, with the address and port above.',
+    'lan.guide.path.iphone': ['Settings', 'Wi-Fi', 'ⓘ', 'Configure Proxy', 'Manual'],
+    'lan.guide.path.android': ['Long-press Wi-Fi', 'Modify network', 'Advanced', 'Proxy', 'Manual'],
+    'lan.guide.path.windows': ['Settings', 'Network & internet', 'Proxy', 'Manual proxy setup'],
+    'lan.guide.field.server': 'Server',
+    'lan.guide.field.port': 'Port',
+    'lan.guide.fill': 'Type these two into the phone’s proxy',
     'lan.guide.s5': 'Save, then open any page. If nothing loads, check that a node is running here.',
     'lan.guide.note': 'Turn the device\'s proxy off when you are done; it stops working once sharing is off or this app quits.',
     'lan.guide.copy': 'Copy endpoint',
@@ -931,6 +961,9 @@ const en: Record<string, string> = {
     'btn.cancel': 'Cancel',
     'btn.save': 'Save',
     'btn.close': 'Close',
+    'btn.minimize': 'Minimise',
+    'btn.maximize': 'Maximise',
+    'btn.restore': 'Restore',
     'btn.ok': 'OK',
     'dlg.settings.title': 'Settings',
     'dlg.settings.resize': 'Drag to resize the settings panel (double-click to reset)',
@@ -970,6 +1003,7 @@ const en: Record<string, string> = {
     'about.checkUpdate': 'Check for updates',
     'about.bug': 'Report a bug',
     'about.unknown': 'unknown',
+    'about.bugBody': '### Environment\n- Version: {0}\n- Go: {1}\n- Built: {2}\n\n### What happened\n\n### Steps to reproduce\n',
     'batch.title': 'Batch',
     'batch.dedupe': 'Dedupe',
     'batch.removeFailed': 'Clear failed',
@@ -988,10 +1022,10 @@ const en: Record<string, string> = {
     'settings.group.hotkeys': 'Global hotkeys',
     'settings.group.dns': 'DNS resolution',
     
-    'hotkeys.note': 'Click, then press the combination; one modifier required, F1-F24 may stand alone, Backspace clears.',
+    'hotkeys.note': 'Click, then press the keys; a modifier is required (F1–F24 may stand alone); Backspace clears.',
     'settings.group.misc': 'Other',
-    'settings.dataDir': 'Data directory (nekoray layout; relative paths are read from the app folder)',
-    'settings.corePath': 'Core path (empty = auto detect; relative paths are read from the app folder)',
+    'settings.dataDir': 'Data directory (nekoray layout; relative paths resolve from the app folder)',
+    'settings.corePath': 'Core path (empty = auto-detect; relative paths resolve from the app folder)',
     'settings.dataDirShort': 'Data directory',
     'settings.corePathShort': 'Core path',
     'settings.coreAuto': 'Auto',
@@ -1015,7 +1049,7 @@ const en: Record<string, string> = {
     'kind.test.text': 'Speed test & traffic',
     'kind.hotkeys.text': 'Key combinations',
     'settings.theme': 'Theme',
-    'settings.hoverHint': 'The surface hovered rows, buttons and menus paint.',
+    'settings.hoverHint': 'Surface colour for hovered rows, buttons and menus.',
     'settings.theme.dark': 'Dark',
     'settings.theme.light': 'Light',
     'settings.tone.cool': 'Cool',
@@ -1026,11 +1060,11 @@ const en: Record<string, string> = {
     'settings.customHue': 'Theme colour',
     'settings.hoverBg': 'Hover colour',
     'settings.customSave': 'Save & apply',
-    'settings.customHint': 'Pick a colour; the rest of the interface follows.',
-    'settings.uiFontHint': 'Click or drag the cells to size the type, double-click returns to the system default; the type still floats with the window width.',
+    'settings.customHint': 'Pick a colour; the whole palette is derived from it.',
+    'settings.uiFontHint': 'Click or drag the cells to size the text; double-click follows the system. Text still scales with window width.',
     'settings.extraCores': 'External core paths',
     'settings.uwp': 'UWP loopback',
-    'settings.uwpHint': 'Let Store (UWP) apps reach the local proxy port. One administrator prompt.',
+    'settings.uwpHint': 'Allow UWP apps to reach the local proxy port (one admin prompt).',
     'settings.all': 'All settings',
     'cfg.inbound_auth': 'Inbound auth',
     'cfg.user': 'Username',
@@ -1053,40 +1087,42 @@ const en: Record<string, string> = {
     'cfg.dns_routing': 'Enable DNS split routing',
     'cfg.sniffing_mode': 'Traffic sniffing',
     'dns.smart': 'Smart pick',
-    'dns.smartHint': 'Measures both lists on a schedule and fills in the fastest; filtered resolvers (family/secure) only rank, never picked.',
+    'dns.smartHint': 'Measures both resolver lists at the set interval and fills in the lowest latency; filtered resolvers (family / secure) only rank, never selected.',
+    'dns.cache': 'DNS cache',
+    'dns.cacheHint': 'Caches answers by TTL under config/dns-cache; repeat lookups skip the node. Applies immediately.',
     'dns.smartEvery': 'Test every',
     'dns.smartUnit': 'min',
     'dns.switch': 'Smart switch',
-    'dns.switchHint': 'Switches when the current resolver is past 200ms and something 30ms quicker exists; cures slow, never chases fast.',
+    'dns.switchHint': 'Auto-switches when the current resolver is over 200 ms and a resolver 30 ms faster is available; corrects slowness only.',
     'dns.switched': 'Too slow; switched:',
     'dns.smartKept': 'Latency is fine; the current resolvers are kept',
     'dns.objServers': 'Servers',
     'dns.objAdd': 'Add',
-    'dns.objTag': 'The name others refer to; dns-direct must be there, the fallback resolves through it.',
-    'dns.objType': 'Decides which later fields matter: local / fakeip need no address.',
-    'dns.objAddr': '8.8.8.8:53, dns.google; an IPv6 address needs brackets.',
-    'dns.objPath': 'The DoH path, /dns-query unless it is something else.',
-    'dns.objDetour': 'proxy goes through the tunnel, blank = direct.',
-    'dns.objResolver': "The tag that resolves this server's own name, usually dns-local.",
-    'dns.objNoDirect': 'No dns-direct server — the fallback points at it, the core will not start.',
+    'dns.objTag': 'Tag other entries reference; dns-direct is required (the fallback points to it).',
+    'dns.objType': 'Selects applicable fields: local / fakeip need no address.',
+    'dns.objAddr': 'Address:port (8.8.8.8:53) or hostname (dns.google); IPv6 in brackets.',
+    'dns.objPath': 'DoH path; default /dns-query.',
+    'dns.objDetour': 'proxy = via proxy; empty = direct.',
+    'dns.objResolver': 'Tag resolving this server’s own domain, usually dns-local.',
+    'dns.objNoDirect': 'Missing dns-direct server; fallback fails and the core will not start.',
     'dns.template': 'Insert template',
-    'dns.templateHint': 'Fills a minimal working config (three servers + one rule, dns-direct tag required); unavailable while the box has content.',
-    'dns.smartTest': 'Pick',
+    'dns.templateHint': 'Inserts a minimal config (three servers + one rule, dns-direct required); unavailable while the box has content.',
+    'dns.smartTest': 'Test',
     'dns.smartTesting': 'Testing…',
     'dns.smartPicked': 'Picked:',
-    'dns.smartNone': 'Nothing answered; both fields are left as they were',
+    'dns.smartNone': 'No usable resolver answered; fields unchanged.',
     'dns.smartAuto': 'Picked again:',
     'dns.setRemote': 'Set as the foreign DNS (proxy fallback)',
     'dns.setDirect': 'Set as the domestic DNS (direct fallback)',
-    'dns.remoteNeedsNode': 'Start a node to measure this side.',
-    'dns.remoteNotYet': 'Not measured yet; a smart pick or Pick covers it.',
+    'dns.remoteNeedsNode': 'Start a node to measure.',
+    'dns.remoteNotYet': 'Not measured yet; smart pick or Test measures it too.',
     'cfg.use_dns_object': 'Use a custom DNS config',
     'cfg.dns_object': 'Custom DNS config',
     'cfg.dns_final_out': 'Fallback resolver',
     'cfg.user_agent2': 'User-Agent',
     'cfg.test_url': 'Latency test',
     'cfg.test_engine': 'Speed test engine',
-    'cfg.test_window': 'Speed test window (s, per direction)',
+    'cfg.test_window': 'Test duration (s/direction)',
     'cfg.test_upload': 'Test upload',
     'cfg.current_group': 'Current subscription',
     'cfg.inbound_address': 'Local listen address',
@@ -1104,16 +1140,16 @@ const en: Record<string, string> = {
     'port.check': 'Check',
     'port.free': 'Use a free port',
     'port.available': 'The port is free',
-    'port.ours': "Held by this app's own core (a node is running, which is normal)",
+    'port.ours': 'Held by this app’s core (node running; normal)',
     'port.used': 'Held by something else: ',
-    'port.picked': 'Picked the free port; it applies when you save:',
-        'ruleset.empty': 'The active profile refers to no rule sets',
+    'port.picked': 'Free port picked; applies on save:',
+        'ruleset.empty': 'No rule sets referenced',
     'ruleset.local': 'on disk',
     'ruleset.remote': 'not downloaded',
     'ruleset.orphan': 'unused',
     'ruleset.download': 'Download',
     'ruleset.update': 'Update',
-    'ruleset.updateHint': 'A newer copy is at the source; press to update the one on disk',
+    'ruleset.updateHint': 'Newer version upstream; click to update',
     'ruleset.remove': 'Remove',
     'ruleset.downloadAll': 'Download all missing',
     'ruleset.openDir': 'Open the rule-set directory',
@@ -1131,7 +1167,7 @@ const en: Record<string, string> = {
     'cfg.custom_route': 'Custom route',
     'cfg.sub_use_proxy': 'Update subscriptions via proxy',
     'cfg.remember_id': 'Last profile',
-    'cfg.remember_enable': 'Remember last profile',
+    'cfg.remember_enable': 'Remember last node',
     // The same words as the Chinese dictionary carries, and deliberately the same in
     // every language: each names itself (see the note there).
     'lang.zh': '中文',
@@ -1141,7 +1177,7 @@ const en: Record<string, string> = {
     'cfg.language': 'Language',
     'cfg.spmode2': 'Mode last left in',
     'cfg.remember_spmode': 'Restore last mode',
-    'cfg.skip_cert': 'Skip certs',
+    'cfg.skip_cert': 'Skip cert',
     'hotkey.resumeFailed': 'Failed to re-enable hotkeys; global hotkeys may be off',
     'cfg.hk_mw': 'Main window hotkey',
     'cfg.hk_spmenu': 'System proxy hotkey',
@@ -1159,17 +1195,17 @@ const en: Record<string, string> = {
     'hk.unset': 'Not set',
     'hk.needMod': 'Needs a modifier',
     'hk.clashTitle': 'Hotkey conflict',
-    'hk.clashRow': 'Another row already holds this combination: ',
-    'hk.clashTaken': 'The system or another program already holds this combination: ',
+    'hk.clashRow': 'This combination is already used by another entry: ',
+    'hk.clashTaken': 'This combination is already taken by the system or another app: ',
     'hk.clashHint': 'Press a different combination.',
     'cfg.fakedns': 'FakeDNS',
     'cfg.active_routing': 'Active routing',
     'cfg.mw_size': 'Window size',
     'cfg.conn_stat': 'Connection statistics',
     'cfg.vpn_impl': 'TUN stack',
-    'hint.vpn_impl': 'gvisor: userspace, the most compatible; system: the OS stack, faster; mixed: TCP on system, UDP on gvisor; Sing 15: the stack sing-box ships itself (1.15+, the fastest). A change takes effect the next time TUN starts.',
-    'hint.vpn_impl_old': 'This core does not support that stack (sing-box 1.15+ required).',
-    'hint.vpn_impl_gone': 'From 1.15 the core brings its own TCP/IP stack; this option is deprecated and no longer applies.',
+    'hint.vpn_impl': 'gvisor: user-space stack, compatibility first; system: OS stack, performance first; mixed: TCP on system, UDP on gvisor; Sing 15: built-in stack of sing-box 1.15+ (fastest; core 1.15+ required). Applies on next TUN start.',
+    'hint.vpn_impl_old': 'This stack requires sing-box 1.15+.',
+    'hint.vpn_impl_gone': 'Deprecated since sing-box 1.15 (built-in TCP/IP stack); no effect.',
     'cfg.vpn_mtu': 'TUN MTU',
     'cfg.vpn_ipv6': 'TUN IPv6',
     'cfg.ipv6_auto': 'Auto-detect IPv4/IPv6',
@@ -1183,10 +1219,10 @@ const en: Record<string, string> = {
     'cfg.sp_format': 'Proxy format',
     'cfg.sub_clear': 'Clear before update',
     'cfg.sub_insecure': 'Skip cert (subscriptions)',
-    'cfg.sub_auto_update': 'Auto-update (h)',
+    'cfg.sub_auto_update': 'Update interval (h)',
     'cfg.log_ignore': 'Ignored logs',
     'cfg.start_minimal': 'Start minimised',
-    'cfg.max_log_line': 'In-memory log lines',
+    'cfg.max_log_line': 'Log line limit',
     'cfg.splitter_state': 'Splitter position',
     'cfg.utlsFingerprint': 'uTLS fingerprint',
     'cfg.core_box_clash_api': 'API port',
@@ -1206,7 +1242,7 @@ const en: Record<string, string> = {
     'routing.tab.dns': 'DNS',
     'routing.tab.simple': 'Simple Route',
     'routing.defOutbound': 'Fallback outbound',
-    'routing.presetHint': 'Click to append it to the list above',
+    'routing.presetHint': 'Click to append to the list above',
     'routing.domainStrategy': 'Domain strategy',
     'routing.outboundDomainStrategy': 'Outbound domain strategy',
     'egress.title': 'Outbound mode',
@@ -1253,22 +1289,22 @@ const en: Record<string, string> = {
     'btn.copy': 'Copy',
     'btn.copied': 'Copied',
     'routing.sniffing': 'Traffic sniffing',
-    'routing.sniffHint': 'Takes the domain out of the traffic (TLS SNI / HTTP Host) for the rules to match. "For destination" leaves it unresolved here and hands the name to the outbound.',
+    'routing.sniffHint': 'Extracts the domain from traffic (TLS SNI / HTTP Host) for rules. "For destination" does not resolve locally; the name goes to the outbound.',
     'routing.sniffOff': 'Off',
     'routing.sniffRouting': 'For routing',
     'routing.sniffDestination': 'For destination',
     'routing.strategyDefault': 'Default',
-    'routing.domainStrategyHint': 'Which address family to prefer when a name is turned into an address, for the domains sniffing finds. Only applies when the name is resolved here — in the "For destination" sniffing mode it is not.',
-    'routing.outboundStrategyHint': 'The same choice for the addresses this app has to resolve itself: node hostnames, resolver hostnames.',
+    'routing.domainStrategyHint': 'Address-family preference when resolving domains to IP, applied to sniffed domains. Only applies to local resolution; ignored with "For destination".',
+    'routing.outboundStrategyHint': 'Address family for domains this machine resolves (node, DNS server hostnames, etc.).',
     'routing.custom': 'Custom route rules (sing-box rules JSON)',
     'routing.remoteDNS': 'Foreign DNS',
     'routing.directDNS': 'Domestic DNS',
     'routing.strategy': 'Strategy',
     'routing.dnsRouting': 'Enable DNS split routing',
-    'routing.dnsRoutingHint': 'Off: every name resolves by the fallback; the six lists only steer connections.',
+    'routing.dnsRoutingHint': 'Off: all domains use the fallback resolver; the six lists only route connections.',
     'routing.dnsFinalOut': 'Fallback resolver',
     'routing.useDNSObject': 'Custom DNS',
-    'routing.dnsObjectHint': 'On: the fields above are ignored, the JSON below is used as it stands; define dns-direct yourself.',
+    'routing.dnsObjectHint': 'On: uses the JSON below; define dns-direct yourself.',
     'routing.directDomain': 'Direct domain',
     'routing.proxyDomain': 'Proxy domain',
     'routing.blockDomain': 'Block domain',
@@ -1284,30 +1320,30 @@ const en: Record<string, string> = {
     'routing.card.direct': 'Everything direct',
     'routing.card.blockName': 'Block',
     'routing.card.block': 'Applies in every mode',
-    'routing.blockHint': 'The domains and addresses below are refused in every mode.',
-    'routing.modeHint.rule': 'Split by the lists below: a match goes to the node or straight out, and everything else follows "fallback outbound".',
-    'routing.modeHint.global': 'Every connection goes through the node; the lists below no longer split anything.',
-    'routing.modeHint.direct': 'Every connection goes straight out, through no node at all.',
+    'routing.blockHint': 'These domains and IPs are rejected in all modes.',
+    'routing.modeHint.rule': 'Split by list: matches go via proxy or direct; the rest follow "fallback outbound".',
+    'routing.modeHint.global': 'All traffic goes through the node; the lists no longer split.',
+    'routing.modeHint.direct': 'All traffic goes direct, bypassing every node.',
     'routing.advanced': 'Advanced (custom rules)',
     'routing.dnsGroup.doh': 'Encrypted (DoH / DoT)',
     'routing.dnsGroup.default': 'Default (no filtering)',
     'routing.dnsGroup.family': 'Family (blocks malware and adult)',
     'routing.dnsGroup.secure': 'Secure (blocks malware)',
-    'routing.priorityHint': 'Match order: custom rules > block > proxy lists > direct lists > fallback outbound; an item in both the proxy and direct lists goes to the proxy.',
-    'routing.directFallback': 'The fallback outbound is already direct: the direct lists no longer split connections; they only decide which names are resolved by the domestic DNS.',
-    'routing.dnsRoutingOff': 'DNS split routing is off: the six lists in the routing card split connections only; every name is resolved by the fallback resolver above.',
-    'routing.customHint': 'These rules match ahead of the six lists, and only in rule mode; the global custom rules rank after them.',
+    'routing.priorityHint': 'Match order: custom rules > block > proxy lists > direct lists > fallback outbound; proxy wins if a target is in both proxy and direct lists.',
+    'routing.directFallback': 'Fallback outbound is direct: the direct lists only decide which domains use the domestic DNS.',
+    'routing.dnsRoutingOff': 'DNS split routing is off: the six lists only route connections; every domain uses the fallback resolver.',
+    'routing.customHint': 'These rules match before the six lists, rule mode only; global custom rules follow.',
     'routing.dnsObjBad': 'Invalid JSON',
     'routing.presets': 'Presets',
     'routing.dnsObjNotObject': 'Not a JSON object (expected {"servers": …, "rules": …})',
     'warn.fullwidth': 'full-width characters in this line',
-    'warn.comma': 'contains a comma; one item per line',
-    'warn.space': 'contains a space',
+    'warn.comma': 'Contains a comma; one per line',
+    'warn.space': 'Contains a space',
     'warn.both': 'is in both the proxy and direct lists; the proxy list wins',
-    'hint.custom_route': "Global custom rules (sing-box rules JSON), ranked after the routing profile's own custom rules and ahead of the six lists; rule mode only.",
-    'hint.core_box_cache_file': 'Writes the domain ↔ fake-address mapping to cache.db in the data directory. With it off, every restart of the core makes the mapping again, so fake addresses the system or an application has already cached point at a mapping that no longer exists — those connections fall back to being routed by address, or fail, until their cache expires.',
-    'hint.ipv6_auto': "On (the default): the config follows this machine's network — IPv4 only where IPv6 cannot work (the tun address, AAAA in answers, the outbound resolver strategy), both families where it can, and nothing to flip per network. Off: nothing is measured and nothing is substituted — the switches below and the routing card's resolvers and strategies are written exactly as they stand.",
-    'hint.vpn_ipv6': "With auto-detection on, the adapter is given an IPv6 address only where this machine's network has IPv6 — the switch says whether v6 is wanted, the measurement says whether it can be had. With it off, this switch alone decides. The 1280 MTU floor follows the switch either way.",
+    'hint.custom_route': 'Global custom rules (sing-box rules JSON), matched after the profile’s own rules and before the six lists; rule mode only.',
+    'hint.core_box_cache_file': 'Persists the domain-to-FakeIP mapping in cache.db under the data directory. When disabled, the core rebuilds the mapping on every restart; cached FakeIPs go stale, so affected connections fall back to address routing or fail until the cache expires.',
+    'hint.ipv6_auto': 'On (default): protocol follows network capability; without IPv6, IPv4 only (TUN address, AAAA answers and outbound strategy follow). Off: no probing or config substitution; the switches below and the routing card decide.',
+    'hint.vpn_ipv6': 'With auto-detection on, the adapter gets an IPv6 address only when the network supports IPv6; with it off, this switch decides. The 1280 MTU floor always follows this switch.',
     'btn.enable': 'Enable',
     'btn.prev': 'Previous',
     'btn.next': 'Next',
@@ -1510,7 +1546,7 @@ const en: Record<string, string> = {
     'log.speedtest.concurrency': '>>> concurrency {0} · {1} nodes',
 };
 
-const dicts: Record<Lang, Record<string, string>> = {zh, en, ru, fa};
+const dicts: Record<Lang, Record<string, string | string[]>> = {zh, en, ru, fa};
 
 // A ref rather than a plain variable, so every t() called inside a render effect or
 // a computed depends on the language and one switch repaints every word — including
@@ -1532,12 +1568,25 @@ export function getLang(): Lang {
 // {0}, {1}… with args in order — the same substitution the tips table gets,
 // because a few strings here are parameterised the same way.
 export function t(key: string, ...args: (string | number)[]): string {
-    const s = dicts[current.value][key] ?? zh[key] ?? key;
+    const v = dicts[current.value][key] ?? zh[key];
+    // A list under a label key is a mistyped call rather than a blank label, so the
+    // key itself is what answers; the list's own reader is tList.
+    const s = typeof v === 'string' ? v : key;
     if (!args.length) return s;
     return s.replace(/\{(\d+)\}/g, (m, i) => {
         const v = args[Number(i)];
         return v === undefined ? m : String(v);
     });
+}
+
+// tList reads a key whose value is a list of words: the taps of a path, each one a
+// place the reader goes rather than a sentence to read. A language that has not
+// caught up answers with the Chinese list, the same way t answers with the Chinese
+// word; a key that holds a single word answers with an empty list, because a path of
+// one tap is not a path this panel draws.
+export function tList(key: string): string[] {
+    const v = dicts[current.value][key] ?? zh[key];
+    return Array.isArray(v) ? v : [];
 }
 
 // LangFromCode maps the language setting to a language. 0–4 are nekoray's own numbers

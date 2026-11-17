@@ -238,7 +238,7 @@ button.node-ip {
     border: 1px solid transparent;
     border-radius: 4px;
     background: none;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.625rem;
     color: var(--text-dim);
     cursor: pointer;
@@ -274,7 +274,7 @@ button.node-ip:hover {
 
 button.node-ip[aria-expanded="true"] {
     color: var(--text);
-    background: var(--bg-3);
+    background: var(--hover-bg);
 }
 
 /* The exit details: what the tunnel's other end is registered as. It opens upwards off
@@ -289,7 +289,11 @@ button.node-ip[aria-expanded="true"] {
 .exit-panel {
     position: absolute;
     right: 8px;
-    bottom: calc(var(--status-h, 30px) + 6px);
+    /* The card's bottom border sits exactly on the bar's top border — one line for
+       both, rather than the bar's line showing through a gap under the card and
+       reading as a second border that escapes its rounded corners. The -1px is the
+       bar's border: --status-h measures the bar's border box. */
+    bottom: calc(var(--status-h, 30px) - 1px);
     z-index: 205;
     width: 352px;
     max-width: calc(100vw - var(--rail-w, 40px) - 16px);
@@ -307,7 +311,11 @@ button.node-ip[aria-expanded="true"] {
     -ms-overflow-style: none;
     font-size: 0.6875rem;
     color: var(--text);
-    background: var(--bg-2);
+    /* One palette for both cards in this corner — the exit details and the LAN
+       guide (see .lan-panel): the window's own floor, and the same lines. It used
+       to sit on --bg-2, a shade above the window, which made the same corner read
+       as two different kinds of card depending on which one was open. */
+    background: var(--bg);
     border: 1px solid var(--line-strong);
     border-radius: 12px;
     box-shadow: 0 18px 44px rgba(0, 0, 0, .45);
@@ -327,8 +335,10 @@ button.node-ip[aria-expanded="true"] {
     align-items: center;
     gap: 9px;
     padding: 11px 12px 10px;
-    border-bottom: 1px solid var(--line);
-    background: linear-gradient(180deg, rgba(255, 255, 255, .05), transparent);
+    /* Flat on the card's own black and ruled by the same line the LAN guide's
+       header uses: the white wash that lifted this one off the sheet belonged to
+       the raised surface the panel no longer sits on. */
+    border-bottom: 1px solid var(--line-strong);
 }
 
 .exit-hero .node-flag {
@@ -344,7 +354,7 @@ button.node-ip[aria-expanded="true"] {
 }
 
 .exit-ip {
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.8125rem;
     font-weight: 600;
     letter-spacing: .3px;
@@ -382,7 +392,7 @@ button.node-ip[aria-expanded="true"] {
     align-items: baseline;
     gap: 12px;
     padding: 4px 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, .035);
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
 }
 
 .exit-table > .exit-row:last-child {
@@ -390,7 +400,7 @@ button.node-ip[aria-expanded="true"] {
 }
 
 .exit-row:hover {
-    background: rgba(255, 255, 255, .03);
+    background: var(--hover-bg);
 }
 
 .exit-k {
@@ -412,10 +422,10 @@ button.node-ip[aria-expanded="true"] {
     margin-left: 4px;
     padding: 0 4px;
     border-radius: 3px;
-    background: rgba(255, 255, 255, .06);
+    background: color-mix(in srgb, var(--text) 6%, transparent);
     color: var(--text-dim);
     font-style: normal;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.5625rem;
 }
 
@@ -429,95 +439,290 @@ button.node-ip[aria-expanded="true"] {
 }
 
 /* The LAN guide, in the same card (see .exit-panel) and opened by the endpoint it is
-   about. Its rows are not label/value pairs: a step is a numeral, the platform it is
-   for, and the sentence — read across once, which is how a recipe gets retold to a
-   phone. The numeral column is narrow and dim on purpose: it is an index, not a value,
-   and the eye should land on the platform and the words. */
+   about. Its body is not a list of steps to read but a ruled sheet — a narrow column
+   of labels down one side, the answer to each in the cell beside it, hairlines
+   joining them into one grid. The reader's eye walks the label column top to bottom:
+   network, device, the taps, then the two numbers everything above ends in. */
 .lan-panel {
-    width: 344px;
+    /* The sheet keeps every row on one line, so the card takes its width from the
+       widest row rather than a fixed size — and the window's own ceiling (see
+       .exit-panel) still clamps it, with a horizontal scroll as the way out. */
+    width: max-content;
+    min-width: 348px;
+    overflow-x: auto;
     /* 一步大于出口面板的 11px：那 9.6px 的中文在 100% 缩放下落在非整数像素上，
        笔画会被拆成两道灰边，看起来就是"重影"。字号抬到 11.4px（0.8125rem）后
        同一段文字是清楚的，也正好和头部那条地址一样大。 */
     font-size: 0.8125rem;
 }
 
-/* The slot the exit panel gives the country's flag: what kind of thing this is. */
-.lan-hero-chip {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 2px 5px;
-    border: 1px solid var(--line-strong);
-    border-radius: 4px;
-    color: var(--text-dim);
-    font-family: var(--font-mono);
-    font-size: 0.625rem;
-    letter-spacing: .4px;
-}
-
-/* The port after the address: dim, so the header reads as one line whose second half
-   is the part a reader mostly copies. */
-.lan-hero-port {
-    color: var(--text-dim);
-    font-style: normal;
-    font-weight: 500;
-}
-
-.lan-steps {
+/* The stub: what this is and what protocol it speaks. Flat, on the sheet's own black
+   and ruled by the one solid line the table below starts from — no wash in the
+   corner, no pill on the right. The mark that names the card is the short rule, the
+   way a section is marked everywhere else in this window, so the header reads as a
+   heading over a sheet rather than as the sheet's first decorated row. */
+.lan-stub {
     display: flex;
-    flex-direction: column;
-    padding: 3px 0 2px;
+    align-items: center;
+    gap: 9px;
+    padding: 10px 13px 9px;
+    border-bottom: 1px solid var(--line-strong);
 }
 
-.lan-step {
-    display: grid;
-    grid-template-columns: 16px 56px minmax(0, 1fr);
-    align-items: baseline;
-    gap: 8px;
-    padding: 7px 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, .035);
+/* The chip and its bar are the window's own ink and rule, not the accent: this
+   card is read, not acted on, so nothing in it competes with the one button (the
+   switch in the titlebar) that is about the sharing itself. */
+.lan-chip {
+    position: relative;
+    flex: 0 0 auto;
+    padding-left: 9px;
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: .14em;
 }
 
-.lan-step:last-child {
-    border-bottom: 0;
+.lan-chip::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    translate: 0 -50%;
+    width: 2px;
+    height: 11px;
+    border-radius: 1px;
+    background: var(--line-strong);
 }
 
-.lan-step:hover {
-    background: rgba(255, 255, 255, .03);
-}
-
-.lan-step-n {
-    color: var(--text-dim);
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    /* 序号用颜色退后，不用 opacity：半透明会把这一列单独做一层，落在分数像素上
-       时文字又糊一层。 */
-    font-variant-numeric: tabular-nums;
-}
-
-.lan-step-tag {
-    color: var(--text-dim);
-    font-size: 0.75rem;
-    white-space: nowrap;
+.lan-stub-sub {
+    flex: 1 1 auto;
+    min-width: 0;
     overflow: hidden;
+    color: var(--text-dim);
+    font-size: 0.6875rem;
+    letter-spacing: .2px;
+    white-space: nowrap;
     text-overflow: ellipsis;
 }
 
-.lan-step-text {
-    min-width: 0;
-    line-height: 1.45;
-    overflow-wrap: anywhere;
+.lan-dock button:focus-visible,
+.lan-field-copy:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: 2px;
 }
 
-/* The footnote: what stops working when, said once at the bottom rather than repeated
-   per row. */
+/* The sheet itself: two columns, the labels and their answers, and the grid lines
+   between them drawn once here rather than per cell. The label column hugs its
+   word so the value cells keep the width; the vertical rule between the two
+   columns is the table's spine. RTL folds the spine to the other side on its own,
+   because the rule and the paddings follow the inline direction. */
+.lan-sheet {
+    display: grid;
+    grid-template-columns: auto auto;
+    align-items: stretch;
+    padding: 0;
+}
+
+.lan-th {
+    align-self: center;
+    padding: 7px 11px 7px 13px;
+    border-inline-end: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    color: var(--text-dim);
+    font-size: 0.6875rem;
+    letter-spacing: .2px;
+    white-space: nowrap;
+}
+
+.lan-td {
+    min-width: 0;
+    padding: 7px 13px 7px 11px;
+    border-bottom: 1px solid var(--line);
+}
+
+/* Text answers: the sentences the app owes the reader, one line each — the sheet
+   takes its width from the longest of them. Dim, because the numbers below are
+   what the eye came for. */
+.lan-td-text {
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    line-height: 1.55;
+    white-space: nowrap;
+}
+
+/* The sheet's last row owns no rule — the note under it draws the dashed one. */
+.lan-th-end,
+.lan-td-end {
+    border-bottom: 0;
+}
+
+.lan-th-end {
+    align-self: start;
+    padding-top: 9px;
+}
+
+.lan-td-end {
+    padding-top: 9px;
+    padding-bottom: 9px;
+}
+
+/* The device choice: three pills in one cell, the way a segmented control names
+   its parts. They are alternatives, so they sit beside each other — and the chosen
+   one is filled, because a tint over a dark panel left the label at the same
+   weight as the two unchosen ones. */
+.lan-dock {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 5px;
+}
+
+.lan-dock button {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--bg-3);
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.lan-dock button:hover {
+    border-color: var(--line-strong);
+    color: var(--text);
+}
+
+/* The chosen device is told apart by ink and weight rather than by a fill: the
+   card's palette is the window's own (see .exit-panel), and an accent slab in the
+   middle of it read as a second subject. */
+.lan-dock button.on {
+    border-color: var(--line-strong);
+    background: var(--hover-bg);
+    color: var(--text);
+    font-weight: 600;
+}
+
+/* The path: the taps, as a chain of chips. Each one is a place the reader goes,
+   and the last is the setting to pick — brighter ink and a stronger rule, the
+   same way the sheet marks every other "this one" without leaving its palette. */
+.lan-path {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 5px 4px;
+}
+
+/* The arrow and the chip it points at are one item: a path too long for one line
+   breaks between two taps, and a lone arrow left at the end of a line would point
+   at nothing. */
+.lan-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.lan-arrow {
+    color: var(--text-dim);
+    opacity: .5;
+    font-size: 0.8125rem;
+    line-height: 1;
+}
+
+.lan-hop {
+    padding: 2px 7px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--bg-3);
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
+.lan-hop.last {
+    border-color: var(--line-strong);
+    background: var(--hover-bg);
+    color: var(--text);
+    font-weight: 600;
+}
+
+/* The band between the path and the numbers: what the two cells below are for.
+   It spans both columns, so the spine pauses here and the form reads as its own
+   section of the sheet. */
+.lan-cap {
+    grid-column: 1 / -1;
+    padding: 5px 13px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--text-dim);
+    font-size: 0.6875rem;
+    letter-spacing: .2px;
+}
+
+/* The two numbers the phone asks for: the label cell and the value cell of one
+   row each. The values are the largest type on the sheet — the reader's eye
+   lands here from across the panel — and the port is set a step larger still,
+   being the half that moves with the inbound setting. */
+.lan-td-num {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+.lan-field-v {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 0.9375rem;
+    letter-spacing: .2px;
+}
+
+.lan-port {
+    color: var(--text);
+    font-size: 1.125rem;
+    font-weight: 700;
+    letter-spacing: .4px;
+}
+
+.lan-field-copy {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.lan-field-copy:hover {
+    border-color: var(--line-strong);
+    background: var(--hover-bg);
+    color: var(--text);
+}
+
+/* The footnote: torn off the foot of the sheet, said once rather than per row —
+   one line, like the rows above it. */
 .lan-note {
     margin: 0;
-    padding: 8px 12px 10px;
-    border-top: 1px solid var(--line);
+    padding: 8px 13px 10px;
+    border-top: 1px dashed var(--line-strong);
     color: var(--text-dim);
-    font-size: 0.625rem;
-    line-height: 1.45;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    /* The one line on the card that is a sentence rather than a figure: it takes
+       the card's width and wraps inside it. Held on one line it was the widest
+       thing in the sheet, and `width: max-content` above turned that into the
+       whole card's width — a horizontal scrollbar on a card whose rows all fit. */
+    white-space: normal;
 }
 
 /* The purity reading, full width: the score at the size of a headline on the right, the
@@ -530,7 +735,7 @@ button.node-ip[aria-expanded="true"] {
     gap: 12px;
     padding: 9px 12px 11px;
     border-top: 1px solid var(--line);
-    background: rgba(255, 255, 255, .02);
+    background: var(--bg);
 }
 
 .exit-purity-val {
@@ -541,7 +746,7 @@ button.node-ip[aria-expanded="true"] {
 }
 
 .exit-purity-val b {
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.9375rem;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
@@ -682,7 +887,7 @@ button.node-ip[aria-expanded="true"] {
 
 .exit-copy:hover {
     color: var(--accent);
-    background: rgba(255, 255, 255, .06);
+    background: var(--hover-bg);
 }
 
 .exit-copy .ic {
@@ -752,7 +957,7 @@ button.node-ip[aria-expanded="true"] {
     background: none;
     color: var(--text-dim);
     font: inherit;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.625rem;
     cursor: pointer;
     transition: color .15s, border-color .15s, background .15s;
@@ -781,7 +986,7 @@ button.node-ip[aria-expanded="true"] {
     border-radius: 6px;
     color: var(--text);
     padding: 4px 7px;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.75rem;
     outline: none;
     max-width: 190px;
@@ -858,7 +1063,7 @@ button.node-ip[aria-expanded="true"] {
     border-radius: 6px;
     background: var(--bg);
     color: var(--text);
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.75rem;
     text-align: left;
     cursor: pointer;
@@ -916,7 +1121,7 @@ button.node-ip[aria-expanded="true"] {
     border-radius: 5px;
     background: none;
     color: var(--text-dim);
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.75rem;
     text-align: left;
     white-space: nowrap;
@@ -1135,7 +1340,7 @@ table.profiles th {
     border: none;
     border-radius: 0;
     padding: 5px 7px;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.75rem;
 }
 
@@ -1265,7 +1470,7 @@ table.profiles th {
     border-radius: 6px;
     background: var(--bg-3);
     color: var(--text-dim);
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.6875rem;
     line-height: 1.5;
     white-space: pre-wrap;
@@ -1578,7 +1783,7 @@ table.groups-table tbody tr:last-child td {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.6875rem;
     line-height: 18px;
     color: var(--text-dim);
@@ -2275,7 +2480,7 @@ table.groups-table .btn.tiny .ic {
     border-radius: 11px;
     background: color-mix(in srgb, var(--route-accent) 13%, transparent);
     color: var(--route-accent);
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.6875rem;
     font-weight: 600;
 }
@@ -3018,7 +3223,7 @@ table.groups-table .btn.tiny .ic {
 .dns-row-addr {
     flex: 0 0 var(--dns-addr-w);
     color: var(--text-dim);
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     /* The column is sized for the longest address there is; a card too narrow to give it
        that much truncates rather than spilling — the row is a button and cannot overflow
        without dragging the box with it. */
@@ -3044,7 +3249,7 @@ table.groups-table .btn.tiny .ic {
     border-radius: 6px;
     color: var(--text);
     padding: 2px 6px;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.75rem;
     outline: none;
 }
@@ -3170,7 +3375,7 @@ table.groups-table .btn.tiny .ic {
        6px padding put the first line of text — the placeholder, on an empty
        list — right under its descenders. */
     padding: 12px 6px 6px;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.6875rem;
     line-height: 1.6;
     outline: none;
@@ -3266,7 +3471,7 @@ table.rt-table {
     border-radius: 8px;
     background: var(--bg-2);
     color: var(--text-dim);
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.75rem;
     line-height: 1.5;
     white-space: pre-wrap;
@@ -3318,7 +3523,7 @@ table.rt-table {
     border-left: 1px solid var(--line);
     background: none;
     color: var(--text-dim);
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.6875rem;
     cursor: pointer;
 }

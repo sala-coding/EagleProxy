@@ -203,7 +203,7 @@
 .set-group .jf-field input.mono,
 .set-group .jf-field select.mono,
 .set-group .jf-field input[type="number"] {
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.75rem;
 }
 
@@ -307,7 +307,7 @@
     flex: 0 0 auto;
     min-width: 38px;
     text-align: right;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.6875rem;
     color: var(--text-dim);
 }
@@ -793,7 +793,7 @@
 .set-nav-item::before {
     counter-increment: nav;
     content: counter(nav, decimal-leading-zero);
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.625rem;
     color: var(--text-dim);
     /* A figure is a mark beside the name, not a second name: at .7 it was reading as
@@ -1397,7 +1397,7 @@
     padding: 12px;
     max-height: 460px;
     overflow: auto;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.75rem;
     line-height: 1.5;
     white-space: pre;
@@ -1657,7 +1657,7 @@
     border-radius: 8px;
     color: var(--text);
     padding: 10px;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.75rem;
     line-height: 1.5;
     outline: none;
@@ -1790,7 +1790,7 @@
 /* The focused row lifts and takes an accent tick on its left edge: the whole line
    answers, because the whole line is the field. */
 .settings-dock .set-group .jf-field:has(> label):not(.jf-object, .jf-stack, .jf-long):not(:has(.hk-input)):has(input:not([type="checkbox"]), select, .rt-select):focus-within {
-    background: var(--bg-3);
+    background: var(--hover-bg);
     box-shadow: inset 2px 0 0 var(--accent);
 }
 
@@ -1804,7 +1804,7 @@
    accent every focused input gets, with the field's own surface lifted behind it. */
 .hk-input.listening {
     border-color: var(--accent);
-    background: var(--bg-3);
+    background: var(--hover-bg);
     color: var(--text-dim);
 }
 
@@ -1813,7 +1813,7 @@
    uses for anything read character by character. */
 .hk-clash-key {
     margin: 0 2px;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     color: var(--text);
 }
 
@@ -2049,7 +2049,7 @@
     height: 22px;
     font-size: 0.6875rem;
     color: var(--text-dim);
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     /* No gap of its own: the two fields are already sitting in fixed frames with their
        contents centred, and a gap on top of that made the space between the directions
        wider than the space at either end by an amount that varied with the figures. With
@@ -2108,7 +2108,7 @@
     padding: 2px 4px;
     cursor: pointer;
     user-select: text;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
 }
 
 .lan-ip:hover {
@@ -2251,7 +2251,7 @@
 
 .conn-open:hover {
     color: var(--accent);
-    background: rgba(255, 255, 255, .06);
+    background: var(--hover-bg);
 }
 
 .conn-open:focus-visible {

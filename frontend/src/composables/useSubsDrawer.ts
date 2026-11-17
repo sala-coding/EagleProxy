@@ -94,6 +94,10 @@ export function useSubsDrawer(deps: {
             if (e.key !== 'Tab' || e.shiftKey) return;
             if (document.activeElement !== null && document.activeElement !== document.body) return;
             if (!subsBtnRef.value) return;
+            // A panel in front of the table owns the keyboard: the empty-focus
+            // convenience is for a window with nothing else on it, not a way to
+            // pull the drawer over a dialog the reader is working in.
+            if (document.querySelector('.modal-mask, .settings-dock, .console, .conn-modal, .exit-panel, .lan-panel')) return;
             e.preventDefault();
             subsBtnRef.value?.focus();
             openSubs();
@@ -104,16 +108,33 @@ export function useSubsDrawer(deps: {
         if (tabHandler) window.removeEventListener('keydown', tabHandler);
     });
 
-    // The subscriptions box answers to Escape. Outside clicks used to be a
-    // catcher's job; there is no catcher now, so this and the rail button are
-    // what put it away without touching the table.
+    // The subscriptions box answers to Escape and to a press anywhere else — the
+    // gesture every other panel in this window answers to (the settings dock, the
+    // two cards on the status bar, the log). The press is read on the way down so
+    // the drawer is already going back when the click lands on what it covered.
+    // The exemptions are the doors rather than the panel: the rail's own button
+    // toggles it (closing on the mousedown and letting the click open it again
+    // would make that button do nothing), and a dialog raised from a card — the
+    // editor, the QR, the export notice — belongs to the same conversation as the
+    // list behind it, so a press inside that dialog must not take the list away.
     watch(subsDrop, (drop, _, onCleanup) => {
         if (!drop) return;
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') closeSubs();
         };
+        const onDown = (e: PointerEvent) => {
+            const el = e.target as HTMLElement | null;
+            if (!el) return;
+            if (el.closest('.subdrop, .modal-mask, .ctxmenu')) return;
+            if (subsBtnRef.value?.contains(el)) return;
+            closeSubs();
+        };
         window.addEventListener('keydown', onKey);
-        onCleanup(() => window.removeEventListener('keydown', onKey));
+        document.addEventListener('pointerdown', onDown, true);
+        onCleanup(() => {
+            window.removeEventListener('keydown', onKey);
+            document.removeEventListener('pointerdown', onDown, true);
+        });
     });
 
     return {subsDrop, subsClosing, openSubs, closeSubs, hardCloseSubs, subsBtnRef};

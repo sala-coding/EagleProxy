@@ -50,11 +50,13 @@ export function useExitIP(running: Ref<number>) {
             // address and its flag look gone for good while the node was on its way
             // back. A stop that is still a stop after the grace clears it as before.
             const timer = window.setTimeout(() => {
+                // The card may have been opened inside this grace — the address is
+                // still on the bar, so the press was a fair one. Closing it under
+                // the reader's eyes is worse than showing one stale reading for a
+                // moment: the address is cleared when the card itself is closed
+                // (see the panel's own watcher below).
+                if (infoOpen.value) return;
                 exitIP.value = null;
-                // And the panel that shows it goes with the address: left open behind a
-                // torn-down corner, it was still "open" as far as its own state went, and
-                // it reappeared by itself the moment the next node answered.
-                infoOpen.value = false;
             }, 3000);
             onCleanup(() => window.clearTimeout(timer));
             return;
@@ -187,6 +189,10 @@ export function useExitIP(running: Ref<number>) {
         onCleanup(() => {
             window.removeEventListener('mousedown', onDown);
             window.removeEventListener('keydown', onKey);
+            // A reading that was already outlived by its node goes with the card
+            // that showed it — the grace above held it only for as long as it was
+            // on screen.
+            if (running.value === STOPPED) exitIP.value = null;
         });
     });
 

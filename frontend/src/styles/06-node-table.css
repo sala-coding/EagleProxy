@@ -115,10 +115,13 @@ table.profiles tbody tr:last-child td {
     color: var(--text-dim);
 }
 
+/* The wash is derived from the theme's own green: the hard-coded GitHub green
+   held the dark theme's hue on the light one too, where --green is a darker step
+   of its own — the capsule above was one colour and this wash was another. */
 .pill.on {
     color: var(--green);
-    border-color: rgba(63, 185, 80, 0.4);
-    background: rgba(63, 185, 80, 0.1);
+    border-color: color-mix(in srgb, var(--green) 40%, transparent);
+    background: color-mix(in srgb, var(--green) 10%, transparent);
 }
 
 .pill.off {
@@ -501,7 +504,7 @@ table.profiles td.latency {
 
 .addr {
     color: var(--text-dim);
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.75rem;
 }
 

@@ -145,7 +145,7 @@
 }
 
 .editor-body .jsonform > .jf-field > textarea:hover:not(:focus) {
-    background: var(--bg-3);
+    background: var(--hover-bg);
 }
 
 .editor-body .jsonform > .jf-field > textarea:focus {
@@ -169,7 +169,7 @@
 .editor-body .jsonform > .jf-field input:not([type]):hover:not(:focus),
 .editor-body .jsonform > .jf-field input[type="number"]:hover:not(:focus),
 .editor-body .jsonform > .jf-field select:hover:not(:focus) {
-    background: var(--bg-3);
+    background: var(--hover-bg);
 }
 
 .editor-body .jsonform > .jf-field input[type="text"]:focus,

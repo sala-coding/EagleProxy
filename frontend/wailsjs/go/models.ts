@@ -245,6 +245,20 @@ export namespace main {
 	        this.auth = source["auth"];
 	    }
 	}
+	export class LogTemplate {
+	    tpl: string;
+	    key: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LogTemplate(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tpl = source["tpl"];
+	        this.key = source["key"];
+	    }
+	}
 	export class ProfileInfo {
 	    id: number;
 	    gid: number;
@@ -389,6 +403,7 @@ export namespace setting {
 	    dns_smart_select: boolean;
 	    dns_smart_minutes: number;
 	    dns_smart_switch: boolean;
+	    dns_cache: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Routing(source);
@@ -418,6 +433,7 @@ export namespace setting {
 	        this.dns_smart_select = source["dns_smart_select"];
 	        this.dns_smart_minutes = source["dns_smart_minutes"];
 	        this.dns_smart_switch = source["dns_smart_switch"];
+	        this.dns_cache = source["dns_cache"];
 	    }
 	}
 	export class Setting {

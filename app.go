@@ -14,9 +14,9 @@ import (
 	"eagle/internal/vpn"
 	"fmt"
 	"net/http"
-	"strconv"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -609,7 +609,7 @@ func (a *App) startup(ctx context.Context) {
 	// Write a marker straight away so the log folder is created on every launch
 	// and it is obvious whether file logging works.
 	if logs := a.logStore(); logs != nil {
-		logs.Section("core", "启动 · "+time.Now().Format("2006-01-02 15:04:05")+" · "+a.logDir())
+		logs.Section("core", "[启动] 应用启动 · "+time.Now().Format("2006-01-02 15:04:05")+" · "+a.logDir())
 	}
 	// A previous run can have left the adapter capturing. That is the shape after a
 	// kill: the stop path never ran, so the routes it took are still in the table,
