@@ -329,7 +329,7 @@ const swallowCtx = (e: MouseEvent) => {
                                                 @click.stop="emit('copyUrl', d.g.url)">
                                             <Link3Filled class="ic"/>
                                         </button>
-                                        <button class="sub-act"
+                                        <button class="sub-act sub-export"
                                                 :title="t('btn.exportSub')"
                                                 :aria-label="t('btn.exportSub')"
                                                 @click.stop="emit('exportConfig', d.g.id)">

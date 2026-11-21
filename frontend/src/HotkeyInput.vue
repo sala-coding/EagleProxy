@@ -43,11 +43,6 @@ watch(listening, (on, _, onCleanup) => {
 
 const press = async (e: KeyboardEvent) => {
     if (!listening.value) return;
-    // One capture at a time: acceptHotkey awaits its answer, and a second key
-    // pressed inside that window used to run the whole recording again — both
-    // writes landing on value, the later one winning for no press that a
-    // reader could account for. The in-flight ask swallows the extra key.
-    if (accepting) return;
     // The field's own while it listens. Tab would move on to the next row, Space
     // would scroll the dialog, Enter would do whatever the row does. The browser's
     // own shortcuts — Ctrl+W, F5 — cannot be taken back here for the same reason they
@@ -59,6 +54,14 @@ const press = async (e: KeyboardEvent) => {
     // it. Stopping it here, at the field that is listening, leaves that dismissal
     // alone everywhere else.
     e.stopPropagation();
+    // One capture at a time: acceptHotkey awaits its answer, and a second key
+    // pressed inside that window used to run the whole recording again — both
+    // writes landing on value, the later one winning for no press that a
+    // reader could account for. The in-flight ask swallows the extra key.
+    // The swallow has to come after the two calls above: a second Escape
+    // arriving during the round trip would otherwise bubble to the panel and
+    // close it.
+    if (accepting) return;
     if (e.key === 'Backspace' || e.key === 'Delete') {
         // Give up the combination rather than try to record it: there is no such key
         // in the vocabulary, and a field that can only be filled is one that cannot

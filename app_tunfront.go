@@ -117,6 +117,9 @@ func (a *App) startVPNExternal(id int, frontSettled func(error)) error {
 	// otherwise, and takes apart the front-end this start is about to use.
 	a.tunWake.Store(true)
 	defer a.tunWake.Store(false)
+	// This start's serial, carried to the completion that may answer seconds
+	// from now (see finishTunFrontPending).
+	gen := a.tunStartGen.Add(1)
 	// A start answers for its own window: a previous start's pending completion
 	// may have left the flag standing (its goroutine clears it, but a stop and
 	// a fresh start can outrun that answer), and this start is not pending yet.
@@ -213,7 +216,7 @@ func (a *App) startVPNExternal(id int, frontSettled func(error)) error {
 		// authorization" rather than "on" over a capture that is not there yet.
 		a.tunFrontAwaiting.Store(true)
 		go crashlog.Guard("finishTunFrontPending", func() {
-			a.finishTunFrontPending(frontCh, frontSettled)
+			a.finishTunFrontPending(frontCh, frontSettled, gen)
 		})
 		return nil
 	}
@@ -234,9 +237,20 @@ func (a *App) startVPNExternal(id int, frontSettled func(error)) error {
 // frontSettled, when the caller is a mode switch, carries that switch's own
 // bookkeeping (the success line, the flag-and-proxy rollback); a plain start
 // passes nil and gets the plain answer: the node down and the failure said.
-func (a *App) finishTunFrontPending(frontCh chan error, frontSettled func(error)) {
-	defer a.tunFrontAwaiting.Store(false)
+func (a *App) finishTunFrontPending(frontCh chan error, frontSettled func(error), gen uint64) {
+	defer func() {
+		// A newer start owns the flag now; clearing it here would tell the
+		// window the prompt it is waiting on has been answered.
+		if a.tunStartGen.Load() == gen {
+			a.tunFrontAwaiting.Store(false)
+		}
+	}()
 	ferr := <-frontCh
+	if a.tunStartGen.Load() != gen {
+		// The reader pressed start again while this prompt sat open: that start
+		// owns the machine and the bookkeeping, and its own answer decides.
+		return
+	}
 	if a.quitting.Load() {
 		// The exit path owns whatever is running; a teardown started here
 		// would race it for the same front-end.
@@ -256,7 +270,7 @@ func (a *App) finishTunFrontPending(frontCh chan error, frontSettled func(error)
 			// is building the very front-end this answer describes. Its own
 			// bookkeeping owns the reclaim then; a release started here would
 			// take the capture back off it.
-			if !a.tunWake.Load() {
+			if a.tunStartGen.Load() == gen {
 				a.releaseTunRoutes()
 				a.armTunIdleReclaim()
 			}
@@ -282,6 +296,16 @@ func (a *App) finishTunFrontPending(frontCh chan error, frontSettled func(error)
 	// the reader stopped.
 	a.startStopMu.Lock()
 	a.modeMu.Lock()
+	// A newer start is in flight and owns the capture: the reader pressed start
+	// while this prompt sat open, and stopping now would take the node that
+	// start has just brought up — its own answer settles this outcome. Read
+	// under the seats, because the start can begin between the check above and
+	// this lock.
+	if a.tunStartGen.Load() != gen {
+		a.modeMu.Unlock()
+		a.startStopMu.Unlock()
+		return
+	}
 	still := a.curSetting() != nil && a.curSetting().VPNMode() && a.runningID() != core.StoppedID
 	_ = a.stopForSwitchLocked()
 	if still && frontSettled != nil {
@@ -335,6 +359,9 @@ func (a *App) startCapture(settled func(error)) error {
 	// front-end this start is about to use.
 	a.tunWake.Store(true)
 	defer a.tunWake.Store(false)
+	// This capture's serial, for the completion that may answer later (see
+	// finishTunCapturePending).
+	gen := a.tunStartGen.Add(1)
 	// A start answers for its own window, the way startVPNExternal's does.
 	a.tunFrontAwaiting.Store(false)
 	a.cancelTunIdleReclaim()
@@ -376,7 +403,7 @@ func (a *App) startCapture(settled func(error)) error {
 		}
 		a.tunFrontAwaiting.Store(true)
 		go crashlog.Guard("finishTunCapturePending", func() {
-			a.finishTunCapturePending(frontCh, settled, false)
+			a.finishTunCapturePending(frontCh, settled, false, gen)
 		})
 		return nil
 	}
@@ -407,7 +434,7 @@ func (a *App) startCapture(settled func(error)) error {
 		// hands its own window's remainder on.
 		a.tunFrontAwaiting.Store(true)
 		go crashlog.Guard("finishTunCapturePending", func() {
-			a.finishTunCapturePending(frontCh, settled, true)
+			a.finishTunCapturePending(frontCh, settled, true, gen)
 		})
 		return nil
 	}
@@ -427,9 +454,19 @@ func (a *App) startCapture(settled func(error)) error {
 // routesTaken says whether the capture's routes are already up: the answer
 // that comes with them up needs only the front-end's confirmation, while the
 // answer that comes without them still has the capture to take.
-func (a *App) finishTunCapturePending(frontCh chan error, settled func(error), routesTaken bool) {
-	defer a.tunFrontAwaiting.Store(false)
+func (a *App) finishTunCapturePending(frontCh chan error, settled func(error), routesTaken bool, gen uint64) {
+	defer func() {
+		// The same ownership rule as finishTunFrontPending: only the start that
+		// is still current owns what the flag says.
+		if a.tunStartGen.Load() == gen {
+			a.tunFrontAwaiting.Store(false)
+		}
+	}()
 	ferr := <-frontCh
+	if a.tunStartGen.Load() != gen {
+		// A newer start owns the capture; its answer settles the machine.
+		return
+	}
 	if a.quitting.Load() {
 		// The exit path owns whatever is running; a teardown started here
 		// would race it for the same front-end.
@@ -442,7 +479,7 @@ func (a *App) finishTunCapturePending(frontCh chan error, settled func(error), r
 		// teardown gives: released now, taken apart once idle — unless another
 		// TUN start is in flight, whose own front-end path owns the reclaim.
 		if a.curSetting() == nil || !a.curSetting().VPNMode() || a.runningID() == core.StoppedID {
-			if !a.tunWake.Load() {
+			if a.tunStartGen.Load() == gen {
 				a.releaseTunRoutes()
 				a.armTunIdleReclaim()
 			}
@@ -466,7 +503,7 @@ func (a *App) finishTunCapturePending(frontCh chan error, settled func(error), r
 	// capture whose routes are already up, the routes come back down: they are
 	// up over an adapter nobody serves. A start that is in flight owns them,
 	// though — its own front-end path takes or releases them.
-	if routesTaken && !a.tunWake.Load() {
+	if routesTaken && a.tunStartGen.Load() == gen {
 		a.releaseTunRoutes()
 		a.armTunIdleReclaim()
 	}
@@ -482,7 +519,10 @@ func (a *App) finishTunCapturePending(frontCh chan error, settled func(error), r
 		a.startStopMu.Lock()
 		a.modeMu.Lock()
 		still := a.curSetting() != nil && a.curSetting().VPNMode() && a.runningID() != core.StoppedID
-		if still {
+		// The same ownership rule as the node-start path: a start that is in
+		// flight answers for the machine, and rolling this failure back over it
+		// would point a live attempt at the state of the one it replaced.
+		if still && a.tunStartGen.Load() == gen {
 			settled(ferr)
 		}
 		a.modeMu.Unlock()

@@ -15,7 +15,7 @@
 # build is the better shape.
 param(
     [string]$Version = "",
-    [string]$Repo = "sala-coding/EagleProxy"
+    [string]$Repo = "thinking-dotcom/EagleProxy"
 )
 
 $ErrorActionPreference = "Stop"

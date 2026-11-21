@@ -251,10 +251,16 @@ const toggleUwp = async (e: Event) => {
                 <input type="checkbox" :checked="obj.keep_tun_front !== false" @change="flag('keep_tun_front')($event)"/>
             </label>
         </div>
+        <!-- The two-process TUN keeps its adapter in a separate front-end whose DNS is
+            a fixed hop to the main core; the main core carries no tun inbound, so a
+            fakeip server has nowhere to answer. The switch is kept (and disabled)
+            rather than dropped: a settings file from an older build still carries the
+            key, and saying why it does nothing is better than it silently lying. -->
         <div :class="`jf-field${tunIdle}`">
-            <label>{{ t('cfg.fakedns') }}</label>
+            <label :title="t('hint.fakednsUnsupported')">{{ t('cfg.fakedns') }}</label>
             <label class="jf-check">
-                <input type="checkbox" :checked="!!obj.fakedns" @change="flag('fakedns')($event)"/>
+                <input type="checkbox" :checked="!!obj.fakedns" disabled
+                       :title="t('hint.fakednsUnsupported')"/>
             </label>
         </div>
         <!-- Beside the switch it is about rather than with the other

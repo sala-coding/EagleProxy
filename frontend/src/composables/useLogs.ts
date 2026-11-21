@@ -550,10 +550,15 @@ export function useLogs(notify: Notify) {
     const loadAllLogs = async () => {
         logReload = true;
         const seq = ++loadSeq;
+        // The live stream keeps writing while the read is in flight. Replacing the
+        // list then either dropped the lines that landed in between or showed them
+        // twice when the read already carried them, so the read only takes the
+        // list while nothing arrived behind it; otherwise the streamed copy wins.
+        const tail = logs.value[logs.value.length - 1];
         try {
             const fresh = ((await API.GetLogs()) ?? []).map(l => ({line: l, cat: 'core'}));
             if (seq !== loadSeq) return; // a newer load owns the output now
-            logs.value = fresh;
+            if (logs.value[logs.value.length - 1] === tail) logs.value = fresh;
         } catch {
             // the live stream is still arriving, so there is nothing to report
         }
@@ -595,7 +600,7 @@ export function useLogs(notify: Notify) {
             if (e.key !== 'Escape') return;
             // A layer standing over the table answers Escape first; this panel is
             // under all of them, and one press must put away one layer.
-            if (document.querySelector('.modal-mask, .settings-dock, .conn-modal, .subdrop, .exit-panel, .lan-panel')) return;
+            if (document.querySelector('.modal-mask, .settings-dock, .conn-modal, .subdrop, .exit-panel, .lan-panel, .ctxmenu, .config-bar-menu, .titlebar-menu, .log-level-menu')) return;
             showLogs.value = false;
         };
         document.addEventListener('pointerdown', onDown, true);

@@ -40,7 +40,7 @@ import (
 // points at this project's own home is the same lesson told the other way: the
 // updates must come from the place this program calls home, not from wherever
 // the variable happens to have been left pointing.
-var updateRepo = "sala-coding/EagleProxy"
+var updateRepo = "thinking-dotcom/EagleProxy"
 
 // appVersion is this project's own release number, set at build time the same
 // way updateRepo is:
@@ -236,6 +236,12 @@ type App struct {
 	// timer reads this before touching anything: its window overlaps the whole
 	// (slow) start, much of which runs before runningID is set.
 	tunWake atomic.Bool
+	// The serial number of the current TUN start. A pending front-end answer is
+	// read seconds after its start returned, and by then the reader may have
+	// pressed start again; comparing against this tells the old completion that
+	// the machine and its bookkeeping belong to someone else now. tunWake cannot
+	// answer that: it is false again the moment the new start returns.
+	tunStartGen atomic.Uint64
 	// True while a TUN start's front-end answer is being waited for past the
 	// switch's own window (see tunFrontSwitchWait): the start has returned and
 	// a background goroutine owns the completion. The switch reads this to say

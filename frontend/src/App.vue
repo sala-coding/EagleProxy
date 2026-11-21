@@ -91,7 +91,10 @@ const onTitleSearchKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
         // Escape takes the query back, and that is all it can do: the field is part of
         // the strip rather than a mode the bar enters, so there is nothing to close.
+        // It does not travel on either — a panel opened by a hotkey over this field
+        // would answer the same press and close behind the reader's back.
         query.value = '';
+        e.stopPropagation();
         return;
     }
     if (e.key !== 'Enter' || subBusy.value) return;
@@ -410,9 +413,10 @@ watch(configPick, (v, _, onCleanup) => {
         // The field's own folder button is exempt: it is the switch for this
         // list, and a press that put the list away on the mousedown was followed
         // by that same button's click opening it again — the one control that
-        // could not close what it opened.
+        // could not close what it opened. The drawer's export button toggles the
+        // same menu and gets the same treatment.
         const target = e.target as HTMLElement | null;
-        if (target?.closest('.search-file')) return;
+        if (target?.closest('.search-file, .sub-export')) return;
         if (!configMenuEl.value?.contains(e.target as Node)) configPick.value = null;
     };
     const onKey = (e: KeyboardEvent) => {
@@ -1022,6 +1026,10 @@ const ctxCloseResize = () => ctxClose();
 // was opened.
 const ctxCloseScroll = (e: Event) => {
     if (performance.now() - ctxOpenedAt.t < 250) return;
+    // A menu's own scroll is not the page moving: the node menu is taller than a
+    // short window and scrolls itself, and exempting only the console closed it
+    // the moment its own list was scrolled past the fold.
+    if (e.target instanceof Node && (ctxRef.value?.contains(e.target) || logCtxRef.value?.contains(e.target))) return;
     if (e.target instanceof Node && logRef.value?.contains(e.target as Node)) {
         logCtx.value = null;
         return;
@@ -1280,7 +1288,7 @@ onMounted(() => {
 // the same about answer the card shows, so a fork's build reports to the fork.
 const reportBug = () => {
     const a = about.value ?? {};
-    const repo = a.repo || 'sala-coding/EagleProxy';
+    const repo = a.repo || 'thinking-dotcom/EagleProxy';
     // The template is a translated string rather than three literals: a report
     // written in the window's language is one the reporter can finish, and the
     // placeholders are the same three facts whatever language it is in.
@@ -2049,7 +2057,7 @@ onBeforeUnmount(() => {
                     @open-group="openGroup" @hover-switch="hoverSwitch"
                     @update-sub="updateSub" @delete-group="deleteGroup"
                     @showUrlQR="showUrlQR" @copy-url="copySubUrl"
-                    @export-config="gid2 => configPick = {mode: 'export', gid: gid2}"
+                    @export-config="gid2 => configPick = configPick?.mode === 'export' && configPick.gid === gid2 ? null : {mode: 'export', gid: gid2}"
                     @toggle-edit="gid2 => groupEditGid = groupEditGid === gid2 ? null : gid2"
                     @edit-done="groupEditGid = null" @edit-notify="notify"/>
 

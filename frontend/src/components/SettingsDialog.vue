@@ -475,18 +475,19 @@ const onScalePointer = (e: PointerEvent) => {
 // two ends. A control drawn as cells that could only be driven by a pointer would
 // be one half the readers cannot use at all.
 const onScaleKey = (e: KeyboardEvent) => {
+    if (!['ArrowRight', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
+    // The window's carousel reads the same arrows (see onArrowKey); one press
+    // must move the scale or the card, not both.
+    e.stopPropagation();
     const i = scaleIndex(uiScale.value);
     if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
-        e.preventDefault();
         uiScale.value = scaleFromIndex(i + 1);
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
-        e.preventDefault();
         uiScale.value = scaleFromIndex(i - 1);
     } else if (e.key === 'Home') {
-        e.preventDefault();
         uiScale.value = UI_SCALE_MIN;
-    } else if (e.key === 'End') {
-        e.preventDefault();
+    } else {
         uiScale.value = UI_SCALE_MAX;
     }
 };
@@ -882,6 +883,12 @@ let closeTimer: number | null = null;
 // The settle: fires the real unmount. Cleared on remount and on unmount.
 const requestClose = () => {
     if (closing.value) return;
+    // A field that commits on blur (the port box, the MTU box) settles before
+    // the save below: the panel's own write runs first, and the element is gone
+    // before the browser gets to blur it — so without this the value typed last
+    // was the one thing the exit did not keep.
+    const active = document.activeElement as HTMLElement | null;
+    if (active && dockRef.value?.contains(active)) active.blur();
     closing.value = true;
     // Nothing the reader changed is left behind by the exit. Both cards write on a
     // timer, and a timer is cleared when its panel goes away — so an edit made in the
@@ -955,7 +962,12 @@ const onTabKey = (e: KeyboardEvent) => {
     const el = dockRef.value;
     if (!el) return;
     const items = Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE))
-        .filter(n => !(n as HTMLButtonElement).disabled && n.offsetParent !== null);
+        .filter(n => !(n as HTMLButtonElement).disabled && n.offsetParent !== null
+            // An off-screen slide is moved by transform and hidden with
+            // visibility, which offsetParent does not see: counting those made
+            // first/last unfocusable, so the wrap never matched and Tab walked
+            // out of the dock.
+            && getComputedStyle(n).visibility !== 'hidden');
     if (items.length === 0) return;
     const first = items[0];
     const last = items[items.length - 1];
@@ -1221,9 +1233,6 @@ const onHotkeyCapture = (active: boolean) => {
         // suspend that never comes back leaves every global hotkey dead for the
         // rest of the session with nothing on screen about it.
         void (active ? API.SuspendHotkeys() : API.ResumeHotkeys())
-            .then(() => {
-                if (!active) emit('notify', t('hotkey.resumeFailed'), 'ok');
-            })
             .catch(() => {
                 if (!active) emit('notify', t('hotkey.resumeFailed'), 'err');
             });

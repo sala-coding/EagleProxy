@@ -3,26 +3,26 @@
 // fresh here; it is never written to disk or echoed).
 //
 // Usage: node scripts/make-release.mjs <version>   e.g. v1.0.0
-import {execFileSync} from 'node:child_process';
-import {copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync} from 'node:fs';
-import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const version = process.argv[2];
 if (!version) {
     console.error('usage: node scripts/make-release.mjs <version>');
     process.exit(1);
 }
-const repo = 'sala-coding/EagleProxy';
+const repo = 'thinking-dotcom/EagleProxy';
 
-const cred = execFileSync('git', ['credential', 'fill'], {input: `protocol=https\nhost=github.com\n\n`}).toString();
+const cred = execFileSync('git', ['credential', 'fill'], { input: `protocol=https\nhost=github.com\n\n` }).toString();
 const m = cred.match(/password=(\S+)/);
 if (!m) { console.error('no stored credential'); process.exit(1); }
 const token = m[1];
 
 const API = `https://api.github.com/repos/${repo}`;
 const UP = `https://uploads.github.com/repos/${repo}/releases`;
-const H = {'User-Agent': 'eagle-release', Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json'};
+const H = { 'User-Agent': 'eagle-release', Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' };
 
 // The notes for this version, when there are any: one file per release under
 // scripts/notes, read here so what changed is written down where it can be reviewed —
@@ -42,11 +42,11 @@ const fallback = [
 const body = notes || fallback;
 
 // 1. create (or reuse) the release for the tag
-let rel = await (await fetch(`${API}/releases/tags/${version}`, {headers: H})).json();
+let rel = await (await fetch(`${API}/releases/tags/${version}`, { headers: H })).json();
 if (!rel.id) {
     const r = await fetch(`${API}/releases`, {
         method: 'POST',
-        headers: {...H, 'Content-Type': 'application/json'},
+        headers: { ...H, 'Content-Type': 'application/json' },
         body: JSON.stringify({
             tag_name: version,
             name: version,
@@ -60,8 +60,8 @@ if (!rel.id) {
     // already there, and only the paragraph above the download was wrong.
     const r = await fetch(`${API}/releases/${rel.id}`, {
         method: 'PATCH',
-        headers: {...H, 'Content-Type': 'application/json'},
-        body: JSON.stringify({body}),
+        headers: { ...H, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
     });
     console.log(r.ok ? 'release notes updated' : `notes update failed: HTTP ${r.status}`);
 }
@@ -89,10 +89,10 @@ function buildFullZip() {
         copyFileSync(join('sing-box', f), join(stage, 'sing-box', f));
     }
     const zip = join(tmpdir(), `Eagle-${version}-windows-full.zip`);
-    rmSync(zip, {force: true});
+    rmSync(zip, { force: true });
     execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
         `Compress-Archive -Path '${join(stage, '*')}' -DestinationPath '${zip}' -Force`]);
-    rmSync(stage, {recursive: true, force: true});
+    rmSync(stage, { recursive: true, force: true });
     return zip;
 }
 
@@ -102,21 +102,21 @@ function buildFullZip() {
 // Two of them, because two readers want different things. The updater picks the .exe
 // (see update.WindowsAsset), so in-place updates keep working; the zip is for a first
 // install on a machine with no core yet.
-const assets = [{name: `Eagle-${version}-windows.exe`, file: 'build/bin/Eagle.exe'}];
+const assets = [{ name: `Eagle-${version}-windows.exe`, file: 'build/bin/Eagle.exe' }];
 const zip = buildFullZip();
-if (zip) assets.push({name: `Eagle-${version}-windows-full.zip`, file: zip});
+if (zip) assets.push({ name: `Eagle-${version}-windows-full.zip`, file: zip });
 else console.warn('no sing-box/ beside the repo: publishing the exe only');
 
 for (const a of assets) {
     for (const old of (rel.assets ?? [])) {
         if (old.name === a.name) {
-            const del = await fetch(`${API}/releases/assets/${old.id}`, {method: 'DELETE', headers: H});
+            const del = await fetch(`${API}/releases/assets/${old.id}`, { method: 'DELETE', headers: H });
             console.log(del.status === 204 ? `deleted old asset: ${a.name}` : `delete failed: HTTP ${del.status}`);
         }
     }
     const up = await fetch(`${UP}/${rel.id}/assets?name=${encodeURIComponent(a.name)}`, {
         method: 'POST',
-        headers: {Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream'},
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream' },
         body: readFileSync(a.file),
     });
     const j = await up.json();

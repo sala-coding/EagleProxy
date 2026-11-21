@@ -624,6 +624,7 @@ const zh: Record<string, string | string[]> = {
     // ellipsises whatever does not fit, so a rule stated there was a rule half-shown;
     // these read under the field instead, where there is a line to spare.
     'hint.core_box_cache_file': '将域名与 FakeIP 映射写入数据目录的 cache.db；关闭后核心每次重启都会重建映射，已缓存的 FakeIP 将失效，相关连接按地址分流或失败，直至缓存过期。',
+    'hint.fakednsUnsupported': '当前双进程 TUN 架构下 FakeDNS 不会生效：核心配置里没有可用的 tun 入站来应答。开关仅为兼容旧配置保留。',
     'hint.ipv6_auto': '开启（默认）：按网络能力自动选择协议，无 IPv6 时仅用 IPv4（TUN 地址、AAAA 返回、出口解析策略一并跟随）；关闭：不探测、不替换配置，完全由下方开关与路由卡策略决定。',
     'hint.vpn_ipv6': '自动探测开启时，仅在网络支持 IPv6 时为网卡分配地址；关闭时由本开关决定。MTU 下限 1280 始终遵循本开关。',
     'btn.enable': '启用',
@@ -1342,6 +1343,7 @@ const en: Record<string, string | string[]> = {
     'warn.both': 'is in both the proxy and direct lists; the proxy list wins',
     'hint.custom_route': 'Global custom rules (sing-box rules JSON), matched after the profile’s own rules and before the six lists; rule mode only.',
     'hint.core_box_cache_file': 'Persists the domain-to-FakeIP mapping in cache.db under the data directory. When disabled, the core rebuilds the mapping on every restart; cached FakeIPs go stale, so affected connections fall back to address routing or fail until the cache expires.',
+    'hint.fakednsUnsupported': 'FakeDNS has no effect under the current two-process TUN setup: the core config has no tun inbound to answer from. The switch is kept for older settings files.',
     'hint.ipv6_auto': 'On (default): protocol follows network capability; without IPv6, IPv4 only (TUN address, AAAA answers and outbound strategy follow). Off: no probing or config substitution; the switches below and the routing card decide.',
     'hint.vpn_ipv6': 'With auto-detection on, the adapter gets an IPv6 address only when the network supports IPv6; with it off, this switch decides. The 1280 MTU floor always follows this switch.',
     'btn.enable': 'Enable',

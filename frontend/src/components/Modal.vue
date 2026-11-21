@@ -263,10 +263,14 @@ const onKeyDown = (e: KeyboardEvent) => {
     const first = items[0];
     const last = items[items.length - 1];
     const active = document.activeElement;
-    if (e.shiftKey && (active === first || active === el)) {
+    // Focus can fall to the body while the dialog is up — a click on a part of it
+    // that cannot take focus does that — and a Tab from there was never trapped
+    // because only the two ends were. The dock keeps the same rule.
+    const inside = active instanceof Node && el.contains(active);
+    if (e.shiftKey && (active === first || !inside)) {
         e.preventDefault();
         last.focus();
-    } else if (!e.shiftKey && active === last) {
+    } else if (!e.shiftKey && (active === last || !inside)) {
         e.preventDefault();
         first.focus();
     }

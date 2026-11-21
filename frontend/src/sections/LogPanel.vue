@@ -98,8 +98,22 @@ const pickLevel = (id: string) => {
 const onLevelOutside = (e: PointerEvent) => {
     if (levelOpen.value && !levelWrap.value?.contains(e.target as Node)) levelOpen.value = false;
 };
-onMounted(() => document.addEventListener('pointerdown', onLevelOutside, true));
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onLevelOutside, true));
+const onLevelKey = (e: KeyboardEvent) => {
+    if (!levelOpen.value || e.key !== 'Escape') return;
+    // The list is a layer of this panel: one press puts it away, not the panel
+    // underneath it (see the selector in useLogs' Escape handler).
+    levelOpen.value = false;
+    e.preventDefault();
+    e.stopPropagation();
+};
+onMounted(() => {
+    document.addEventListener('pointerdown', onLevelOutside, true);
+    window.addEventListener('keydown', onLevelKey);
+});
+onBeforeUnmount(() => {
+    document.removeEventListener('pointerdown', onLevelOutside, true);
+    window.removeEventListener('keydown', onLevelKey);
+});
 </script>
 
 <template>
@@ -268,7 +282,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onLevelOutside
                         <span class="stamp">{{ v.stamp }}</span>
                         <span class="msg">{{ v.text }}</span>
                     </div>
-                    <div v-if="logFilter !== 'all' && shownLogs.length === 0" class="logline dim">
+                    <div v-if="(logFilter !== 'all' || logLevel !== 'all') && shownLogs.length === 0" class="logline dim">
                         {{ t('log.noMatch') }}
                     </div>
                 </div>

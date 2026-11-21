@@ -119,9 +119,18 @@ const riskLevelOf = (v: number) => v < 30 ? 'low' : v < 60 ? 'mid' : 'high';
 // turns it on lives on the titlebar and its state is App.vue's; the endpoint itself
 // is re-read when the flag arrives.
 const lanIp = ref('');
+// The poll and the switch's re-read can overlap; the later ask is the one
+// whose answer is written, so a slow poll cannot put back an endpoint the
+// switch has just taken away (or the other way round).
+let lanSeq = 0;
 async function loadLan() {
-    if (!(await API.LANShare().catch(() => false))) { lanIp.value = ''; return; }
-    lanIp.value = await API.LANEndpoint().catch(() => '') || '';
+    const seq = ++lanSeq;
+    const on = await API.LANShare().catch(() => false);
+    if (seq !== lanSeq) return;
+    if (!on) { lanIp.value = ''; return; }
+    const ep = await API.LANEndpoint().catch(() => '');
+    if (seq !== lanSeq) return;
+    lanIp.value = ep || '';
 }
 // Re-read on a timer as well as on the switch: the address is the machine's, and
 // a Wi-Fi hop or a DHCP lease renewal leaves the one on screen naming a network
@@ -183,7 +192,7 @@ async function copyAll() {
     add(t('ip.region'), e.region);
     add(t('ip.city'), e.city);
     add(t('ip.timezone'), e.timezone);
-    if (e.lat && e.lon) add(t('ip.coords'), `${e.lat}, ${e.lon}`);
+    if (typeof e.lat === 'number' && typeof e.lon === 'number') add(t('ip.coords'), `${e.lat}, ${e.lon}`);
     add(t('ip.usage'), e.usage);
     add(t('ip.signals'), e.signals);
     add(t('ip.version'), [e.ipv, e.anycast].filter(Boolean).join(' · '));
